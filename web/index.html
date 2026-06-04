@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="/css/base.css">
+</head>
+<body>
+
+<!-- Background -->
+<div class="aurora aurora-1"></div>
+<div class="aurora aurora-2"></div>
+
+<!-- Backdrop -->
+<div class="backdrop" id="backdrop" onclick="closePanels()"></div>
+
+<!-- Top bar -->
+<header class="top-bar">
+  <div class="top-left">
+    <div class="tab-row" id="tab-row">
+      <button class="tab-item home-tab active" data-view="home" onclick="switchView('home')">✦ <span data-i18n="app.title">BeLeader</span></button>
+      <span class="tab-divider"></span>
+      <button class="tab-add" id="tab-add" data-i18n-title="tab.new_project" title="New Project" onclick="createProject()">+</button>
+    </div>
+  </div>
+  <div class="top-right">
+    <button class="icon-btn" data-i18n-title="settings.button_title" title="设置" onclick="toggleSettings()">⚙</button>
+  </div>
+</header>
+
+<!-- Context bar -->
+<div class="ctx-bar" id="ctx-bar">
+  <div class="ctx-track" id="ctx-track"></div>
+  <span class="ctx-label" id="ctx-label">0%</span>
+  <span class="ctx-clear" id="ctx-clear" onclick="clearContext()" data-i18n="ctx.clear">清空</span>
+</div>
+
+<!-- Main stage -->
+<main class="stage" id="stage">
+  <!-- Idle -->
+  <div class="idle-state" id="idle-state">
+    <div class="idle-glow">✦</div>
+    <div class="idle-text" data-i18n="idle.text">告诉我你想做什么</div>
+    <div class="idle-hints">
+      <button class="hint-chip" onclick="fillInput(this.textContent)" data-i18n="idle.hint1">整理桌面文件</button>
+      <button class="hint-chip" onclick="fillInput(this.textContent)" data-i18n="idle.hint2">写一个 Python 爬虫</button>
+      <button class="hint-chip" onclick="fillInput(this.textContent)" data-i18n="idle.hint3">查今天的天气</button>
+    </div>
+  </div>
+
+  <!-- Content area: timeline only -->
+  <div class="content-area hidden" id="content-area">
+    <div class="timeline" id="timeline"></div>
+  </div>
+</main>
+
+<!-- TTS progress -->
+<div class="tts-bar" id="tts-bar" style="display:none">
+  <div class="tts-bar-fill" id="tts-bar-fill" style="width:0%"></div>
+  <button class="tts-bar-close" onclick="stopTTS()">✕</button>
+</div>
+
+<!-- Content cards (show_html, show_file) -->
+<div class="content-cards" id="content-cards"></div>
+
+<!-- Image preview -->
+<div class="img-preview" id="img-preview"></div>
+<input type="file" id="img-file-input" accept="image/*" multiple hidden>
+
+<!-- Agent bar -->
+<div class="agent-bar" id="agent-bar"></div>
+
+<!-- Input -->
+<footer class="input-area">
+  <div class="status-bar" id="status-bar">
+    <span class="status-indicator"></span>
+    <span class="status-text" data-i18n="status.ready">就绪</span>
+  </div>
+  <div id="input-capsule">
+    <button class="capsule-btn stop-btn" data-i18n-title="input.stop_title" title="Stop" onclick="stopSession()">■</button>
+    <textarea id="msg-input" rows="1" data-i18n-placeholder="input.placeholder" placeholder="下指令…" autofocus></textarea>
+    <button class="capsule-btn aux-btn" data-i18n-title="input.upload_title" title="Upload image" onclick="document.getElementById('img-file-input').click()">📷</button>
+    <button class="capsule-btn aux-btn" id="mic-btn" data-i18n-title="input.voice_title" title="Voice input">🎤</button>
+    <button class="capsule-btn aux-btn" id="speak-btn" data-i18n-title="input.voice_output_title" title="Voice output" onclick="toggleSpeak()">🔊</button>
+    <button class="capsule-btn send-btn" id="send-btn" data-i18n-title="input.send_title" title="Send">↑</button>
+  </div>
+</footer>
+
+<!-- Settings panel (slide from right) -->
+<div class="settings-panel" id="settings-panel">
+  <div class="panel-head">
+    <h3 data-i18n="settings.title">设置</h3>
+    <button class="panel-close" onclick="toggleSettings()">✕</button>
+  </div>
+  <div class="panel-body" id="settings-body">
+    <div class="set-section">
+      <h4 data-i18n="settings.general">通用</h4>
+      <div class="set-row"><label data-i18n="settings.max_hc">最大并发 (HC)</label><input type="number" id="set-hc-max" min="1" max="20" value="5"></div>
+      <div class="set-row"><label data-i18n="settings.context_threshold">上下文阈值 (%)</label><input type="number" id="set-context-pct" min="10" max="95" value="60"></div>
+      <div class="set-row"><label data-i18n="settings.headless">无头模式</label><input type="checkbox" id="set-headless"></div>
+    </div>
+    <div class="set-section">
+      <h4 data-i18n="settings.voice">语音</h4>
+      <div class="set-row"><label data-i18n="settings.stt_lang">STT 语言</label>
+        <select id="set-stt-lang">
+          <option value="zh-CN">zh-CN</option>
+          <option value="en-US">en-US</option>
+        </select>
+      </div>
+      <div class="set-row"><label data-i18n="settings.tts_rate">TTS 语速</label><input type="range" id="set-tts-rate" min="0.5" max="2" step="0.1" value="1"></div>
+      <div class="set-row"><label data-i18n="settings.tts_pitch">TTS 音调</label><input type="range" id="set-tts-pitch" min="0.5" max="2" step="0.1" value="1"></div>
+      <div class="set-row"><label data-i18n="settings.tts_voice">TTS 语音</label><select id="set-tts-voice"></select></div>
+      <div class="set-row"><label data-i18n="settings.speak_enabled">语音输出</label><input type="checkbox" id="set-speak-enabled" checked></div>
+    </div>
+    <div class="set-section">
+      <h4 data-i18n="settings.models">模型</h4>
+      <div id="model-list"></div>
+      <button class="btn-add" onclick="addModel()" data-i18n="settings.add_model">+ 添加模型</button>
+      <div class="set-row" style="margin-top:10px">
+        <label data-i18n="settings.active_model">活跃模型</label><select id="set-active-model"></select>
+      </div>
+    </div>
+    <div class="set-section">
+      <h4>Agents</h4>
+      <div id="agent-list"></div>
+    </div>
+    <button class="btn-save" onclick="saveSettings()" data-i18n="settings.save">保存设置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>marked.setOptions({breaks:true,gfm:true});</script>
+<script src="/js/i18n.js"></script>
+<script src="/js/state.js"></script>
+<script src="/js/stage.js"></script>
+<script src="/js/sse.js"></script>
+<script src="/js/input.js"></script>
+<script src="/js/panels.js"></script>
+<script src="/js/voice.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+*.exe
+dist/
+node_modules/
+.claude/
+localgcc.md
+target/
+Cargo.lock
+bin/
+.env
+*.log
+desktop/src-tauri/binaries/*

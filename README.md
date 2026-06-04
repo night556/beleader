@@ -1,0 +1,152 @@
+# BeLeader
+
+[🇨🇳 中文](./README_zh.md)
+
+**Be the Leader. Let AI do the work.**
+
+BeLeader is an AI coding agent that works like a real dev team. You tell it what you want — "build a todo app" or "fix the login bug" — and it spins up a Coordinator to plan the work, then spawns multiple Worker agents that read, write, search, browse, and execute in parallel. Each Worker has its own tools and isolated context. You watch the team work in real time.
+
+## How It Works
+
+1. **You give an instruction** — Type a request in the main chat, e.g. "Add Stripe payments to the checkout page"
+2. **BeLeader creates a project** — A dedicated Coordinator is assigned to break down the task
+3. **Workers execute in parallel** — The Coordinator spawns Workers: one researches the Stripe API, another reads your existing code, a third writes the integration. Workers run concurrently with isolated contexts
+4. **You review and intervene** — See everything in real time. Pause a Worker mid-task if you need to redirect it
+5. **Done** — Workers are terminated when finished. You keep full conversation history per project
+
+## Architecture
+
+```
+You (Leader)
+    │
+    ▼
+┌─────────────────┐
+│  Coordinator     │  ← Plans, delegates, reviews. No dev tools.
+└────────┬────────┘
+    │        │
+    ▼        ▼
+┌────────┐ ┌────────┐ ┌────────┐
+│Worker 1│ │Worker 2│ │Worker N│  ← Each has full dev tools + own context
+└────────┘ └────────┘ └────────┘
+```
+
+- **Coordinator** — management-only. Reads the project, plans the work, spawns Workers, reviews results. It cannot write code — only Workers can.
+- **Workers** — specialized agents with full development tools. Spawned on demand, each with isolated context. Terminated when done.
+- **Desktop Agent** (Rust) — a native binary for mouse/keyboard control, screenshots, window management, and clipboard access.
+
+## Features
+
+### Multi-Agent Collaboration
+Coordinator plans, Workers execute. The Coordinator reads STATUS.md to track progress, spawns Workers with specific tasks, intervenes when they go off track, and terminates them when done. Workers run in parallel with isolated contexts — no context pollution between tasks.
+
+### Desktop Automation
+A native Rust agent takes screenshots, moves and clicks the mouse, types text, scrolls, manages windows, reads and writes the clipboard. Works across Windows, macOS, and Linux. The Coordinator can instruct Workers to "check what's on screen" or "fill in this form."
+
+### Browser Automation
+Headless browser support for web scraping, automated testing, and interacting with web apps. Workers can navigate pages, click elements, and extract data.
+
+### Human-in-the-Loop
+Intervene at any time — pause a running Worker, give mid-task feedback, then resume. The Coordinator itself can decide you need to review something and request your input before continuing.
+
+### Real-Time Streaming
+Everything streams live via SSE: assistant messages, tool calls, tool results. Expand any message to see every file read, every command run, every search executed — with full detail.
+
+### Tauri Desktop App
+Native desktop experience with system tray, auto-start, and a bundled backend. A single app that contains the Go backend, the Rust agent, and the web frontend. No Docker, no cloud — runs entirely on your machine.
+
+### Custom Agent Roles
+Define agent personas with custom system prompts. Create a "code reviewer" agent, a "test writer" agent, or whatever role your workflow needs. Agents persist across sessions.
+
+### Multi-Project Tabs
+Work on multiple projects in parallel — each tab is an isolated session with its own chat history, context, and agent team.
+
+### Speech Output
+Optional TTS support — the assistant can speak responses aloud.
+
+### OpenAI-Compatible
+Works with any provider that speaks the OpenAI API: OpenAI, Anthropic (via compatible endpoints), local models via Ollama, or self-hosted solutions.
+
+### Agents vs Workers
+
+- **Agent** — a reusable role template, essentially a skill card. You define who the AI is and how it thinks through a system prompt ("You are a senior Rust engineer who prioritizes zero-cost abstractions"). No tools attached — it's purely a behavior preset that shapes the AI's reasoning style, expertise, and output. A well-crafted prompt is itself a powerful tool. Create once, save to your library, spawn as a Worker whenever you need that skillset.
+- **Worker** — a running instance of an Agent, spawned by the Coordinator for a specific task. Ephemeral: created with a focused instruction, executes, gets terminated. Each Worker gets a clean, isolated context — no crosstalk, no memory pollution between tasks. If a Worker goes off track, terminate it and spawn a fresh one.
+
+### Replace a Polluted Worker
+
+**You:** "Worker A seems stuck — it's been reading that huge file for 10 minutes. I think its context is polluted. Terminate it and spawn a fresh Worker to redo the task."
+
+Coordinator terminates Worker A, spawns Worker B with the same task and a clean context. B finishes in 2 minutes since it's not carrying 3000 lines of legacy code in its memory.
+
+### Course-Correct Mid-Task
+
+**You:** "Worker A got it wrong — I only asked it to rename the function. Why is it touching the imports too? Pause it, tell it to only rename the function and leave the imports alone."
+
+Coordinator intervenes, sends the correction mid-execution. Worker A reads the feedback, adjusts, continues. No restart, no lost work.
+
+### Start a New Project
+
+**You (main chat):** "Create a new project called 'Mini-Program Research'. I want to study WeChat mini-program development — its workflow and best practices."
+
+Main session calls `create_project`, a new tab opens, Coordinator is assigned. You switch to the project tab: "Search the official docs, map out the dev environment and toolchain, then summarize the core concepts." Coordinator spawns Workers, project is underway. Multiple projects can run in parallel — each has its own Coordinator and Worker team.
+
+### Steal Agent Prompts from the Web
+
+**You (main chat):** "Go to this URL, check out how they wrote their Agent prompt, extract it, and save it as a new Agent called 'Security Auditor'."
+
+The main session opens the URL via the browser, scrapes the prompt template, and calls `create_agent` to save it. One instruction, done. Next time you need a security audit, spawn it as a Worker.
+
+### Parallel Audit
+
+**You:** "That PR touched a lot of code. Review it from two angles — security vulnerabilities and performance regressions. Two Workers, one direction each."
+
+Coordinator spawns two Workers simultaneously. Worker A audits for SQL injection, XSS, auth bypasses. Worker B profiles hot paths, N+1 queries. They run in parallel. You read both reports, merge the findings.
+
+## Quick Start
+
+### Prerequisites
+
+- [Go](https://go.dev/dl/) 1.26+
+- [Rust](https://rustup.rs/) (for desktop agent and Tauri app)
+- [Node.js](https://nodejs.org/) (for Tauri desktop)
+
+### Configuration
+
+Create `~/.iamhuman/config.yaml`:
+
+```yaml
+models:
+  - base_url: "https://api.openai.com/v1"
+    api_key: "sk-..."
+    model: "gpt-4o"
+    active: true
+```
+
+### Start
+
+**Windows:**
+```powershell
+.\make.ps1 dev-backend
+```
+
+**macOS / Linux:**
+```bash
+make dev-backend
+```
+
+Open http://localhost:8080 in your browser.
+
+To launch the Tauri desktop app (requires backend running on :8080):
+
+**Windows:**
+```powershell
+.\make.ps1 dev-desktop
+```
+
+**macOS / Linux:**
+```bash
+make dev-desktop
+```
+
+## License
+
+MIT

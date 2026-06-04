@@ -1,0 +1,239 @@
+package api
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"iamhuman/backend/db"
+	"iamhuman/backend/session"
+	"iamhuman/backend/tools"
+
+	"github.com/gin-gonic/gin"
+	"github.com/sashabaranov/go-openai"
+)
+
+// RunSessionOpts controls how runSession builds prompts and selects tools.
+type RunSessionOpts struct {
+	AgentType     string // "main", "coordinator", or "worker"
+	RoleLabel     string // label for messages in the UI
+	CustomPrompt  string // Worker: custom role definition (from agents table or Coordinator)
+	EnableBrowser bool   // Worker: enable browser automation tools
+	EnableDesktop bool   // Worker: enable desktop automation tools
+}
+
+// runSession is the unified session runner.
+func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts RunSessionOpts) {
+	ctx, cancel := context.WithCancel(context.Background())
+	if opts.RoleLabel != "" {
+		ctx = context.WithValue(ctx, session.CtxKeyRoleLabel, opts.RoleLabel)
+	}
+	pauseCh := make(chan struct{})
+	interveneCh := make(chan session.InterveneMsg, 1)
+
+	h.pauseMu.Lock()
+	h.pauseChs[sessionID] = pauseCh
+	h.interveneChs[sessionID] = interveneCh
+	h.cancelFuncs[sessionID] = cancel
+	h.pauseMu.Unlock()
+
+	defer func() {
+		h.pauseMu.Lock()
+		delete(h.pauseChs, sessionID)
+		delete(h.interveneChs, sessionID)
+		delete(h.cancelFuncs, sessionID)
+		h.pauseMu.Unlock()
+	}()
+
+	// ── Build system prompt ──
+	sysPrompt := strings.Replace(session.CoreRules, "{work_dir}", workDir, 1)
+	sysPrompt += envInfo(workDir)
+
+	switch opts.AgentType {
+	case "main":
+		sysPrompt += "\n\n" + session.MainPrompt
+		sysPrompt += "\n\n" + session.DesktopRules
+		sysPrompt += "\n\n" + session.BrowserRules
+		if memoryContent := h.readMemory(); memoryContent != "" {
+			sysPrompt += "\n\n## 用户记忆\n" + memoryContent
+		}
+	case "coordinator":
+		sysPrompt += "\n\n" + strings.Replace(session.CoordinatorPrompt, "{work_dir}", workDir, 1)
+	case "worker":
+		sysPrompt += "\n\n" + session.WorkerBasePrompt
+		if opts.CustomPrompt != "" {
+			sysPrompt += "\n\n## Role\n" + opts.CustomPrompt
+		}
+		if opts.EnableDesktop {
+			sysPrompt += "\n\n" + session.DesktopRules
+		}
+		if opts.EnableBrowser {
+			sysPrompt += "\n\n" + session.BrowserRules
+		}
+	}
+
+	h.Notify(SessionEvent{Type: "thinking", SessionID: sessionID})
+
+	tools.BrowserHeadless = h.Config.Browser.Headless
+	tools.BrowserProfileDir = h.Config.BrowserProfileDir()
+	model := h.resolveModel(sessionID)
+	llmClient := h.getClient(model.ID)
+
+	// ── Per-session Manager for isolation ──
+	sessionMgr := h.SessionMgr // main uses the handler's shared Manager
+	if opts.AgentType != "main" {
+		sessionMgr = session.NewManager(h.SessionMgr.DB, h.SessionMgr.LLM, h.SessionMgr.Config)
+		if opts.AgentType == "coordinator" {
+			registerAgentTools(sessionMgr, h.DB)
+		}
+	}
+
+	// ── Register tools and build tool list ──
+	var toolList []openai.Tool
+	switch opts.AgentType {
+	case "main":
+		toolList = tools.MainTools(model.Vision)
+	case "coordinator":
+		tools.RegisterAll(sessionMgr, workDir, h.CreateProject)
+		tools.RegisterCoordinatorTools(
+			sessionMgr,
+			func(name, prompt, task string, enableBrowser, enableDesktop bool) (string, error) {
+				return h.spawnWorker(sessionID, refID, name, prompt, task, enableBrowser, enableDesktop)
+			},
+			func(workerName string) (string, error) {
+				return h.terminateWorker(refID, workerName)
+			},
+			func(workerName string) (string, error) {
+				return h.deleteWorker(refID, workerName)
+			},
+			func(workerName, message string) (string, error) {
+				return h.interveneWorker(refID, workerName, message)
+			},
+			func() (string, error) {
+				return h.listWorkers(refID)
+			},
+		)
+		tools.RegisterHTMLTools(sessionMgr)
+		toolList = tools.CoordinatorTools(model.Vision)
+	case "worker":
+		tools.RegisterAll(sessionMgr, workDir, nil)
+		if opts.EnableBrowser {
+			tools.RegisterBrowserTools(sessionMgr)
+		}
+		if opts.EnableDesktop {
+			tools.RegisterDesktopTools(sessionMgr)
+		}
+		toolList = tools.WorkerTools(model.Vision)
+		if opts.EnableBrowser {
+			toolList = append(toolList, tools.BrowserTools()...)
+		}
+		if opts.EnableDesktop {
+			toolList = append(toolList, tools.DesktopTools()...)
+		}
+	}
+
+	result, err := sessionMgr.RunLoop(ctx, sessionID, sysPrompt, userMessage, toolList, llmClient, model.ContextLimit, model.Vision, pauseCh, interveneCh,
+		func(eventType string, payload map[string]any) {
+			sid, _ := payload["session_id"].(string)
+			h.Notify(SessionEvent{Type: eventType, SessionID: sid, Data: payload})
+		})
+	if err != nil {
+		h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "notice", Content: fmt.Sprintf("[错误] %s", err.Error())})
+		h.Notify(SessionEvent{Type: "error", SessionID: sessionID, Data: gin.H{"message": err.Error()}})
+		if opts.AgentType != "main" {
+			h.releaseHC(sessionID)
+			h.DB.UpdateSessionStatus(sessionID, "idle")
+			h.DB.UpdateProjectAgentStatus("", sessionID, "idle")
+		}
+		return
+	}
+
+	if result.Paused {
+		h.Notify(SessionEvent{Type: "idle", SessionID: sessionID, Data: gin.H{"status": "idle", "session_id": sessionID}})
+		if opts.AgentType != "main" {
+			h.DB.UpdateSessionStatus(sessionID, "idle")
+			h.DB.UpdateProjectAgentStatus("", sessionID, "idle")
+		}
+		return
+	}
+
+	if result.Stopped {
+		h.Notify(SessionEvent{Type: "idle", SessionID: sessionID, Data: gin.H{"status": "idle", "session_id": sessionID}})
+		if opts.AgentType != "main" {
+			h.releaseHC(sessionID)
+			h.DB.UpdateSessionStatus(sessionID, "idle")
+			h.DB.UpdateProjectAgentStatus("", sessionID, "idle")
+		}
+		return
+	}
+
+	if result.Error != "" {
+		h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "notice", Content: fmt.Sprintf("[错误] %s", result.Error)})
+		h.Notify(SessionEvent{Type: "error", SessionID: sessionID, Data: gin.H{"message": result.Error}})
+		if opts.AgentType == "main" {
+			h.DB.UpdateSessionStatus(sessionID, "idle")
+		} else {
+			h.releaseHC(sessionID)
+			h.DB.UpdateSessionStatus(sessionID, "idle")
+			h.DB.UpdateProjectAgentStatus("", sessionID, "idle")
+		}
+		return
+	}
+
+	if result.Completed {
+		switch opts.AgentType {
+		case "main":
+			h.DB.UpdateSessionStatus("main", "idle")
+			sess, _ := h.DB.GetSession("main")
+			if sess != nil && sess.ContextUsagePct > h.Config.Thresholds.MaxContextPct {
+				go h.SessionMgr.ExtractMemories(ctx, "main", llmClient)
+			}
+
+		case "coordinator":
+			h.DB.UpdateSessionStatus(sessionID, "idle")
+			h.releaseHC(sessionID)
+			h.DB.UpdateProjectAgentStatus("", sessionID, "idle")
+			h.DB.UpdateProjectStatus(refID, "completed")
+			h.Notify(SessionEvent{Type: "project_completed", SessionID: sessionID, Data: gin.H{"ref_id": refID, "status": "completed"}})
+
+		case "worker":
+			h.DB.UpdateSessionStatus(sessionID, "idle")
+			h.releaseHC(sessionID)
+			h.DB.UpdateProjectAgentStatus("", sessionID, "idle")
+
+			// Auto-inject Worker's final response into Coordinator session
+			agent, _ := h.getWorkerBySessionID(sessionID)
+			if agent != nil {
+				ref, err := h.DB.GetProject(agent.ProjectID)
+				if err == nil {
+					coordSid := h.getCoordinatorSessionID(ref)
+					if coordSid != "" {
+						workerMsg := fmt.Sprintf("[Worker '%s'] 已完成\n\n%s\n\n---\nRemember: update STATUS.md with this Worker's results using edit_file.", agent.Name, result.Content)
+						h.DB.InsertMessage(&db.Message{SessionID: coordSid, Role: "user", Content: workerMsg})
+
+						// Notify Coordinator
+						h.Notify(SessionEvent{
+							Type:      "worker_completed",
+							SessionID: coordSid,
+							Data:      gin.H{"ref_id": agent.ProjectID, "worker_name": agent.Name, "worker_session_id": sessionID},
+						})
+
+						// If Coordinator is idle, start its RunLoop to process the result
+						h.pauseMu.Lock()
+						_, coordRunning := h.pauseChs[coordSid]
+						h.pauseMu.Unlock()
+						if !coordRunning {
+							workDir := h.Config.ProjectDir(agent.ProjectID)
+							go h.runSession(coordSid, agent.ProjectID, workDir, "", RunSessionOpts{
+								AgentType: "coordinator",
+								RoleLabel: "coordinator",
+							})
+						}
+					}
+				}
+			}
+		}
+
+		h.Notify(SessionEvent{Type: "idle", SessionID: sessionID, Data: gin.H{"status": "idle", "session_id": sessionID}})
+	}
+}
