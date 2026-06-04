@@ -14,6 +14,12 @@ BeLeader is an AI coding agent that works like a real dev team. You tell it what
 4. **You review and intervene** — See everything in real time. Pause a Worker mid-task if you need to redirect it
 5. **Done** — Workers are terminated when finished. You keep full conversation history per project
 
+### Emergency Stop
+
+**Stop button** — Clicking stop on a project terminates the Coordinator and all Workers. The request context is cancelled, aborting in-flight LLM calls and preventing further tool execution.
+
+**Tray → Quit** — Immediately terminates the entire application process. Use this when you need to kill everything instantly, even if an LLM request is in progress.
+
 ## Architecture
 
 ```
@@ -31,7 +37,7 @@ You (Leader)
 ```
 
 - **Coordinator** — management-only. Reads the project, plans the work, spawns Workers, reviews results. It cannot write code — only Workers can.
-- **Workers** — specialized agents with full development tools. Spawned on demand, each with isolated context. Terminated when done.
+- **Workers** — specialized agents with full development tools. Spawned on demand or woken from history, each with isolated context.
 - **Desktop Agent** (Rust) — a native binary for mouse/keyboard control, screenshots, window management, and clipboard access.
 
 ## Features
@@ -69,7 +75,15 @@ Works with any provider that speaks the OpenAI API: OpenAI, Anthropic (via compa
 ### Agents vs Workers
 
 - **Agent** — a reusable role template, essentially a skill card. You define who the AI is and how it thinks through a system prompt ("You are a senior Rust engineer who prioritizes zero-cost abstractions"). No tools attached — it's purely a behavior preset that shapes the AI's reasoning style, expertise, and output. A well-crafted prompt is itself a powerful tool. Create once, save to your library, spawn as a Worker whenever you need that skillset.
-- **Worker** — a running instance of an Agent, spawned by the Coordinator for a specific task. Ephemeral: created with a focused instruction, executes, gets terminated. Each Worker gets a clean, isolated context — no crosstalk, no memory pollution between tasks. If a Worker goes off track, terminate it and spawn a fresh one.
+- **Worker** — a running instance of an Agent, spawned by the Coordinator for a specific task. Each Worker gets a clean, isolated context — no crosstalk, no memory pollution between tasks. Execution stops when the task is done, but the Worker and its full conversation history are persisted. You can **wake it up** anytime to continue where it left off — no need to re-explain the context. Or spawn a fresh one if you want a clean slate.
+
+## Examples
+
+### Wake or Spawn — You Decide
+
+**You:** "数据库表结构还是上次 Worker B 改的那套，把它叫醒，让它基于上次的上下文继续加几个字段。别开新的，新 Worker 还得重新读一遍 schema。"
+
+Coordinator wakes Worker B — its full conversation history is still there, it remembers the schema it modified. Picks up right where it left off. If you'd said "spawn a new one" instead, Coordinator would create a fresh Worker with zero context.
 
 ### Replace a Polluted Worker
 
@@ -109,18 +123,6 @@ Coordinator spawns two Workers simultaneously. Worker A audits for SQL injection
 - [Rust](https://rustup.rs/) (for desktop agent and Tauri app)
 - [Node.js](https://nodejs.org/) (for Tauri desktop)
 
-### Configuration
-
-Create `~/.iamhuman/config.yaml`:
-
-```yaml
-models:
-  - base_url: "https://api.openai.com/v1"
-    api_key: "sk-..."
-    model: "gpt-4o"
-    active: true
-```
-
 ### Start
 
 **Windows:**
@@ -133,7 +135,7 @@ models:
 make dev-backend
 ```
 
-Open http://localhost:8080 in your browser.
+Open http://localhost:8080 in your browser. The config file and working directories are auto-created on first launch. Go to **Settings** (top-right corner) to add your API key and model.
 
 To launch the Tauri desktop app (requires backend running on :8080):
 
