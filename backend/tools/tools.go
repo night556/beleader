@@ -166,8 +166,7 @@ func MainTools(vision bool) []openai.Tool {
 	tools = append(tools, createProjectTool)
 	tools = append(tools, listProjectsTool, getProjectStatusTool, searchConversationTool, deleteProjectTool)
 	tools = append(tools, showHTMLTool, closeHTMLTool, listHTMLsTool, focusSessionTool, showFileTool)
-	tools = append(tools, BrowserTools()...)
-	tools = append(tools, DesktopTools()...)
+	tools = append(tools, interveneProjectTool)
 	if SpeakEnabled {
 		tools = append(tools, speakTool)
 	}
@@ -688,6 +687,22 @@ var deleteProjectTool = openai.Tool{
 	},
 }
 
+var interveneProjectTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "intervene_project",
+		Description: "Intervene in a project — send a message or instruction to its Coordinator. Use when the user wants to check progress, adjust direction, or give a new task without switching to the project tab. Use list_projects first to find the ref_id.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"ref_id":  map[string]any{"type": "string", "description": "Project reference ID to intervene in"},
+				"message": map[string]any{"type": "string", "description": "Message to inject into the Coordinator's session"},
+			},
+			"required": []string{"ref_id", "message"},
+		},
+	},
+}
+
 var deleteAgentTool = openai.Tool{
 	Type: "function",
 	Function: &openai.FunctionDefinition{
@@ -1074,6 +1089,27 @@ func makeInterveneWorkerHandler(callback func(workerName, message string) (strin
 func makeListWorkersHandler(callback func() (string, error)) func(ctx context.Context, args string) *session.ToolResult {
 	return func(ctx context.Context, args string) *session.ToolResult {
 		result, err := callback()
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		return &session.ToolResult{Content: result}
+	}
+}
+
+func makeInterveneProjectHandler(callback func(refID, message string) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			RefID   string `json:"ref_id"`
+			Message string `json:"message"`
+		}
+		json.Unmarshal([]byte(args), &p)
+		if p.RefID == "" || p.Message == "" {
+			return &session.ToolResult{Error: "ref_id and message required"}
+		}
+		if callback == nil {
+			return &session.ToolResult{Error: "intervene_project not available in this session"}
+		}
+		result, err := callback(p.RefID, p.Message)
 		if err != nil {
 			return &session.ToolResult{Error: err.Error()}
 		}

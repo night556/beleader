@@ -169,11 +169,11 @@ func (h *Handler) handleChat(c *gin.Context) {
 		h.getProjectStatusForLLM,
 		h.searchConversationForLLM,
 	)
-	tools.RegisterDesktopTools(h.SessionMgr)
 	tools.RegisterHTMLTools(h.SessionMgr)
 	tools.RegisterSpeakTool(h.SessionMgr)
 	h.RegisterAgentTools()
 	h.RegisterDeleteProjectTool()
+	h.RegisterInterveneProjectTool()
 
 	if len(req.Images) > 0 {
 		multiContent := buildTextAndImageMultiContent(req.Message, req.Images)
@@ -514,6 +514,64 @@ func (h *Handler) RegisterDeleteProjectTool() {
 			return &session.ToolResult{Error: err.Error()}
 		}
 		return &session.ToolResult{Content: result}
+	})
+}
+
+func (h *Handler) RegisterInterveneProjectTool() {
+	h.SessionMgr.RegisterTool("intervene_project", func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			RefID   string `json:"ref_id"`
+			Message string `json:"message"`
+		}
+		json.Unmarshal([]byte(args), &p)
+		if p.RefID == "" || p.Message == "" {
+			return &session.ToolResult{Error: "ref_id and message required"}
+		}
+
+		ref, err := h.DB.GetProject(p.RefID)
+		if err != nil {
+			return &session.ToolResult{Error: "project not found: " + err.Error()}
+		}
+
+		sid := h.getCoordinatorSessionID(ref)
+		if sid == "" {
+			return &session.ToolResult{Error: "no coordinator session found for project"}
+		}
+
+		h.insertUserMessage(sid, p.Message, nil)
+
+		h.pauseMu.Lock()
+		_, sessionAlive := h.pauseChs[sid]
+		interveneCh, hasCh := h.interveneChs[sid]
+		h.pauseMu.Unlock()
+
+		if sessionAlive && hasCh {
+			msg := session.InterveneMsg{Message: p.Message}
+			select {
+			case interveneCh <- msg:
+			default:
+			}
+			h.Notify(SessionEvent{
+				Type: "intervention_sent",
+				Data: gin.H{"ref_id": p.RefID, "session_id": sid, "message": p.Message, "status": "injected"},
+			})
+			return &session.ToolResult{Content: fmt.Sprintf("Intervention sent to project %s: %s", p.RefID, p.Message)}
+		}
+
+		if ref.Status == "idle" {
+			workDir := h.Config.ProjectDir(p.RefID)
+			h.acquireHC(sid)
+			h.DB.ResumeSession(sid)
+			h.DB.UpdateProjectStatus(p.RefID, "running")
+			go h.runSession(sid, p.RefID, workDir, "", RunSessionOpts{AgentType: "coordinator", RoleLabel: "coordinator"})
+			h.Notify(SessionEvent{
+				Type: "intervention_sent",
+				Data: gin.H{"ref_id": p.RefID, "session_id": sid, "message": p.Message, "status": "session restarted"},
+			})
+			return &session.ToolResult{Content: fmt.Sprintf("Coordinator restarted for project %s with message: %s", p.RefID, p.Message)}
+		}
+
+		return &session.ToolResult{Content: fmt.Sprintf("Message sent to project %s", p.RefID)}
 	})
 }
 
