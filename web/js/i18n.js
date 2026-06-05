@@ -54,6 +54,9 @@ var _lang = 'en';
 
     // Settings panel
     'settings.button_title':      { en: 'Settings', zh: '设置' },
+    'knowledge.button_title':     { en: 'Knowledge', zh: '知识库' },
+    'knowledge.title':            { en: 'Knowledge', zh: '知识库' },
+    'knowledge.search_placeholder': { en: 'Search knowledge...', zh: '搜索知识...' },
     'settings.title':             { en: 'Settings', zh: '设置' },
     'settings.general':           { en: 'General', zh: '通用' },
     'settings.max_hc':            { en: 'Max Concurrency (HC)', zh: '最大并发 (HC)' },

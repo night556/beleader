@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -54,9 +55,6 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		sysPrompt += "\n\n" + session.MainPrompt
 		sysPrompt += "\n\n" + session.DesktopRules
 		sysPrompt += "\n\n" + session.BrowserRules
-		if memoryContent := h.readMemory(); memoryContent != "" {
-			sysPrompt += "\n\n## 用户记忆\n" + memoryContent
-		}
 	case "coordinator":
 		sysPrompt += "\n\n" + strings.Replace(session.CoordinatorPrompt, "{work_dir}", workDir, 1)
 	case "worker":
@@ -92,6 +90,22 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 	var toolList []openai.Tool
 	switch opts.AgentType {
 	case "main":
+		tools.RegisterKnowledgeTools(sessionMgr,
+			func(query string, limit int) (string, error) {
+				knowledge, err := h.DB.SearchKnowledge(query, limit)
+				if err != nil {
+					return "", err
+				}
+				b, _ := json.Marshal(knowledge)
+				return string(b), nil
+			},
+			func(content, tags string) (int64, error) {
+				return h.DB.InsertKnowledge(content, tags, "main")
+			},
+			func(id int64) error {
+				return h.DB.DeleteKnowledge(id)
+			},
+		)
 		toolList = tools.MainTools(model.Vision)
 	case "coordinator":
 		tools.RegisterAll(sessionMgr, workDir, h.CreateProject)
@@ -114,6 +128,22 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 			},
 		)
 		tools.RegisterHTMLTools(sessionMgr)
+		tools.RegisterKnowledgeTools(sessionMgr,
+			func(query string, limit int) (string, error) {
+				knowledge, err := h.DB.SearchKnowledge(query, limit)
+				if err != nil {
+					return "", err
+				}
+				b, _ := json.Marshal(knowledge)
+				return string(b), nil
+			},
+			func(content, tags string) (int64, error) {
+				return h.DB.InsertKnowledge(content, tags, refID)
+			},
+			func(id int64) error {
+				return h.DB.DeleteKnowledge(id)
+			},
+		)
 		toolList = tools.CoordinatorTools(model.Vision)
 	case "worker":
 		tools.RegisterAll(sessionMgr, workDir, nil)
@@ -184,10 +214,6 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		switch opts.AgentType {
 		case "main":
 			h.DB.UpdateSessionStatus("main", "idle")
-			sess, _ := h.DB.GetSession("main")
-			if sess != nil && sess.ContextUsagePct > h.Config.Thresholds.MaxContextPct {
-				go h.SessionMgr.ExtractMemories(ctx, "main", llmClient)
-			}
 
 		case "coordinator":
 			h.DB.UpdateSessionStatus(sessionID, "idle")

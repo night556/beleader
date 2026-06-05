@@ -35,6 +35,122 @@ func readFileToolForVision(vision bool) openai.Tool {
 	}
 }
 
+// ── Knowledge tools ──
+
+var searchKnowledgeTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "search_knowledge",
+		Description: "Search the cross-project knowledge base for relevant experience, conventions, and decisions. Use before starting work on a task to check if similar situations have been handled before.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Search query in natural language"},
+				"limit": map[string]any{"type": "integer", "description": "Max results to return. Default 5, max 10."},
+			},
+			"required": []string{"query"},
+		},
+	},
+}
+
+var saveKnowledgeTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "save_knowledge",
+		Description: "Save a reusable piece of knowledge to the cross-project knowledge base. Only save when the user taught you something you wouldn't have figured out on your own. One paragraph, self-contained, max 500 characters.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"content": map[string]any{"type": "string", "description": "The knowledge entry. Self-contained, one paragraph."},
+				"tags":    map[string]any{"type": "string", "description": "Comma-separated keywords for search. e.g. 'UI, workflow, frontend'"},
+			},
+			"required": []string{"content", "tags"},
+		},
+	},
+}
+
+var deleteKnowledgeTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "delete_knowledge",
+		Description: "Delete a knowledge entry by its ID. Use when a saved entry is outdated or incorrect.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{"type": "integer", "description": "The knowledge entry ID to delete"},
+			},
+			"required": []string{"id"},
+		},
+	},
+}
+
+func RegisterKnowledgeTools(mgr *session.Manager, searchFn func(query string, limit int) (string, error), saveFn func(content, tags string) (int64, error), deleteFn func(id int64) error) {
+	if searchFn != nil {
+		mgr.RegisterTool("search_knowledge", makeSearchKnowledgeHandler(searchFn))
+	}
+	if saveFn != nil {
+		mgr.RegisterTool("save_knowledge", makeSaveKnowledgeHandler(saveFn))
+	}
+	if deleteFn != nil {
+		mgr.RegisterTool("delete_knowledge", makeDeleteKnowledgeHandler(deleteFn))
+	}
+}
+
+func makeSearchKnowledgeHandler(searchFn func(query string, limit int) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err != nil {
+			return &session.ToolResult{Error: "invalid args: " + err.Error()}
+		}
+		result, err := searchFn(p.Query, p.Limit)
+		if err != nil {
+			return &session.ToolResult{Error: "search failed: " + err.Error()}
+		}
+		return &session.ToolResult{Content: result}
+	}
+}
+
+func makeSaveKnowledgeHandler(saveFn func(content, tags string) (int64, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			Content string `json:"content"`
+			Tags    string `json:"tags"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err != nil {
+			return &session.ToolResult{Error: "invalid args: " + err.Error()}
+		}
+		if len(p.Content) > 500 {
+			return &session.ToolResult{Error: "content too long (max 500 characters)"}
+		}
+		if len(p.Tags) > 200 {
+			return &session.ToolResult{Error: "tags too long (max 200 characters)"}
+		}
+		id, err := saveFn(p.Content, p.Tags)
+		if err != nil {
+			return &session.ToolResult{Error: "save failed: " + err.Error()}
+		}
+		return &session.ToolResult{Content: fmt.Sprintf("Knowledge saved with ID %d", id)}
+	}
+}
+
+func makeDeleteKnowledgeHandler(deleteFn func(id int64) error) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err != nil {
+			return &session.ToolResult{Error: "invalid args: " + err.Error()}
+		}
+		if err := deleteFn(p.ID); err != nil {
+			return &session.ToolResult{Error: "delete failed: " + err.Error()}
+		}
+		return &session.ToolResult{Content: fmt.Sprintf("Knowledge %d deleted", p.ID)}
+	}
+}
+
 // BaseTools returns file + exec + web tools shared by all agents.
 func BaseTools(vision bool) []openai.Tool {
 	return []openai.Tool{
@@ -56,6 +172,7 @@ func MainTools(vision bool) []openai.Tool {
 		tools = append(tools, speakTool)
 	}
 	tools = append(tools, listAgentsTool, createAgentTool, editAgentTool, deleteAgentTool)
+	tools = append(tools, searchKnowledgeTool, saveKnowledgeTool, deleteKnowledgeTool)
 	return tools
 }
 
@@ -67,6 +184,7 @@ func CoordinatorTools(vision bool) []openai.Tool {
 		readStatusTool, writeStatusTool,
 		listAgentsTool, listWorkersTool, spawnWorkerTool, interveneWorkerTool, terminateWorkerTool, deleteWorkerTool,
 		showHTMLTool, closeHTMLTool, listHTMLsTool, focusSessionTool, showFileTool,
+		searchKnowledgeTool, saveKnowledgeTool, deleteKnowledgeTool,
 	}
 }
 

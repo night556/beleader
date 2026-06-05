@@ -160,10 +160,6 @@ func (c *Config) DBPath() string {
 	return filepath.Join(c.ConfigDir(), "iamhuman.db")
 }
 
-func (c *Config) MemoryPath() string {
-	return filepath.Join(c.ConfigDir(), "memory.md")
-}
-
 func (c *Config) ProjectDir(refID string) string {
 	return filepath.Join(c.WorkDir, refID)
 }

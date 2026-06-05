@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"iamhuman/backend/db"
@@ -52,7 +51,20 @@ When the user asks about a project, call get_project_status to read its STATUS.m
 
 Use list_projects to show the user all their projects and their current state.
 
-You manage agent templates via list_agents, create_agent, edit_agent, and delete_agent. These are reusable role definitions that Coordinators reference when spawning Workers.`
+You manage agent templates via list_agents, create_agent, edit_agent, and delete_agent. These are reusable role definitions that Coordinators reference when spawning Workers.
+
+## Knowledge Base
+
+You have access to a cross-project knowledge base. Before starting work on a task, consider whether similar situations have come up before — use search_knowledge to check.
+
+Only save knowledge when the user taught you something you wouldn't have figured out on your own. If you could have handled it without guidance, there's nothing to learn.
+
+  "What's the weather?" — skip, you can do this on your own
+  "Change the button to blue" — skip, one-off detail
+  "No, design the UI first, then build the backend" — save, user is teaching a principle
+  Repeatedly told "Don't over-engineer, build MVP first" — save, user is teaching a preference
+
+Keep it to one paragraph, self-contained, no project-specific details.`
 
 // CoordinatorPrompt is appended for the Coordinator agent.
 const CoordinatorPrompt = `You are the Coordinator of this project. You manage, plan, and orchestrate — you do not execute. Your value is in understanding what needs to be done, making good decisions, and delegating to the right Worker.
@@ -109,7 +121,20 @@ When you call spawn_worker, the task parameter becomes the Worker's first messag
 - States the goal clearly and what "done" looks like
 - Points to relevant files the Worker should read first (e.g. "Read shared/plan.md before starting")
 - Specifies constraints (language, libraries, file paths, coding style)
-- Is self-contained — the Worker should understand the job from this message alone`
+- Is self-contained — the Worker should understand the job from this message alone
+
+## Knowledge Base
+
+You have access to a cross-project knowledge base. Before starting work on a task, consider whether similar situations have come up before — use search_knowledge to check.
+
+Only save knowledge when the user taught you something you wouldn't have figured out on your own. If you could have handled it without guidance, there's nothing to learn.
+
+  "What's the weather?" — skip, you can do this on your own
+  "Change the button to blue" — skip, one-off detail
+  "No, design the UI first, then build the backend" — save, user is teaching a principle
+  Repeatedly told "Don't over-engineer, build MVP first" — save, user is teaching a preference
+
+Keep it to one paragraph, self-contained, no project-specific details.`
 
 // WorkerBasePrompt is appended for all Worker agents.
 const WorkerBasePrompt = `You are a Worker in a project team. The Coordinator assigns you tasks via messages. Focus on executing the task you are given.
@@ -177,25 +202,6 @@ Rules:
 - Do NOT create a task plan 閳?just record what happened
 - Be dense. Every sentence should carry information needed to continue.`
 
-const MemoryExtractPrompt = `Extract reusable memories from this conversation. Facts and preferences only, not current task state.
-
-## 閸嬪繐銈?
-User's technical preferences, code style, workflow. One per line.
-
-## 妞ゅ湱娲?
-Project references (ref_id, etc.). One per line.
-
-## 閸愬磭鐡?
-Important technical or design decisions. One per line.
-
-## 瀵板懎濮?
-Things user mentioned but not done yet. One per line.
-
-Rules:
-- Only cross-conversation reusable information, ignore one-off chat
-- Merge with existing memory.md, don't overwrite non-conflicting entries
-- Max 10 per category, sort by importance`
-
 type ProgressCallback func(eventType string, payload map[string]any)
 
 type Manager struct {
@@ -207,7 +213,6 @@ type Manager struct {
 
 type Config struct {
 	WorkDir       string
-	MemoryPath    string
 	StatePath     string
 	MaxContextPct int
 }
@@ -570,32 +575,6 @@ func (m *Manager) Compress(ctx context.Context, sessionID string, afterID int64,
 	return summary, msgID, nil
 }
 
-func (m *Manager) ExtractMemories(ctx context.Context, sessionID string, llmClient *llm.Client) error {
-	msgs, err := m.DB.GetMessages(sessionID, 0)
-	if err != nil {
-		return err
-	}
-
-	var openaiMsgs []openai.ChatCompletionMessage
-	openaiMsgs = append(openaiMsgs, openai.ChatCompletionMessage{Role: "system", Content: MemoryExtractPrompt})
-	for _, dm := range msgs {
-		openaiMsgs = append(openaiMsgs, openai.ChatCompletionMessage{Role: dm.Role, Content: dm.Content})
-	}
-	openaiMsgs = append(openaiMsgs, openai.ChatCompletionMessage{Role: "user", Content: "Extract memories from this conversation."})
-
-	resp, err := llmClient.Chat(ctx, openaiMsgs, nil, false)
-	if err != nil {
-		return err
-	}
-
-	if len(resp.Choices) > 0 {
-		memories := resp.Choices[0].Message.Content
-		appendToFile(m.Config.MemoryPath, memories)
-	}
-
-	return nil
-}
-
 func (m *Manager) handleAPIError(ctx context.Context, sessionID, sysPrompt, userContent string, tools []openai.Tool, rounds int, err error) (*LoopResult, error) {
 	return &LoopResult{
 		Completed: false,
@@ -671,11 +650,3 @@ func estimateContextPct(msgs []openai.ChatCompletionMessage, limit int) int {
 	return pct
 }
 
-func appendToFile(path, content string) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	f.WriteString("\n" + content)
-}

@@ -24,6 +24,7 @@
     </div>
   </div>
   <div class="top-right">
+    <button class="icon-btn" data-i18n-title="knowledge.button_title" title="Knowledge" onclick="toggleKnowledge()">📚</button>
     <button class="icon-btn" data-i18n-title="settings.button_title" title="设置" onclick="toggleSettings()">⚙</button>
   </div>
 </header>
@@ -128,6 +129,23 @@
   </div>
 </div>
 
+<!-- Knowledge panel -->
+<div class="settings-panel" id="knowledge-panel">
+  <div class="panel-head">
+    <h3 data-i18n="knowledge.title">Knowledge</h3>
+    <button class="panel-close" onclick="toggleKnowledge()">✕</button>
+  </div>
+  <div class="panel-body" id="knowledge-body">
+    <div class="set-section">
+      <div class="set-row">
+        <input type="text" id="knowledge-search" data-i18n-placeholder="knowledge.search_placeholder" placeholder="Search knowledge..." oninput="searchKnowledgeUI()">
+      </div>
+      <div id="knowledge-list"></div>
+      <div id="knowledge-pagination"></div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>marked.setOptions({breaks:true,gfm:true});</script>
 <script src="/js/i18n.js"></script>
@@ -136,6 +154,7 @@
 <script src="/js/sse.js"></script>
 <script src="/js/input.js"></script>
 <script src="/js/panels.js"></script>
+<script src="/js/knowledge.js"></script>
 <script src="/js/voice.js"></script>
 </body>
 </html>

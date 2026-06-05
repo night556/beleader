@@ -45,6 +45,10 @@ You (Leader)
 ### Multi-Agent Collaboration
 Coordinator plans, Workers execute. The Coordinator reads STATUS.md to track progress, spawns Workers with specific tasks, intervenes when they go off track, and terminates them when done. Workers run in parallel with isolated contexts — no context pollution between tasks.
 
+### Knowledge Base (Cross-Project Memory)
+
+BeLeader learns from your corrections. When you teach it a reusable lesson — *"No, design the UI first, then build the backend"* or *"Don't over-engineer, always build MVP first"* — it saves the insight. Before starting future work, the Coordinator searches this knowledge base using SQLite FTS5 full-text search. Relevant past lessons are retrieved and applied to the current task, making the AI smarter project after project. Review and manage everything via the **Knowledge** panel (📚) in the top bar.
+
 ### Desktop Automation
 A native Rust agent takes screenshots, moves and clicks the mouse, types text, scrolls, manages windows, reads and writes the clipboard. Works across Windows, macOS, and Linux. The Coordinator can instruct Workers to "check what's on screen" or "fill in this form."
 

@@ -305,8 +305,8 @@ function updateStatus(text, type, target) {
   var label = bar.querySelector('.status-text');
   if (!bar || !label) return;
   var display = text || '';
-  var t = target || _statusTarget || '';
-  if (t && text !== t('status.thinking')) display += ' → ' + t;
+  var tar = target || _statusTarget || '';
+  if (tar && text !== t('status.thinking')) display += ' → ' + tar;
   label.textContent = display;
   bar.className = 'status-bar';
   if (type === 'thinking' || type === 'active') bar.classList.add('active');

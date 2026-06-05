@@ -67,7 +67,6 @@ func NewHandler(database *db.DB, llmClient *llm.Client, cfg *config.Config) *Han
 	}
 	h.SessionMgr = session.NewManager(database, llmClient, session.Config{
 		WorkDir:       cfg.WorkDir,
-		MemoryPath:    cfg.MemoryPath(),
 		StatePath:     "",
 		MaxContextPct: cfg.Thresholds.MaxContextPct,
 	})
@@ -135,6 +134,9 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/sessions/:id/model", h.handleGetSessionModel)
 		api.GET("/agents", h.handleListAgents)
 		api.PUT("/agents/desc", h.handleUpdateAgentDesc)
+		api.GET("/knowledge", h.handleListKnowledge)
+		api.GET("/knowledge/search", h.handleSearchKnowledge)
+		api.DELETE("/knowledge/:id", h.handleDeleteKnowledge)
 
 		api.GET("/files/view", gin.WrapF(tools.FileViewHandler))
 	}
@@ -865,6 +867,61 @@ func (h *Handler) resolveModel(sessionID string) *config.ModelProfile {
 	return h.Config.ResolveModel(sess.ModelID)
 }
 
+// ── Knowledge API handlers ──
+
+func (h *Handler) handleListKnowledge(c *gin.Context) {
+	offset := 0
+	limit := 50
+	if v := c.Query("offset"); v != "" {
+		fmt.Sscanf(v, "%d", &offset)
+	}
+	if v := c.Query("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+	}
+	knowledge, err := h.DB.ListKnowledge(limit, offset)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	count, _ := h.DB.KnowledgeCount()
+	c.JSON(200, gin.H{"knowledge": knowledge, "count": count})
+}
+
+func (h *Handler) handleSearchKnowledge(c *gin.Context) {
+	q := c.Query("q")
+	if q == "" {
+		c.JSON(400, gin.H{"error": "query required"})
+		return
+	}
+	offset := 0
+	limit := 20
+	if v := c.Query("offset"); v != "" {
+		fmt.Sscanf(v, "%d", &offset)
+	}
+	if v := c.Query("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+	}
+	knowledge, count, err := h.DB.SearchKnowledgeByQuery(q, limit, offset)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"knowledge": knowledge, "count": count})
+}
+
+func (h *Handler) handleDeleteKnowledge(c *gin.Context) {
+	var id int64
+	if _, err := fmt.Sscanf(c.Param("id"), "%d", &id); err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.DB.DeleteKnowledge(id); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
+}
+
 func (h *Handler) getClient(modelID string) *llm.Client {
 	model := h.Config.ResolveModel(modelID)
 	if model == nil {
@@ -886,14 +943,6 @@ func (h *Handler) getClient(modelID string) *llm.Client {
 	c = llm.New(model.BaseURL, model.APIKey, model.Model)
 	h.clients[model.ID] = c
 	return c
-}
-
-func (h *Handler) readMemory() string {
-	data, err := os.ReadFile(h.Config.MemoryPath())
-	if err != nil {
-		return ""
-	}
-	return string(data)
 }
 
 func (h *Handler) acquireHC(sessionID string) {
