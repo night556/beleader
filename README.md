@@ -20,6 +20,13 @@ BeLeader is an AI agent that works like a real team. You tell it what you want �
 
 **Tray → Quit** — Immediately terminates the entire application process. Use this when you need to kill everything instantly, even if an LLM request is in progress.
 
+## Screenshots
+
+| Home | Main Chat — Create Project | Project View — Workers Running |
+|:----:|:--------------------------:|:------------------------------:|
+| ![Homepage](example_image/homepage.png) | ![Main Create](example_image/main-create.png) | ![Project Workers](example_image/project-workers.png) |
+| Idle state, ready for input | Creating a project from natural language | Coordinator + Workers executing in parallel |
+
 ## Architecture
 
 ```
