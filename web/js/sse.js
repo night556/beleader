@@ -105,8 +105,10 @@ function loadSessionMessages(sessionId) {
             toolDetail = '';
           }
           item = { type: 'tool', icon: toolIcon, label: toolLabel, detail: toolDetail, content: toolContent, status: hasError ? 'fail' : 'done', error: hasError };
-        } else if (m.role === 'system' || m.role === 'notice') {
+        } else if (m.role === 'system') {
           continue;
+        } else if (m.role === 'notice') {
+          item = { type: 'error', icon: '⚠', label: t('status.error'), content: m.content || t('status.unknown_error'), status: 'fail' };
         }
         if (item) pushTimelineItem(item);
       }
@@ -162,7 +164,7 @@ window.updateState = function(name, data) {
   var sid = data.session_id || '';
 
   // Filter timeline events to current view's session only
-  var timelineTypes = ['thinking', 'tool_calls', 'tool_call', 'tool_result', 'responding', 'assistant_message', 'error', 'idle', 'stopped', 'context_compressed'];
+  var timelineTypes = ['thinking', 'tool_calls', 'tool_call', 'tool_result', 'responding', 'assistant_message', 'idle', 'stopped', 'context_compressed'];
   if (timelineTypes.indexOf(name) !== -1 && !isCurrentViewSession(sid)) return;
 
   switch (name) {
@@ -306,13 +308,23 @@ window.updateState = function(name, data) {
 
     case 'error':
       state.name = 'error';
-      updateStatus(data.message || t('status.error'), 'error');
+      var errMsg = data.message || t('status.unknown_error');
+      updateStatus(errMsg, 'error');
       hideIdle();
+      var errLabel = t('status.error');
+      if (sid && !isCurrentViewSession(sid)) {
+        var agInfo = getAgentBySession(sid);
+        if (agInfo && agInfo.agent && agInfo.agent.name) {
+          errLabel = '[' + agInfo.agent.name + '] ' + t('status.error');
+        } else if (sid !== 'main') {
+          errLabel = '[' + sid + '] ' + t('status.error');
+        }
+      }
       var errItem = {
         type: 'error',
         icon: '⚠',
-        label: t('status.error'),
-        content: data.message || t('status.unknown_error'),
+        label: errLabel,
+        content: errMsg,
         status: 'fail'
       };
       pushTimelineItem(errItem);

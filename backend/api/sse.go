@@ -74,7 +74,16 @@ func (b *SSEBroker) Broadcast(event SSEEvent) {
 
 // OnSessionEvent implements SessionObserver.
 func (b *SSEBroker) OnSessionEvent(event SessionEvent) {
-	if m, ok := event.Data.(map[string]any); ok {
+	// gin.H is a named type (type H map[string]any), so it won't match
+	// a map[string]any type assertion. Use a type switch to handle both.
+	var m map[string]any
+	switch v := event.Data.(type) {
+	case gin.H:
+		m = v
+	case map[string]any:
+		m = v
+	}
+	if m != nil {
 		if _, has := m["session_id"]; !has && event.SessionID != "" {
 			m["session_id"] = event.SessionID
 		}
