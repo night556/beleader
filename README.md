@@ -4,7 +4,7 @@
 
 **Be the Leader. Let AI do the work.**
 
-BeLeader is an AI coding agent that works like a real dev team. You tell it what you want — "build a todo app" or "fix the login bug" — and it spins up a Coordinator to plan the work, then spawns multiple Worker agents that read, write, search, browse, and execute in parallel. Each Worker has its own tools and isolated context. You watch the team work in real time.
+BeLeader is an AI agent that works like a real team. You tell it what you want — "build a todo app", "research the latest AI trends", or "organize my desktop files" — and it spins up a Coordinator to plan the work, then spawns multiple Worker agents that read, write, search, browse, and execute in parallel. Each Worker has its own tools and isolated context. You watch the team work in real time.
 
 ## How It Works
 
