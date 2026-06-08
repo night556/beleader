@@ -35,7 +35,7 @@ func (h *Handler) CreateProject(title, prompt string) (string, string, error) {
 	h.DB.CreateProject(refID, title, workDir)
 	h.acquireHC(coordinatorSessionID)
 	h.DB.CreateSession(coordinatorSessionID, "running")
-	h.DB.AddProjectAgent(refID, "coordinator", coordinatorSessionID, "coordinator", "")
+	h.DB.AddProjectAgent(refID, "coordinator", coordinatorSessionID, "coordinator", "", false, false)
 
 	h.Notify(SessionEvent{
 		Type: "project_created",

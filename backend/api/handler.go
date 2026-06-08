@@ -274,7 +274,7 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, prompt, task st
 
 	h.DB.CreateSession(workerSessionID, "running")
 	h.acquireHC(workerSessionID)
-	h.DB.AddProjectAgent(refID, name, workerSessionID, "worker", customPrompt)
+	h.DB.AddProjectAgent(refID, name, workerSessionID, "worker", customPrompt, enableBrowser, enableDesktop)
 
 	h.Notify(SessionEvent{
 		Type: "worker_spawned",
@@ -377,8 +377,8 @@ func (h *Handler) interveneWorker(refID, workerName, message string) (string, er
 		AgentType:     "worker",
 		RoleLabel:     workerName,
 		CustomPrompt:  agent.Prompt,
-		EnableBrowser: false,
-		EnableDesktop: false,
+		EnableBrowser: agent.EnableBrowser,
+		EnableDesktop: agent.EnableDesktop,
 	})
 
 	h.Notify(SessionEvent{

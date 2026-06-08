@@ -81,13 +81,15 @@ func (ProjectRef) TableName() string { return "project_refs" }
 // ── ProjectAgent ──
 
 type ProjectAgent struct {
-	ID        int64  `gorm:"primaryKey;autoIncrement" json:"id"`
-	ProjectID string `gorm:"size:64;index" json:"project_id"`
-	Name      string `gorm:"size:128" json:"name"`
-	SessionID string `gorm:"size:64" json:"session_id"`
-	Role      string `gorm:"size:32" json:"role"`
-	Status    string `gorm:"size:16;default:idle" json:"status"`
-	Prompt    string `gorm:"default:''" json:"prompt"`
+	ID             int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	ProjectID      string `gorm:"size:64;index" json:"project_id"`
+	Name           string `gorm:"size:128" json:"name"`
+	SessionID      string `gorm:"size:64" json:"session_id"`
+	Role           string `gorm:"size:32" json:"role"`
+	Status         string `gorm:"size:16;default:idle" json:"status"`
+	Prompt         string `gorm:"default:''" json:"prompt"`
+	EnableBrowser  bool   `gorm:"column:enable_browser;default:0" json:"enable_browser"`
+	EnableDesktop  bool   `gorm:"column:enable_desktop;default:0" json:"enable_desktop"`
 }
 
 func (ProjectAgent) TableName() string { return "project_agents" }
@@ -282,14 +284,16 @@ func (db *DB) ListProjects() ([]ProjectRef, error) {
 
 // ── ProjectAgent methods ──
 
-func (db *DB) AddProjectAgent(projectID, name, sessionID, role, prompt string) error {
+func (db *DB) AddProjectAgent(projectID, name, sessionID, role, prompt string, enableBrowser, enableDesktop bool) error {
 	return db.GORM.Create(&ProjectAgent{
-		ProjectID: projectID,
-		Name:      name,
-		SessionID: sessionID,
-		Role:      role,
-		Status:    "running",
-		Prompt:    prompt,
+		ProjectID:     projectID,
+		Name:          name,
+		SessionID:     sessionID,
+		Role:          role,
+		Status:        "running",
+		Prompt:        prompt,
+		EnableBrowser: enableBrowser,
+		EnableDesktop: enableDesktop,
 	}).Error
 }
 
