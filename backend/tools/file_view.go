@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"iamhuman/backend/session"
+	"beleader/backend/session"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -83,7 +83,13 @@ body{margin:0;display:flex;align-items:center;justify-content:center;min-height:
 audio{width:80%%;max-width:480px;outline:none}
 </style></head><body><audio controls autoplay><source src="%s" type="%s"></audio></body></html>`, viewURL, mediaType)
 
-	case isPDFExt(ext), isHTMLExt(ext):
+	case isPDFExt(ext):
+		doc = fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+body{margin:0;overflow:hidden}
+embed{width:100%%;height:100vh;border:none}
+</style></head><body><embed src="%s" type="application/pdf"></body></html>`, viewURL)
+
+	case isHTMLExt(ext):
 		doc = fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 body{margin:0;overflow:hidden}
 iframe{width:100%%;height:100vh;border:none}

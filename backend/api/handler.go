@@ -13,11 +13,11 @@ import (
 
 	"io/fs"
 
-	"iamhuman/backend/config"
-	"iamhuman/backend/db"
-	"iamhuman/backend/llm"
-	"iamhuman/backend/session"
-	"iamhuman/backend/tools"
+	"beleader/backend/config"
+	"beleader/backend/db"
+	"beleader/backend/llm"
+	"beleader/backend/session"
+	"beleader/backend/tools"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

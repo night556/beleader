@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"iamhuman/backend/session"
+	"beleader/backend/session"
 )
 
 // ringBuffer is a fixed-size circular buffer for capturing process output.

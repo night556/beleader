@@ -7,12 +7,12 @@ import (
 	"io/fs"
 	"os"
 
-	"iamhuman/backend/api"
-	"iamhuman/backend/config"
-	"iamhuman/backend/db"
-	"iamhuman/backend/llm"
-	"iamhuman/backend/server"
-	"iamhuman/backend/tools"
+	"beleader/backend/api"
+	"beleader/backend/config"
+	"beleader/backend/db"
+	"beleader/backend/llm"
+	"beleader/backend/server"
+	"beleader/backend/tools"
 )
 
 //go:embed web/*
@@ -27,11 +27,11 @@ func main() {
 	home, _ := os.UserHomeDir()
 	cfgPath := os.Getenv("IAMHUMAN_CONFIG")
 	if cfgPath == "" {
-		cfgPath = home + "/.iamhuman/config.yaml"
+		cfgPath = home + "/.beleader/config.yaml"
 	}
 
-	os.MkdirAll(home+"/.iamhuman", 0755)
-	os.MkdirAll(home+"/.iamhuman/projects", 0755)
+	os.MkdirAll(home+"/.beleader", 0755)
+	os.MkdirAll(home+"/.beleader/projects", 0755)
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"iamhuman/backend/session"
+	"beleader/backend/session"
 )
 
 var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
@@ -58,7 +58,7 @@ func httpRequestHandler(ctx context.Context, args string) *session.ToolResult {
 			req.Header.Set(k, v)
 		}
 	}
-	req.Header.Set("User-Agent", "IAmHuman/1.0")
+	req.Header.Set("User-Agent", "BeLeader/1.0")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)

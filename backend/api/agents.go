@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"iamhuman/backend/db"
-	"iamhuman/backend/session"
+	"beleader/backend/db"
+	"beleader/backend/session"
 
 	"github.com/gin-gonic/gin"
 )

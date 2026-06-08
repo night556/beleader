@@ -69,7 +69,7 @@ func DefaultConfig() *Config {
 			Headless: true,
 		},
 		SpeakEnabled: true,
-		WorkDir: filepath.Join(home, ".iamhuman", "projects"),
+		WorkDir: filepath.Join(home, ".beleader", "projects"),
 	}
 }
 
@@ -153,11 +153,11 @@ func (c *Config) SetPath(p string) {
 
 func (c *Config) ConfigDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".iamhuman")
+	return filepath.Join(home, ".beleader")
 }
 
 func (c *Config) DBPath() string {
-	return filepath.Join(c.ConfigDir(), "iamhuman.db")
+	return filepath.Join(c.ConfigDir(), "beleader.db")
 }
 
 func (c *Config) ProjectDir(refID string) string {

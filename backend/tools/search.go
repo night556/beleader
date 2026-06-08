@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"iamhuman/backend/session"
+	"beleader/backend/session"
 
 	"golang.org/x/net/html"
 )

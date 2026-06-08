@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"iamhuman/backend/session"
+	"beleader/backend/session"
 )
 
 // ContentMeta tracks HTML display content for list_htmls queries.

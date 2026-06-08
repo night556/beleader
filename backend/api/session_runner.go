@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"iamhuman/backend/db"
-	"iamhuman/backend/session"
-	"iamhuman/backend/tools"
+	"beleader/backend/db"
+	"beleader/backend/session"
+	"beleader/backend/tools"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sashabaranov/go-openai"

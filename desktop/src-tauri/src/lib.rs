@@ -93,7 +93,7 @@ impl Default for DesktopConfig {
 }
 
 fn config_path() -> PathBuf {
-    home_dir().join(".iamhuman").join("client.yaml")
+    home_dir().join(".beleader").join("client.yaml")
 }
 
 fn home_dir() -> PathBuf {
@@ -151,7 +151,7 @@ struct BackendGuard {
 
 #[cfg(not(debug_assertions))]
 fn backend_pid_path() -> PathBuf {
-    home_dir().join(".iamhuman").join("bin").join("backend.pid")
+    home_dir().join(".beleader").join("bin").join("backend.pid")
 }
 
 #[cfg(not(debug_assertions))]
@@ -189,7 +189,7 @@ fn kill_pid(pid: u32) -> std::io::Result<()> {
 #[cfg(not(debug_assertions))]
 impl Drop for BackendGuard {
     fn drop(&mut self) {
-        let log = home_dir().join(".iamhuman").join("logs").join("desktop.log");
+        let log = home_dir().join(".beleader").join("logs").join("desktop.log");
         if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log) {
             let _ = writeln!(f, "BackendGuard::drop pid={}", self.pid);
         }
@@ -223,9 +223,9 @@ impl Drop for BackendGuard {
 
 #[cfg(not(debug_assertions))]
 const BACKEND_EXE: &str = if cfg!(target_os = "windows") {
-    "iamhuman-backend.exe"
+    "beleader-backend.exe"
 } else {
-    "iamhuman-backend"
+    "beleader-backend"
 };
 
 #[cfg(not(debug_assertions))]
@@ -239,7 +239,7 @@ fn find_backend_binary() -> Option<PathBuf> {
             }
             // Development: src-tauri/binaries/ with target triple
             #[cfg(target_os = "windows")]
-            let dev_name = "iamhuman-backend-x86_64-pc-windows-msvc.exe";
+            let dev_name = "beleader-backend-x86_64-pc-windows-msvc.exe";
             #[cfg(not(target_os = "windows"))]
             let dev_name = BACKEND_EXE;
             let mut p = dir.to_path_buf();
@@ -306,7 +306,7 @@ fn spawn_backend(bin: &PathBuf, log_dir: &str) -> std::io::Result<(u16, Child)> 
         .unwrap_or(0);
 
     // Drain remaining stdout to log file (separate from Go's lumberjack log)
-    let log_path = PathBuf::from(log_dir).join("iamhuman-backend-stdout.log");
+    let log_path = PathBuf::from(log_dir).join("beleader-backend-stdout.log");
     let log_path2 = log_path.clone();
     std::thread::spawn(move || {
         if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_path) {
@@ -336,11 +336,11 @@ fn spawn_backend(bin: &PathBuf, log_dir: &str) -> std::io::Result<(u16, Child)> 
 }
 
 #[cfg(not(debug_assertions))]
-const BACKEND_BYTES: &[u8] = include_bytes!("../binaries/iamhuman-backend-release");
+const BACKEND_BYTES: &[u8] = include_bytes!("../binaries/beleader-backend-release");
 
 #[cfg(not(debug_assertions))]
 fn extract_or_find_backend() -> Option<PathBuf> {
-    let bin_dir = home_dir().join(".iamhuman").join("bin");
+    let bin_dir = home_dir().join(".beleader").join("bin");
     let bin_path = bin_dir.join(BACKEND_EXE);
     if let Ok(meta) = std::fs::metadata(&bin_path) {
         if meta.len() == BACKEND_BYTES.len() as u64 {
@@ -450,7 +450,7 @@ pub fn run() {
                     None
                 }
             } else if let Some(bin) = extract_or_find_backend() {
-                let log_dir = home_dir().join(".iamhuman").join("logs");
+                let log_dir = home_dir().join(".beleader").join("logs");
                 let log_dir_str = log_dir.to_string_lossy().to_string();
                 match spawn_backend(&bin, &log_dir_str) {
                     Ok((port, child)) => {
@@ -542,7 +542,7 @@ pub fn run() {
                         "main",
                         url,
                     )
-                    .title("IAmHuman")
+                    .title("BeLeader")
                     .inner_size(1200.0, 800.0)
                     .resizable(true)
                     .center()
@@ -582,7 +582,7 @@ pub fn run() {
                 let label = format!("content-{}", payload.id);
                 cs.lock().unwrap().insert(payload.id.clone(), html);
                 let url: tauri::WebviewUrl = tauri::WebviewUrl::CustomProtocol(
-                    format!("iamhuman://localhost/content/{}", payload.id).parse().unwrap(),
+                    format!("beleader://localhost/content/{}", payload.id).parse().unwrap(),
                 );
                 let (w, h) = content_dims(payload.width, payload.height);
                 let cs2 = cs.clone();
@@ -653,7 +653,7 @@ pub fn run() {
                                 "main",
                                 url,
                             )
-                            .title("IAmHuman")
+                            .title("BeLeader")
                             .inner_size(1200.0, 800.0)
                             .resizable(true)
                             .center()
@@ -688,7 +688,7 @@ pub fn run() {
                             app,
                             "settings",
                             tauri::WebviewUrl::CustomProtocol(
-                                "iamhuman://localhost/settings.html".parse().unwrap(),
+                                "beleader://localhost/settings.html".parse().unwrap(),
                             ),
                         )
                         .title("Server Settings")
@@ -731,10 +731,10 @@ pub fn run() {
                 app,
                 "orb",
                 tauri::WebviewUrl::CustomProtocol(
-                    "iamhuman://localhost/index.html".parse().unwrap(),
+                    "beleader://localhost/index.html".parse().unwrap(),
                 ),
             )
-            .title("IAmHuman")
+            .title("BeLeader")
             .inner_size(200.0, 200.0)
             .resizable(true)
             .decorations(false)
@@ -758,7 +758,7 @@ pub fn run() {
                 "main",
                 url,
             )
-            .title("IAmHuman")
+            .title("BeLeader")
             .inner_size(1200.0, 800.0)
             .maximized(true)
             .resizable(true)

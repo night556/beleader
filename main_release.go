@@ -9,14 +9,14 @@ import (
 	"runtime"
 )
 
-//go:embed bin/iamhuman-agent-release
+//go:embed bin/beleader-agent-release
 var agentBinary []byte
 
 func agentExeName() string {
 	if runtime.GOOS == "windows" {
-		return "iamhuman-agent.exe"
+		return "beleader-agent.exe"
 	}
-	return "iamhuman-agent"
+	return "beleader-agent"
 }
 
 func extractAgent() {

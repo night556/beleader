@@ -507,6 +507,12 @@ function createContentCard(data) {
   card.id = 'card-' + data.id;
   if (data.width) card.style.width = data.width + 'px';
   if (data.height) card.style.height = data.height + 'px';
+  // Stagger cards so they don't stack completely
+  var offsetX = 40 * Object.keys(_contentCards).length;
+  var offsetY = 40 * Object.keys(_contentCards).length;
+  card.style.right = offsetX + 'px';
+  card.style.bottom = offsetY + 'px';
+  card.style.position = 'absolute';
 
   var htmlSource = data.html_source || '';
   var isHtmlFile = data.is_html_file || false;
@@ -519,7 +525,7 @@ function createContentCard(data) {
       '<button class="card-close" title="Close" onclick="removeContentCard(\'' + data.id + '\')">&#10005;</button>' +
     '</div>' +
     '<div class="content-card-body">' +
-      '<iframe sandbox="allow-scripts allow-same-origin" srcdoc="' + escapeAttr(data.html) + '"></iframe>' +
+      '<iframe sandbox="allow-scripts allow-same-origin allow-downloads" srcdoc="' + escapeAttr(data.html) + '"></iframe>' +
     '</div>';
 
   container.appendChild(card);
@@ -531,6 +537,27 @@ function createContentCard(data) {
     isHtmlFile: isHtmlFile,
     showingSource: false
   };
+
+  // Drag support — mousedown on header starts drag, mousemove repositions, mouseup stops
+  var header = card.querySelector('.content-card-header');
+  var dragging = false, startX, startY, startRight, startBottom;
+  header.addEventListener('mousedown', function(e) {
+    if (e.target.tagName === 'BUTTON') return;
+    dragging = true;
+    startX = e.clientX; startY = e.clientY;
+    startRight = parseInt(card.style.right) || 0;
+    startBottom = parseInt(card.style.bottom) || 0;
+    card.style.transition = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    card.style.right = (startRight - (e.clientX - startX)) + 'px';
+    card.style.bottom = (startBottom - (e.clientY - startY)) + 'px';
+  });
+  document.addEventListener('mouseup', function() {
+    if (dragging) { dragging = false; card.style.transition = 'all 0.25s ease'; }
+  });
 }
 
 function removeContentCard(id) {

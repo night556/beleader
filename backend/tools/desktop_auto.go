@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"iamhuman/backend/session"
+	"beleader/backend/session"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -363,20 +363,20 @@ func findAgent() string {
 	}
 	exe, _ := os.Executable()
 	dir := filepath.Dir(exe)
-	name := "iamhuman-agent"
+	name := "beleader-agent"
 	if filepath.Ext(name) == "" {
 		if _, err := os.Stat(name + ".exe"); err == nil {
 			name += ".exe"
 		}
 	}
 	candidates := []string{
-		filepath.Join(dir, "iamhuman-agent.exe"),
-		filepath.Join(dir, "iamhuman-agent"),
-		filepath.Join("robot", "target", "release", "iamhuman-agent.exe"),
-		filepath.Join("robot", "target", "release", "iamhuman-agent"),
-		filepath.Join("bin", "iamhuman-agent-release"),
-		"iamhuman-agent",
-		"iamhuman-agent.exe",
+		filepath.Join(dir, "beleader-agent.exe"),
+		filepath.Join(dir, "beleader-agent"),
+		filepath.Join("robot", "target", "release", "beleader-agent.exe"),
+		filepath.Join("robot", "target", "release", "beleader-agent"),
+		filepath.Join("bin", "beleader-agent-release"),
+		"beleader-agent",
+		"beleader-agent.exe",
 	}
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
@@ -384,7 +384,7 @@ func findAgent() string {
 			return agentExe
 		}
 	}
-	agentExe = "iamhuman-agent"
+	agentExe = "beleader-agent"
 	return agentExe
 }
 

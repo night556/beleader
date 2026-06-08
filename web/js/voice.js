@@ -8,7 +8,7 @@ var currentAudio = null;
 var voiceSettings = { lang: 'zh-CN', voiceURI: '', rate: 1, pitch: 1 };
 
 try {
-  var saved = JSON.parse(localStorage.getItem('iamhuman-voice') || '{}');
+  var saved = JSON.parse(localStorage.getItem('beleader-voice') || '{}');
   if (saved.lang) voiceSettings.lang = saved.lang;
   if (saved.voiceURI) voiceSettings.voiceURI = saved.voiceURI;
   if (saved.rate) voiceSettings.rate = saved.rate;
@@ -16,7 +16,7 @@ try {
 } catch(e) {}
 
 function saveVoiceSettings() {
-  try { localStorage.setItem('iamhuman-voice', JSON.stringify(voiceSettings)); } catch(e) {}
+  try { localStorage.setItem('beleader-voice', JSON.stringify(voiceSettings)); } catch(e) {}
 }
 
 var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;

@@ -1,4 +1,4 @@
-// state.js — Global state for IAmHuman frontend
+// state.js — Global state for BeLeader frontend
 var SERVER_URL = window.location.origin;
 
 // Core state

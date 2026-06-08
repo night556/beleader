@@ -1,4 +1,4 @@
-module iamhuman
+module beleader
 
 go 1.26
 

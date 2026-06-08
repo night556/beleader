@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"iamhuman/backend/db"
-	"iamhuman/backend/llm"
+	"beleader/backend/db"
+	"beleader/backend/llm"
 
 	"github.com/sashabaranov/go-openai"
 )

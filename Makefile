@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════
-# IAmHuman Build System (macOS / Linux)
+# BeLeader Build System (macOS / Linux)
 # ═══════════════════════════════════════════════════════════════
 #
 # Quick start:
@@ -10,10 +10,10 @@
 #
 # 产物命名：{程序}-{debug|release}-{os}-{arch}  → 统一输出到 bin/
 #   bin/
-#     iamhuman-agent-release-darwin-amd64
-#     iamhuman-backend-debug-darwin-amd64
-#     iamhuman-backend-release-darwin-amd64
-#     iamhuman-desktop-release-darwin-amd64
+#     beleader-agent-release-darwin-amd64
+#     beleader-backend-debug-darwin-amd64
+#     beleader-backend-release-darwin-amd64
+#     beleader-desktop-release-darwin-amd64
 
 .PHONY: all build run dev clean build-agent build-desktop release:server release:desktop
 
@@ -27,23 +27,23 @@ BIN_DIR       := bin
 DESKTOP_SRC   := desktop/src-tauri
 DESKTOP_BINARIES := $(DESKTOP_SRC)/binaries
 AGENT_SRC     := robot/Cargo.toml
-AGENT_BUILT   := robot/target/release/iamhuman-agent
+AGENT_BUILT   := robot/target/release/beleader-agent
 
 ifeq ($(OS),darwin)
-	AGENT_BUILT := robot/target/release/iamhuman-agent
+	AGENT_BUILT := robot/target/release/beleader-agent
 	DESKTOP_EXT :=
 	BACKEND_EXT :=
 else
-	AGENT_BUILT := robot/target/release/iamhuman-agent
+	AGENT_BUILT := robot/target/release/beleader-agent
 	DESKTOP_EXT :=
 	BACKEND_EXT :=
 endif
 
-AGENT_RELEASE   := $(BIN_DIR)/iamhuman-agent-release
-BACKEND_DEBUG   := $(BIN_DIR)/iamhuman-backend-debug-$(OS)-$(ARCH)
-BACKEND_RELEASE := $(BIN_DIR)/iamhuman-backend-release-$(OS)-$(ARCH)
-DESKTOP_RELEASE := $(BIN_DIR)/iamhuman-desktop-release-$(OS)-$(ARCH)
-BACKEND_EMBED   := $(DESKTOP_BINARIES)/iamhuman-backend-release
+AGENT_RELEASE   := $(BIN_DIR)/beleader-agent-release
+BACKEND_DEBUG   := $(BIN_DIR)/beleader-backend-debug-$(OS)-$(ARCH)
+BACKEND_RELEASE := $(BIN_DIR)/beleader-backend-release-$(OS)-$(ARCH)
+DESKTOP_RELEASE := $(BIN_DIR)/beleader-desktop-release-$(OS)-$(ARCH)
+BACKEND_EMBED   := $(DESKTOP_BINARIES)/beleader-backend-release
 
 # ═══════════════════════════════════════════════════════════════
 # 构建命令
@@ -65,7 +65,7 @@ build-desktop:
 	@mkdir -p $(BIN_DIR)
 	cd desktop && npm install --silent && npm run build
 	@PATH="$$HOME/.cargo/bin:$$PATH" cargo build --release --manifest-path $(DESKTOP_SRC)/Cargo.toml
-	@cp -f $(DESKTOP_SRC)/target/release/iamhuman-desktop$(DESKTOP_EXT) $(DESKTOP_RELEASE)
+	@cp -f $(DESKTOP_SRC)/target/release/beleader-desktop$(DESKTOP_EXT) $(DESKTOP_RELEASE)
 
 # 全部构建
 all: build-agent build-desktop build
@@ -74,7 +74,7 @@ all: build-agent build-desktop build
 # 发布命令 — 产物输出到 bin/
 # ═══════════════════════════════════════════════════════════════
 
-# 构建服务端发布版 → bin/iamhuman-backend-release-{os}-{arch}
+# 构建服务端发布版 → bin/beleader-backend-release-{os}-{arch}
 # 后端内嵌 agent（go:embed），同时复制到 binaries/ 供桌面端打包
 release:server:
 	@mkdir -p $(BIN_DIR)
@@ -84,14 +84,14 @@ release:server:
 	@mkdir -p $(DESKTOP_BINARIES)
 	@cp -f $(BACKEND_RELEASE) $(BACKEND_EMBED)
 
-# 构建桌面发布版 → bin/iamhuman-desktop-release-{os}-{arch}
+# 构建桌面发布版 → bin/beleader-desktop-release-{os}-{arch}
 # 前提：已执行 make release:server（确保后端二进制在 binaries/ 中供 include_bytes!）
 release:desktop:
 	@if [ ! -f "$(BACKEND_EMBED)" ]; then $(MAKE) release:server; fi
 	cd desktop && npm run build
 	@PATH="$$HOME/.cargo/bin:$$PATH" cargo build --release --manifest-path $(DESKTOP_SRC)/Cargo.toml
 	@mkdir -p $(BIN_DIR)
-	@cp -f $(DESKTOP_SRC)/target/release/iamhuman-desktop$(DESKTOP_EXT) $(DESKTOP_RELEASE)
+	@cp -f $(DESKTOP_SRC)/target/release/beleader-desktop$(DESKTOP_EXT) $(DESKTOP_RELEASE)
 	@cp -rf desktop/dist $(BIN_DIR)/dist
 
 # ═══════════════════════════════════════════════════════════════
@@ -100,12 +100,12 @@ release:desktop:
 
 # 一键构建 + 启动
 run: build-agent build
-	@echo "Starting IAmHuman backend on http://localhost:8080 ..."
+	@echo "Starting BeLeader backend on http://localhost:8080 ..."
 	./$(BACKEND_DEBUG)
 
 # 同 run，显式指定端口
 run-web: build-agent build
-	@echo "Starting IAmHuman (web mode) -> http://localhost:8080"
+	@echo "Starting BeLeader (web mode) -> http://localhost:8080"
 	./$(BACKEND_DEBUG) --port 8080
 
 # ═══════════════════════════════════════════════════════════════

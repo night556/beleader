@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"iamhuman/backend/session"
+	"beleader/backend/session"
 
 	"github.com/sashabaranov/go-openai"
 )

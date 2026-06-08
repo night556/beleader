@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════
-# IAmHuman Build System (Windows PowerShell)
+# BeLeader Build System (Windows PowerShell)
 # ═══════════════════════════════════════════════════════════════
 #
 # Quick start:
@@ -10,10 +10,10 @@
 #
 # 产物命名：{程序}-{debug|release}-{os}-{arch}.exe  → 统一输出到 bin/
 #   bin/
-#     iamhuman-agent-release-windows-amd64.exe
-#     iamhuman-backend-debug-windows-amd64.exe
-#     iamhuman-backend-release-windows-amd64.exe
-#     iamhuman-desktop-release-windows-amd64.exe
+#     beleader-agent-release-windows-amd64.exe
+#     beleader-backend-debug-windows-amd64.exe
+#     beleader-backend-release-windows-amd64.exe
+#     beleader-desktop-release-windows-amd64.exe
 
 param([string]$cmd = "run")
 
@@ -24,16 +24,16 @@ $BIN_DIR       = "bin"
 $DESKTOP_SRC   = "desktop\src-tauri"
 $DESKTOP_BINARIES = "$DESKTOP_SRC\binaries"
 $AGENT_SRC     = "robot\Cargo.toml"
-$AGENT_BUILT   = "robot\target\release\iamhuman-agent.exe"
+$AGENT_BUILT   = "robot\target\release\beleader-agent.exe"
 
 # ---- bin/ artifacts ----
-$AGENT_RELEASE   = "$BIN_DIR\iamhuman-agent-release"
-$BACKEND_DEBUG   = "$BIN_DIR\iamhuman-backend-debug-windows-amd64.exe"
-$BACKEND_RELEASE = "$BIN_DIR\iamhuman-backend-release-windows-amd64.exe"
-$DESKTOP_RELEASE = "$BIN_DIR\iamhuman-desktop-release-windows-amd64.exe"
+$AGENT_RELEASE   = "$BIN_DIR\beleader-agent-release"
+$BACKEND_DEBUG   = "$BIN_DIR\beleader-backend-debug-windows-amd64.exe"
+$BACKEND_RELEASE = "$BIN_DIR\beleader-backend-release-windows-amd64.exe"
+$DESKTOP_RELEASE = "$BIN_DIR\beleader-desktop-release-windows-amd64.exe"
 
 # ---- binaries/ (for Rust include_bytes!) ----
-$BACKEND_EMBED   = "$DESKTOP_BINARIES\iamhuman-backend-release"
+$BACKEND_EMBED   = "$DESKTOP_BINARIES\beleader-backend-release"
 
 function Ensure-BinDir {
     if (-not (Test-Path $BIN_DIR)) { New-Item -ItemType Directory $BIN_DIR | Out-Null }
@@ -72,7 +72,7 @@ function Build-Desktop {
     Pop-Location
     Ensure-CargoPath
     cargo build --release --manifest-path $DESKTOP_SRC\Cargo.toml
-    Copy-Item -Force "$DESKTOP_SRC\target\release\iamhuman-desktop.exe" $DESKTOP_RELEASE
+    Copy-Item -Force "$DESKTOP_SRC\target\release\beleader-desktop.exe" $DESKTOP_RELEASE
     Write-Host "  -> $DESKTOP_RELEASE" -ForegroundColor Green
 }
 
@@ -115,8 +115,8 @@ function Release-Desktop {
     Pop-Location
     Ensure-CargoPath
     cargo build --release --manifest-path $DESKTOP_SRC\Cargo.toml
-    Copy-Item -Force "$DESKTOP_SRC\target\release\iamhuman-desktop.exe" $DESKTOP_RELEASE
-    # Copy frontend dist next to exe so iamhuman:// protocol can find it at runtime
+    Copy-Item -Force "$DESKTOP_SRC\target\release\beleader-desktop.exe" $DESKTOP_RELEASE
+    # Copy frontend dist next to exe so beleader:// protocol can find it at runtime
     $BIN_DIST = "$BIN_DIR\dist"
     if (Test-Path $BIN_DIST) { Remove-Item -Recurse -Force $BIN_DIST }
     Copy-Item -Recurse -Force "desktop\dist" $BIN_DIST
@@ -134,7 +134,7 @@ function Clean {
     Remove-Item -Recurse -Force $DESKTOP_SRC\target -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force agents -ErrorAction SilentlyContinue
     # Legacy root-level binaries
-    Remove-Item -Force iamhuman.exe, iamhuman-agent.exe -ErrorAction SilentlyContinue
+    Remove-Item -Force iamhuman.exe, beleader-agent.exe -ErrorAction SilentlyContinue
     Write-Host "Cleaned." -ForegroundColor Green
 }
 
@@ -151,7 +151,7 @@ switch ($cmd) {
     "run"            {
         Build-Agent
         Build-Backend
-        Write-Host "Starting IAmHuman on http://localhost:8080 ..." -ForegroundColor Cyan
+        Write-Host "Starting BeLeader on http://localhost:8080 ..." -ForegroundColor Cyan
         & $BACKEND_DEBUG
     }
     "dev-backend"    {

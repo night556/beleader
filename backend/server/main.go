@@ -10,11 +10,11 @@ import (
 	"strconv"
 	"syscall"
 
-	"iamhuman/backend/api"
-	"iamhuman/backend/config"
-	"iamhuman/backend/db"
-	"iamhuman/backend/llm"
-	"iamhuman/backend/tools"
+	"beleader/backend/api"
+	"beleader/backend/config"
+	"beleader/backend/db"
+	"beleader/backend/llm"
+	"beleader/backend/tools"
 
 	"github.com/gin-gonic/gin"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -56,7 +56,7 @@ func RunAutoPort(cfg *config.Config, database *db.DB, llmClient *llm.Client, log
 	if logDir != "" {
 		os.MkdirAll(logDir, 0755)
 		lj := &lumberjack.Logger{
-			Filename:   filepath.Join(logDir, "iamhuman-backend.log"),
+			Filename:   filepath.Join(logDir, "beleader-backend.log"),
 			MaxSize:    10,
 			MaxBackups: 5,
 			MaxAge:     30,
@@ -97,7 +97,7 @@ func runServer(cfg *config.Config, database *db.DB, llmClient *llm.Client, port 
 	h.RegisterRoutes(r)
 
 	go func() {
-		fmt.Printf("IAmHuman backend listening on http://127.0.0.1:%s\n", port)
+		fmt.Printf("BeLeader backend listening on http://127.0.0.1:%s\n", port)
 		if err := r.Run(":" + port); err != nil {
 			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		}

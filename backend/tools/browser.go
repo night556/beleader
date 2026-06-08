@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"iamhuman/backend/session"
+	"beleader/backend/session"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/input"

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 // ═══════════════════════════════════════════════════════════════
 
 #[derive(Parser)]
-#[command(name = "iamhuman-agent", version, about = "Desktop automation agent for IAmHuman")]
+#[command(name = "beleader-agent", version, about = "Desktop automation agent for BeLeader")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

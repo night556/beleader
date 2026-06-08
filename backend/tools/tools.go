@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"iamhuman/backend/session"
+	"beleader/backend/session"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -388,40 +388,36 @@ var runCommandTool = openai.Tool{
 		Name: "run_command",
 		Description: `Execute a shell command in the workspace directory.
 
-Two modes:
+Two modes - choose correctly:
 
-SYNCHRONOUS (default) — for quick commands (<60s): tests, git, ls, cat, grep, mkdir.
-  { "command": "go test ./..." }
-  Returns combined output when the command finishes.
+SYNCHRONOUS (default) - ONLY for fast commands that will finish in under 2 minutes.
+Examples: ls, cat, grep, mkdir, git status, go test ./pkg/..., echo, which
+Sync timeout max is 120s. If not 100% sure it finishes in time, use background.
+Default timeout: 60s. You can set up to 120s.
 
-BACKGROUND — for long commands or persistent services:
-  1. Start: { "command": "npm run dev", "background": true }
+BACKGROUND - for anything that might run long or hang.
+MUST use background for: npm install, pip install, go build ./..., cargo build,
+git clone, docker build, ffmpeg, any compilation, any package manager, network ops.
+Also use background when the output is long and you want to stream it live.
+
+Background workflow:
+  1. Start: { "command": "npm install", "background": true }
      Returns immediately with a session_id.
-  2. Check: { "action": "poll", "session_id": "<id>" }
-     Waits for new output. Returns status: "running" or "exited".
-  3. Read log: { "action": "log", "session_id": "<id>", "offset": 0, "limit": 2000 }
-     Gets buffered output without blocking.
-  4. List all: { "action": "list" }
+  2. Poll: { "action": "poll", "session_id": "<id>" }
+     Returns new output + status: "running" or "exited" (with exit code).
+  3. Read full log: { "action": "log", "session_id": "<id>", "limit": 5000 }
+  4. List all sessions: { "action": "list" }
   5. Stop: { "action": "kill", "session_id": "<id>" }
-  6. Write to stdin: { "action": "write", "session_id": "<id>", "data": "y\\n" }
+  6. Write to stdin: { "action": "write", "session_id": "<id>", "data": "y\n" }
 
-When to use BACKGROUND:
-- Commands that run indefinitely: npm run dev, go run ., python -m http.server
-- Long builds/installs: go build, npm install, pip install
-- Any command you want to monitor progress on
-
-When to use SYNCHRONOUS:
-- Quick one-shot commands: ls, cat, mkdir, git status, go test, echo
-- Commands where you only need the final result
-
-After starting a service in background, verify it with browser or web_fetch.
-If a background command produces no new output for 30s, don't keep polling — check the last log and decide.`,
+After starting a service (dev server, etc.), verify it with web_fetch or browser_open.
+If background cmd produces no output for 30s, stop polling - check log and decide.`,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command":    map[string]any{"type": "string", "description": "Shell command to execute. Required for sync/background modes."},
-				"timeout":    map[string]any{"type": "integer", "description": "Max execution time in seconds for sync mode. Default 60."},
-				"background": map[string]any{"type": "boolean", "description": "Set true to run in background. Returns session_id immediately."},
+				"timeout":    map[string]any{"type": "integer", "description": "Max execution time in seconds for sync mode. Default 60, max 120."},
+				"background": map[string]any{"type": "boolean", "description": "Set true to run in background. REQUIRED for any command that may exceed 120s. Returns session_id immediately."},
 				"action":     map[string]any{"type": "string", "description": "Action for managing background sessions: list, poll, log, write, kill."},
 				"session_id": map[string]any{"type": "string", "description": "Target session ID for poll/log/write/kill actions."},
 				"data":       map[string]any{"type": "string", "description": "Data to write to stdin (for action=write)."},

@@ -364,11 +364,14 @@ window.updateState = function(name, data) {
       break;
 
     case 'worker_spawned':
+      console.log('[worker_spawned]', 'ref_id=' + data.ref_id, 'name=' + data.name, 'sid=' + data.session_id, 'sessions.length=' + sessions.length);
       for (var wsi = 0; wsi < sessions.length; wsi++) {
+        console.log('[worker_spawned] checking session', wsi, 'ref_id=' + sessions[wsi].ref_id, 'id=' + sessions[wsi].id);
         if (sessions[wsi].ref_id === data.ref_id) {
           if (!sessions[wsi].agents) sessions[wsi].agents = [];
           if (!sessions[wsi].agents.find(function(a) { return a.session_id === data.session_id; })) {
             sessions[wsi].agents.push({name: data.name, session_id: data.session_id, role: data.role, status:'running'});
+            console.log('[worker_spawned] added agent', data.name, data.session_id, 'to project', data.ref_id);
           }
           break;
         }
@@ -456,11 +459,13 @@ window.updateState = function(name, data) {
     case 'stopped':
       // Update agent status in sessions array
       if (sid) {
+        console.log('[idle/stopped] sid=' + sid, 'type=' + name);
         delete _agentActivities[sid];
         for (var si = 0; si < sessions.length; si++) {
           if (sessions[si].agents) {
             for (var aj = 0; aj < sessions[si].agents.length; aj++) {
               if (sessions[si].agents[aj].session_id === sid) {
+                console.log('[idle/stopped] setting agent ' + sessions[si].agents[aj].name + ' to idle');
                 sessions[si].agents[aj].status = 'idle';
                 break;
               }
