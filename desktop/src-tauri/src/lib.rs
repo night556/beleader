@@ -11,34 +11,12 @@ use std::sync::{Arc, Mutex};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::http::Response as HttpResponse;
-use tauri::Emitter;
 use tauri::Listener;
 use tauri::Manager;
 
 #[derive(rust_embed::RustEmbed)]
 #[folder = "../dist"]
 struct DistAssets;
-
-#[cfg(target_os = "windows")]
-#[link(name = "user32")]
-extern "system" {
-    fn SystemParametersInfoW(uiAction: u32, uiParam: u32, pvParam: *mut std::ffi::c_void, fWinIni: u32) -> i32;
-}
-
-#[cfg(target_os = "windows")]
-fn work_area() -> (f64, f64) {
-    const SPI_GETWORKAREA: u32 = 48;
-    #[repr(C)]
-    struct Rect { left: i32, top: i32, right: i32, bottom: i32 }
-    unsafe {
-        let mut rect: Rect = std::mem::zeroed();
-        if SystemParametersInfoW(SPI_GETWORKAREA, 0, &mut rect as *mut _ as *mut std::ffi::c_void, 0) != 0 {
-            (rect.right as f64, rect.bottom as f64)
-        } else {
-            (0.0, 0.0)
-        }
-    }
-}
 
 fn web_dir() -> Option<PathBuf> {
     // Find frontend directory relative to executable or CWD
@@ -478,6 +456,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let _ = app.get_webview_window("main")
+                .and_then(|w| w.set_focus().ok());
+        }))
         .invoke_handler(tauri::generate_handler![get_config, set_config])
         .register_uri_scheme_protocol("iamhuman", {
             let wd = web_root.clone();
@@ -525,46 +507,6 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            // --- listen for open-main event from orb ---
-            let handle = app.handle().clone();
-            app.listen("open-main", move |_event| {
-                let c = load_config();
-                if let Some(w) = handle.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                } else {
-                    let url: tauri::WebviewUrl = tauri::WebviewUrl::External(
-                        c.server_url.parse().unwrap(),
-                    );
-                    let h = handle.clone();
-                    if let Ok(w) = tauri::WebviewWindowBuilder::new(
-                        &handle,
-                        "main",
-                        url,
-                    )
-                    .title("BeLeader")
-                    .inner_size(1200.0, 800.0)
-                    .resizable(true)
-                    .center()
-                    .build()
-                    {
-                        let _ = w.set_focus();
-                        if let Some(orb) = h.get_webview_window("orb") {
-                            let _ = orb.hide();
-                            let _ = orb.emit("pause", ());
-                        }
-                        w.on_window_event(move |event| {
-                            if let tauri::WindowEvent::Destroyed = event {
-                                if let Some(orb) = h.get_webview_window("orb") {
-                                    let _ = orb.show();
-                                    let _ = orb.emit("resume", ());
-                                }
-                            }
-                        });
-                    }
-                }
-            });
-
             // --- content window listeners ---
             let handle = app.handle().clone();
             let cs = content_store.clone();
@@ -647,7 +589,6 @@ pub fn run() {
                             let url: tauri::WebviewUrl = tauri::WebviewUrl::External(
                                 c.server_url.parse().unwrap(),
                             );
-                            let h = app.clone();
                             if let Ok(w) = tauri::WebviewWindowBuilder::new(
                                 app,
                                 "main",
@@ -660,20 +601,6 @@ pub fn run() {
                             .build()
                             {
                                 let _ = w.set_focus();
-                                // Hide orb when main window opens
-                                if let Some(orb) = h.get_webview_window("orb") {
-                                    let _ = orb.hide();
-                                    let _ = orb.emit("pause", ());
-                                }
-                                // When main window closes, show orb again
-                                w.on_window_event(move |event| {
-                                    if let tauri::WindowEvent::Destroyed = event {
-                                        if let Some(orb) = h.get_webview_window("orb") {
-                                            let _ = orb.show();
-                                            let _ = orb.emit("resume", ());
-                                        }
-                                    }
-                                });
                             }
                         }
                     }
@@ -705,54 +632,11 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // --- orb window ---
-            let (orb_x, orb_y) = app
-                .primary_monitor()
-                .ok()
-                .flatten()
-                .map(|m| {
-                    let sf = m.scale_factor();
-                    #[cfg(target_os = "windows")]
-                    let (aw, ah) = {
-                        let wa = work_area();
-                        if wa.0 > 0.0 { (wa.0 / sf, wa.1 / sf) }
-                        else { (m.size().width as f64 / sf, m.size().height as f64 / sf) }
-                    };
-                    #[cfg(not(target_os = "windows"))]
-                    let (aw, ah) = {
-                        let s = m.size();
-                        (s.width as f64 / sf, s.height as f64 / sf)
-                    };
-                    (aw - 210.0, ah - 210.0)
-                })
-                .unwrap_or((0.0, 0.0));
-
-            if let Ok(w) = tauri::WebviewWindowBuilder::new(
-                app,
-                "orb",
-                tauri::WebviewUrl::CustomProtocol(
-                    "beleader://localhost/index.html".parse().unwrap(),
-                ),
-            )
-            .title("BeLeader")
-            .inner_size(200.0, 200.0)
-            .resizable(true)
-            .decorations(false)
-            .transparent(true)
-            .always_on_top(true)
-            .visible(true)
-            .position(orb_x, orb_y)
-            .build()
-            {
-                let _ = w.set_focus();
-            }
-
             // --- main window (default, maximized) ---
             let c = load_config();
             let url: tauri::WebviewUrl = tauri::WebviewUrl::External(
                 c.server_url.parse().unwrap(),
             );
-            let orb_handle = app.get_webview_window("orb");
             if let Ok(w) = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -766,18 +650,6 @@ pub fn run() {
             .build()
             {
                 let _ = w.set_focus();
-                if let Some(orb) = &orb_handle {
-                    let _ = orb.hide();
-                    let _ = orb.emit("pause", ());
-                }
-                w.on_window_event(move |event| {
-                    if let tauri::WindowEvent::Destroyed = event {
-                        if let Some(orb) = &orb_handle {
-                            let _ = orb.show();
-                            let _ = orb.emit("resume", ());
-                        }
-                    }
-                });
             }
 
             Ok(())

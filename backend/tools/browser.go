@@ -6,8 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"path/filepath"
+	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +22,7 @@ import (
 	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/go-rod/stealth"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -25,70 +30,6 @@ const (
 	browserViewportWidth  = 1920
 	browserViewportHeight = 1080
 )
-
-const stealthJS = `(function(){
-	// ── webdriver ──
-	Object.defineProperty(Navigator.prototype, 'webdriver', {get: () => false});
-
-	// ── plugins (headless = empty) ──
-	var fakePlugins;
-	Object.defineProperty(Navigator.prototype, 'plugins', {
-		get: function() {
-			if (fakePlugins) return fakePlugins;
-			fakePlugins = Object.create(Navigator.prototype.plugins || {});
-			fakePlugins.length = 2;
-			fakePlugins[0] = {name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1};
-			fakePlugins[1] = {name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1};
-			fakePlugins.item = function(i) { return this[i] || null; };
-			fakePlugins.namedItem = function(n) { return null; };
-			fakePlugins.refresh = function() {};
-			return fakePlugins;
-		}
-	});
-
-	// ── mimeTypes (headless = empty) ──
-	Object.defineProperty(Navigator.prototype, 'mimeTypes', {
-		get: function() {
-			var a = Object.create(null);
-			a.length = 2;
-			a[0] = {type: 'application/pdf', description: '', suffixes: 'pdf', __proto__: (navigator.mimeTypes && navigator.mimeTypes[0] ? Object.getPrototypeOf(navigator.mimeTypes[0]) : null)};
-			a[1] = {type: 'text/pdf', description: '', suffixes: 'pdf', __proto__: (navigator.mimeTypes && navigator.mimeTypes[1] ? Object.getPrototypeOf(navigator.mimeTypes[1]) : null)};
-			a.item = function(i) { return this[i] || null; };
-			a.namedItem = function(n) { return null; };
-			return a;
-		}
-	});
-
-	// ── languages ──
-	Object.defineProperty(Navigator.prototype, 'languages', {get: function() { return ['en-US', 'en']; }});
-
-	// ── hardwareConcurrency (headless defaults to 1) ──
-	Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', {get: function() { return 8; }});
-
-	// ── deviceMemory (headless reports 0) ──
-	Object.defineProperty(Navigator.prototype, 'deviceMemory', {get: function() { return 8; }});
-
-	// ── maxTouchPoints (headless reports 0, desktop usually has 0 too — leave at 0) ──
-
-	// ── chrome.runtime (headless may be missing entirely) ──
-	window.chrome = window.chrome || {};
-	window.chrome.runtime = window.chrome.runtime || {};
-	window.chrome.loadTimes = window.chrome.loadTimes || function() { return {}; };
-	window.chrome.csi = window.chrome.csi || function() { return {}; };
-	window.chrome.app = window.chrome.app || {};
-
-	// ── Permissions API — override query to not leak automation ──
-	var origQuery = window.navigator.permissions && window.navigator.permissions.query;
-	if (origQuery) {
-		window.navigator.permissions.query = function(desc) {
-			return origQuery.call(window.navigator.permissions, desc).then(function(s) {
-				return Object.create(s, {
-					state: {value: s.state === 'denied' ? 'prompt' : s.state}
-				});
-			});
-		};
-	}
-})()`
 
 var (
 	BrowserHeadless    = true
@@ -103,6 +44,7 @@ type browserState struct {
 	browser *rod.Browser
 	pages   map[string]*pageInfo
 	active  string
+	pid     int
 }
 
 type pageInfo struct {
@@ -520,6 +462,17 @@ func getOrCreateBrowser() (*browserState, error) {
 		return bState, nil
 	}
 
+	// Try to reconnect to an existing browser using our profile.
+	if bs := reconnect(); bs != nil {
+		bState = bs
+		return bState, nil
+	}
+
+	// No existing browser — launch a new one.
+	if BrowserProfileDir != "" {
+		os.MkdirAll(BrowserProfileDir, 0755)
+	}
+
 	l := launcher.New().
 		Leakless(false).
 		Headless(BrowserHeadless).
@@ -534,12 +487,18 @@ func getOrCreateBrowser() (*browserState, error) {
 		Set("no-default-browser-check", "true").
 		Set("no-first-run", "true")
 
-		if BrowserProfileDir != "" {
-			l = l.Set("user-data-dir", BrowserProfileDir)
-		}
+	if BrowserProfileDir != "" {
+		l = l.Set("user-data-dir", BrowserProfileDir)
+	}
 
 	url, err := l.Launch()
 	if err != nil {
+		// Launch failed, but the browser process might still be alive.
+		// Try to reconnect via DevToolsActivePort.
+		if bs := reconnect(); bs != nil {
+			bState = bs
+			return bState, nil
+		}
 		return nil, fmt.Errorf("launch browser: %w", err)
 	}
 
@@ -550,8 +509,80 @@ func getOrCreateBrowser() (*browserState, error) {
 	bState = &browserState{
 		browser: browser,
 		pages:   make(map[string]*pageInfo),
+		pid:     l.PID(),
 	}
 	return bState, nil
+}
+
+func resolveDebugURL(port string) (string, error) {
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/json/version", port))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var info struct {
+		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return "", err
+	}
+	return info.WebSocketDebuggerURL, nil
+}
+
+func reconnect() *browserState {
+	url := readDevToolsURL()
+	if url == "" {
+		return nil
+	}
+	browser := rod.New().ControlURL(url)
+	if err := browser.Connect(); err != nil {
+		return nil
+	}
+	return &browserState{
+		browser: browser,
+		pages:   make(map[string]*pageInfo),
+		pid:     findBrowserPID(),
+	}
+}
+
+// readDevToolsURL reads the debug WebSocket URL from an already-running browser's profile.
+func readDevToolsURL() string {
+	if BrowserProfileDir == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(BrowserProfileDir, "DevToolsActivePort"))
+	if err != nil {
+		return ""
+	}
+	port := strings.TrimSpace(strings.Split(string(data), "\n")[0])
+	if port == "" {
+		return ""
+	}
+	url, err := resolveDebugURL(port)
+	if err != nil {
+		return ""
+	}
+	return url
+}
+
+// findBrowserPID finds the PID of an Edge/Chrome process using our profile.
+func findBrowserPID() int {
+	if BrowserProfileDir == "" || runtime.GOOS != "windows" {
+		return 0
+	}
+	ps := fmt.Sprintf(
+		`Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" | Where-Object { $_.CommandLine -like '*%s*' } | Select-Object -ExpandProperty ProcessId -First 1`,
+		BrowserProfileDir,
+	)
+	out, err := exec.Command("powershell", "-NoProfile", "-Command", ps).Output()
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0
+	}
+	return pid
 }
 
 func browserOpen(url string) *session.ToolResult {
@@ -563,9 +594,9 @@ func browserOpen(url string) *session.ToolResult {
 	bmu.Lock()
 	defer bmu.Unlock()
 
-	page, err := bs.browser.Page(proto.TargetCreateTarget{})
+	page, err := stealth.Page(bs.browser)
 	if err != nil {
-		return &session.ToolResult{Error: fmt.Sprintf("create page: %v", err)}
+		return &session.ToolResult{Error: fmt.Sprintf("create stealth page: %v", err)}
 	}
 	page = page.Timeout(30 * time.Second)
 	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
@@ -577,7 +608,6 @@ func browserOpen(url string) *session.ToolResult {
 		page.Close()
 		return &session.ToolResult{Error: fmt.Sprintf("set viewport: %v", err)}
 	}
-	injectStealth(page)
 	if err := page.Navigate(url); err != nil {
 		page.Close()
 		return &session.ToolResult{Error: fmt.Sprintf("navigate to %s: %v", url, err)}
@@ -851,10 +881,6 @@ func browserScroll(pg *rod.Page, dir string, amt float64, pages float64) *sessio
 		}
 	}
 	return &session.ToolResult{Content: "Scrolled"}
-}
-
-func injectStealth(page *rod.Page) {
-	page.EvalOnNewDocument(stealthJS)
 }
 
 func browserEvaluate(pg *rod.Page, expr string) *session.ToolResult {

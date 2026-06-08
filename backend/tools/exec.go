@@ -530,6 +530,10 @@ func Cleanup() {
 	bmu.Lock()
 	if bState != nil {
 		bState.browser.Close()
+		// Force-kill by PID — browser.Close() may not kill background processes on Windows.
+		if bState.pid > 0 {
+			exec.Command("taskkill", "/f", "/pid", fmt.Sprintf("%d", bState.pid)).Run()
+		}
 		bState = nil
 	}
 	bmu.Unlock()
