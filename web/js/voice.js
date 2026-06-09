@@ -2,7 +2,6 @@
 
 var voiceMode = false;
 var recognition = null;
-var accumulated = '';
 var currentAudio = null;
 var voiceSettings = { lang: 'zh-CN', voiceURI: '', rate: 1, pitch: 1 };
 
@@ -26,6 +25,11 @@ micBtn.addEventListener('click', function() {
   stopVoiceAndDeactivate();
 });
 
+// Stop listening when the tab loses visibility (user switches to another app).
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden && voiceMode) stopVoiceAndDeactivate();
+});
+
 function updateMicButton() {
   micBtn.classList.remove('mic-active', 'mic-speaking');
   if (state.name === 'speaking') micBtn.classList.add('mic-speaking');
@@ -38,26 +42,38 @@ function startListening() {
   updateMicButton();
   state.name = 'listening';
   msgInput.placeholder = t('status.listening');
+  document.getElementById('input-capsule').classList.add('listening');
 
   if (state.name === 'speaking') { speechSynthesis.cancel(); if (currentAudio) { currentAudio.pause(); currentAudio = null; } }
   if (recognition) { try { recognition.abort(); } catch(e) {} }
-  accumulated = '';
 
   recognition = new SpeechRecognition();
   recognition.continuous = true;
-  recognition.interimResults = true;
+  recognition.interimResults = false;
   recognition.lang = voiceSettings.lang;
 
   recognition.onresult = function(e) {
-    var interim = '', finalText = '';
+    var text = '';
     for (var i = e.resultIndex; i < e.results.length; i++) {
-      var r = e.results[i];
-      if (r.isFinal) finalText += r[0].transcript;
-      else interim += r[0].transcript;
+      text += e.results[i][0].transcript;
     }
-    if (finalText) accumulated += finalText;
-    msgInput.value = accumulated + (interim ? ' ' + interim : '');
-    msgInput.dispatchEvent(new Event('input'));
+    if (text) {
+      var s = msgInput.selectionStart;
+      var e = msgInput.selectionEnd;
+      var cur = msgInput.value;
+      var prefix = cur.substring(0, s);
+      var suffix = cur.substring(e);
+      if (prefix && !/\s$/.test(prefix)) prefix += ' ';
+      msgInput.value = prefix + text + suffix;
+      var pos = (prefix + text).length;
+      msgInput.selectionStart = msgInput.selectionEnd = pos;
+      msgInput.dispatchEvent(new Event('input'));
+    }
+  };
+
+  recognition.onend = function() {
+    // Browser may silently stop recognition when the tab loses focus.
+    if (voiceMode) stopVoiceAndDeactivate();
   };
 
   recognition.onerror = function(e) {
@@ -104,11 +120,11 @@ function startListening() {
 
 function stopVoiceAndDeactivate() {
   if (recognition) { try { recognition.abort(); } catch(e) {} }
-  accumulated = '';
   voiceMode = false;
   updateMicButton();
   state.name = 'idle';
   msgInput.placeholder = t('input.placeholder');
+  document.getElementById('input-capsule').classList.remove('listening');
 }
 
 function stripHtml(html) {

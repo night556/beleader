@@ -398,6 +398,7 @@ function fillInput(text) {
 // ── View switching ──
 
 function switchView(view) {
+  if (voiceMode) stopVoiceAndDeactivate();
   currentView = view;
   _agentFilter = null;
   document.querySelectorAll('.tab-item').forEach(function(t) {

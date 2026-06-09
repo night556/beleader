@@ -178,24 +178,24 @@ body {
 @keyframes expandIn { from { opacity:0; max-height:0; } to { opacity:1; max-height:500px; } }
 
 .exp-body {
-  padding:10px 14px; font-size:13px; line-height:1.8; color:var(--text);
+  padding:10px 14px; font-size:15px; line-height:1.75; color:var(--text);
 }
 .exp-body::-webkit-scrollbar { width:3px; }
 .exp-body::-webkit-scrollbar-thumb { background:rgba(167,139,250,0.12); border-radius:2px; }
 .exp-body p { margin:0 0 8px; }
 .exp-body p:last-child { margin-bottom:0; }
 .exp-body code {
-  font-family:var(--font-mono); font-size:11px;
+  font-family:var(--font-mono); font-size:13px;
   background:rgba(167,139,250,0.1); padding:1px 5px; border-radius:3px;
 }
 .exp-body pre {
   background:rgba(0,0,0,0.3); border-radius:8px; padding:10px 14px;
-  overflow-x:auto; font-size:11px; line-height:1.6;
+  overflow-x:auto; font-size:13px; line-height:1.6;
   font-family:var(--font-mono); color:#c0d0e0;
 }
 .exp-body pre code { background:none; padding:0; }
 
-.exp-user-content { font-size:14px; line-height:1.7; color:var(--text); white-space:pre-wrap; }
+.exp-user-content { font-size:15px; line-height:1.7; color:var(--text); white-space:pre-wrap; }
 
 /* Tool content formatting */
 .t-prompt { color:var(--green); }
@@ -284,6 +284,15 @@ body {
 #input-capsule:focus-within {
   border-color:rgba(167,139,250,0.4);
   box-shadow:0 4px 32px rgba(0,0,0,0.3);
+}
+#input-capsule.listening {
+  border-color:rgba(56,189,248,0.85);
+  box-shadow:0 0 20px rgba(56,189,248,0.35), 0 0 60px rgba(56,189,248,0.15), inset 0 0 20px rgba(56,189,248,0.06);
+  animation: breathe 1.8s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%,100% { border-color:rgba(56,189,248,0.6); box-shadow:0 0 16px rgba(56,189,248,0.25), 0 0 48px rgba(56,189,248,0.08), inset 0 0 16px rgba(56,189,248,0.03); }
+  50%      { border-color:rgba(56,189,248,1);   box-shadow:0 0 28px rgba(56,189,248,0.45), 0 0 80px rgba(56,189,248,0.22), inset 0 0 28px rgba(56,189,248,0.08); }
 }
 #msg-input {
   flex:1; background:transparent; border:none; outline:none; resize:none;
