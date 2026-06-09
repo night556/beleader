@@ -3,7 +3,6 @@
 var voiceMode = false;
 var recognition = null;
 var accumulated = '';
-var silenceTimer = null;
 var currentAudio = null;
 var voiceSettings = { lang: 'zh-CN', voiceURI: '', rate: 1, pitch: 1 };
 
@@ -24,11 +23,7 @@ var micBtn = document.getElementById('mic-btn');
 
 micBtn.addEventListener('click', function() {
   if (!voiceMode) { startListening(); return; }
-  stopListening();
-  voiceMode = false;
-  updateMicButton();
-  state.name = 'idle';
-  msgInput.placeholder = t('input.placeholder');
+  stopVoiceAndDeactivate();
 });
 
 function updateMicButton() {
@@ -62,11 +57,7 @@ function startListening() {
     }
     if (finalText) accumulated += finalText;
     msgInput.value = accumulated + (interim ? ' ' + interim : '');
-    resetSilenceTimer();
-  };
-
-  recognition.onspeechend = function() {
-    resetSilenceTimer();
+    msgInput.dispatchEvent(new Event('input'));
   };
 
   recognition.onerror = function(e) {
@@ -80,11 +71,7 @@ function startListening() {
     // Only turn off mic for permission / unavailable errors
     if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
       console.error('Speech recognition unavailable: ' + e.error);
-      stopListening();
-      voiceMode = false;
-      updateMicButton();
-      state.name = 'idle';
-      msgInput.placeholder = t('input.placeholder');
+      stopVoiceAndDeactivate();
       return;
     }
     // Network / audio-capture errors: retry once
@@ -115,29 +102,13 @@ function startListening() {
   tryStart(false);
 }
 
-function resetSilenceTimer() {
-  if (silenceTimer) clearTimeout(silenceTimer);
-  silenceTimer = setTimeout(function() {
-    if (accumulated.trim()) stopVoiceAndSend();
-  }, 2000);
-}
-
-function stopVoiceAndSend() {
-  if (silenceTimer) clearTimeout(silenceTimer);
+function stopVoiceAndDeactivate() {
   if (recognition) { try { recognition.abort(); } catch(e) {} }
+  accumulated = '';
+  voiceMode = false;
   updateMicButton();
   state.name = 'idle';
-  msgInput.placeholder = t('status.ai_thinking');
-  if (accumulated.trim()) msgInput.value = accumulated.trim();
-  if (msgInput.value) sendMsg();
-  accumulated = '';
-}
-
-function stopListening() {
-  if (silenceTimer) clearTimeout(silenceTimer);
-  if (recognition) { try { recognition.abort(); } catch(e) {} }
-  accumulated = '';
-  msgInput.value = '';
+  msgInput.placeholder = t('input.placeholder');
 }
 
 function stripHtml(html) {

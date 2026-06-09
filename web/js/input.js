@@ -62,14 +62,15 @@ function sendMsg() {
 }
 
 sendBtn.addEventListener('click', function() {
-  if (voiceMode) stopVoiceAndSend();
-  else sendMsg();
+  if (voiceMode) stopVoiceAndDeactivate();
+  sendMsg();
 });
 
 msgInput.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    if (voiceMode) stopVoiceAndSend(); else sendMsg();
+    if (voiceMode) stopVoiceAndDeactivate();
+    sendMsg();
   }
 });
 
