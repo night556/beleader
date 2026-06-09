@@ -1208,16 +1208,17 @@ var showHTMLTool = openai.Tool{
 	Type: "function",
 	Function: &openai.FunctionDefinition{
 		Name:        "show_html",
-		Description: "Show HTML content in a floating card on the desktop. Returns html_id for later close_html calls. Use for displaying results, diagrams, or dashboards to the user.",
+		Description: "Show HTML content in a floating card on the desktop. Returns html_id for later close_html calls. Provide either 'content' (raw HTML) or 'path' (a local .html file to load).",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"title":   map[string]any{"type": "string", "description": "Card title"},
-				"content": map[string]any{"type": "string", "description": "HTML content to display"},
+				"content": map[string]any{"type": "string", "description": "HTML content to display. Omit if using path."},
+				"path":    map[string]any{"type": "string", "description": "Absolute path to a local .html file. Omit if using content."},
 				"width":   map[string]any{"type": "integer", "description": "Card width in pixels. Default 800."},
 				"height":  map[string]any{"type": "integer", "description": "Card height in pixels. Default 600."},
 			},
-			"required": []string{"title", "content"},
+			"required": []string{"title"},
 		},
 	},
 }

@@ -497,7 +497,8 @@ function getToolMeta(tn, args) {
 var _contentCards = {};
 
 function createContentCard(data) {
-  if (!data.id || !data.html) return;
+  if (!data.id) return;
+  var cardHtml = data.html || '<div style="padding:20px;color:var(--text-dim);text-align:center;">Empty content</div>';
   // Replace if already exists
   if (_contentCards[data.id]) removeContentCard(data.id);
 
@@ -526,7 +527,7 @@ function createContentCard(data) {
       '<button class="card-close" title="Close" onclick="removeContentCard(\'' + data.id + '\')">&#10005;</button>' +
     '</div>' +
     '<div class="content-card-body">' +
-      '<iframe sandbox="allow-scripts allow-same-origin allow-downloads" srcdoc="' + escapeAttr(data.html) + '"></iframe>' +
+      '<iframe sandbox="allow-scripts allow-same-origin allow-downloads" srcdoc="' + escapeAttr(cardHtml) + '"></iframe>' +
     '</div>';
 
   container.appendChild(card);

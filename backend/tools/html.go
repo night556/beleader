@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -95,10 +97,22 @@ func showHTMLHandler(ctx context.Context, args string) *session.ToolResult {
 	var p struct {
 		Title   string `json:"title"`
 		Content string `json:"content"`
+		Path    string `json:"path"`
 		Width   int    `json:"width"`
 		Height  int    `json:"height"`
 	}
 	json.Unmarshal([]byte(args), &p)
+
+	if p.Path != "" {
+		data, err := os.ReadFile(filepath.Clean(p.Path))
+		if err != nil {
+			return &session.ToolResult{Error: fmt.Sprintf("cannot read file: %v", err)}
+		}
+		p.Content = string(data)
+	}
+	if p.Content == "" {
+		return &session.ToolResult{Error: "content is required"}
+	}
 
 	sid := SessionIDFromCtx(ctx)
 	id := AddContent(ContentMeta{
