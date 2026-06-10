@@ -870,6 +870,7 @@ func (h *Handler) handleClearContext(c *gin.Context) {
 	}
 
 	h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "notice", Content: "--- 上下文已清空 ---"})
+	h.Notify(SessionEvent{Type: "notice", SessionID: sessionID, Data: gin.H{"content": "--- 上下文已清空 ---"}})
 
 	c.JSON(200, gin.H{"status": "ok", "context_start_id": lastID})
 }

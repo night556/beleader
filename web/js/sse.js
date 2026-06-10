@@ -107,8 +107,10 @@ function loadSessionMessages(sessionId) {
           item = { type: 'tool', icon: toolIcon, label: toolLabel, detail: toolDetail, content: toolContent, status: hasError ? 'fail' : 'done', error: hasError };
         } else if (m.role === 'system') {
           continue;
+        } else if (m.role === 'error') {
+          item = { type: 'error', icon: '⚠', label: t('status.error'), content: m.content || '', status: 'fail' };
         } else if (m.role === 'notice') {
-          item = { type: 'error', icon: '⚠', label: t('status.error'), content: m.content || t('status.unknown_error'), status: 'fail' };
+          item = { type: 'notice', icon: 'ℹ', label: '', content: m.content || '', status: 'done' };
         }
         if (item) pushTimelineItem(item);
       }
@@ -164,7 +166,7 @@ window.updateState = function(name, data) {
   var sid = data.session_id || '';
 
   // Filter timeline events to current view's session only
-  var timelineTypes = ['thinking', 'tool_calls', 'tool_call', 'tool_result', 'responding', 'assistant_message', 'idle', 'stopped', 'context_compressed'];
+  var timelineTypes = ['thinking', 'tool_calls', 'tool_call', 'tool_result', 'responding', 'assistant_message', 'idle', 'stopped', 'context_compressed', 'notice'];
   if (timelineTypes.indexOf(name) !== -1 && !isCurrentViewSession(sid)) return;
 
   switch (name) {
@@ -304,6 +306,19 @@ window.updateState = function(name, data) {
         _agentActivities[sid] = { text: t('status.replying_activity'), since: Date.now() };
         updateAgentBar();
       }
+      break;
+
+    case 'notice':
+      hideIdle();
+      var noticeItem = {
+        type: 'notice',
+        icon: 'ℹ',
+        label: '',
+        content: data.content || '',
+        status: 'done'
+      };
+      pushTimelineItem(noticeItem);
+      setLiveStage(noticeItem);
       break;
 
     case 'error':

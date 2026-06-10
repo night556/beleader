@@ -74,6 +74,9 @@ function renderTimeline() {
     } else if (item.type === 'error') {
       tagClass = 'tool'; tagText = t('status.error');
       summary = (item.content || '').substring(0, 60);
+    } else if (item.type === 'notice') {
+      tagClass = 'tool'; tagText = '';
+      summary = (item.content || '').substring(0, 60);
     } else if (item.type === 'thinking') {
       tagClass = 'reply'; tagText = '…';
       summary = t('status.thinking');
@@ -185,6 +188,9 @@ function formatExpandBody(item) {
   }
   if (item.type === 'error') {
     return escapeHtml(item.content || '');
+  }
+  if (item.type === 'notice') {
+    return '<div style="color:var(--text-dim);font-style:italic">' + escapeHtml(item.content || '') + '</div>';
   }
   if (item.type === 'tool') {
     var detailHtml = '';

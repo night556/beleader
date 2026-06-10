@@ -265,7 +265,7 @@ func (m *Manager) BuildMessages(sessionID string, afterID int64, sysPrompt strin
 	}
 
 	for _, dm := range dbMsgs {
-		if dm.Hidden || dm.Role == "notice" {
+		if dm.Hidden || dm.Role == "notice" || dm.Role == "error" {
 			continue
 		}
 		// Skip empty assistant messages (no content, no tool calls)

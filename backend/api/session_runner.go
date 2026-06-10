@@ -168,7 +168,7 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 			h.Notify(SessionEvent{Type: eventType, SessionID: sid, Data: payload})
 		})
 	if err != nil {
-		h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "notice", Content: fmt.Sprintf("[错误] %s", err.Error())})
+		h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "error", Content: err.Error()})
 		h.Notify(SessionEvent{Type: "error", SessionID: sessionID, Data: gin.H{"message": err.Error()}})
 		if opts.AgentType != "main" {
 			h.releaseHC(sessionID)
@@ -198,7 +198,7 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 	}
 
 	if result.Error != "" {
-		h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "notice", Content: fmt.Sprintf("[错误] %s", result.Error)})
+		h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "error", Content: result.Error})
 		h.Notify(SessionEvent{Type: "error", SessionID: sessionID, Data: gin.H{"message": result.Error}})
 		if opts.AgentType == "main" {
 			h.DB.UpdateSessionStatus(sessionID, "idle")
