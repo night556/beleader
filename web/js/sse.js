@@ -298,7 +298,7 @@ window.updateState = function(name, data) {
         };
         pushTimelineItem(replyItem);
         setLiveStage(replyItem);
-        updateStatus(t('status.ready'), 'idle');
+        // keep current status — agent may still be in a loop
       }
       if (sid) {
         _agentActivities[sid] = { text: t('status.replying_activity'), since: Date.now() };

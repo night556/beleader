@@ -140,8 +140,6 @@ function clearContext() {
     .then(function(r) { return r.json(); })
     .then(function() {
       toast(t('toast.context_cleared'));
-      timelineItems = [];
-      renderAll();
     })
     .catch(function(e) { toast(t('toast.clear_failed') + e.message); });
 }

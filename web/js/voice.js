@@ -122,7 +122,6 @@ function stopVoiceAndDeactivate() {
   if (recognition) { try { recognition.abort(); } catch(e) {} }
   voiceMode = false;
   updateMicButton();
-  state.name = 'idle';
   msgInput.placeholder = t('input.placeholder');
   document.getElementById('input-capsule').classList.remove('listening');
 }
