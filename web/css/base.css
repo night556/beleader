@@ -466,11 +466,12 @@ body {
 .content-card {
   pointer-events:auto; display:flex; flex-direction:column;
   width:800px; max-width:calc(100vw - 16px); height:500px; max-height:60vh;
+  min-width:280px; min-height:180px;
   background:rgba(20,16,40,0.96); border:1px solid rgba(167,139,250,0.25);
   border-radius:10px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.5);
-  transition:all 0.25s ease; resize:both;
+  transition:opacity 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease; resize:both;
 }
-.content-card.minimized { height:36px !important; resize:none; }
+.content-card.minimized { height:36px !important; resize:none; transition:none; }
 .content-card-header {
   display:flex; align-items:center; gap:8px; padding:6px 10px;
   background:rgba(167,139,250,0.08); border-bottom:1px solid rgba(167,139,250,0.12);

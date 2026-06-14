@@ -488,6 +488,7 @@ function getToolMeta(tn, args) {
   // Icons
   var icon = '⚙';
   if (tn === 'web_search' || tn === 'web_fetch' || tn === 'browser_content' || tn.startsWith('browser_')) icon = '🌐';
+  else if (tn === 'show_file' && typeof args.path === 'string' && args.path.toLowerCase().endsWith('.scad')) icon = '📐';
   else if (tn === 'read_file' || tn === 'show_file' || tn === 'read_dir') icon = '✎';
   else if (tn === 'run_command' || tn === 'execute_command') icon = '⬛';
   else if (tn === 'search_content' || tn === 'search_files') icon = '⬛';
@@ -501,12 +502,31 @@ function getToolMeta(tn, args) {
 // ── Content cards (show_html, show_file) ──
 
 var _contentCards = {};
+var _cardDrag = null;
+
+// Global drag listeners — set up once
+document.addEventListener('mousemove', function(e) {
+  if (!_cardDrag) return;
+  _cardDrag.card.style.right = (_cardDrag.startRight - (e.clientX - _cardDrag.startX)) + 'px';
+  _cardDrag.card.style.bottom = (_cardDrag.startBottom - (e.clientY - _cardDrag.startY)) + 'px';
+});
+document.addEventListener('mouseup', function() {
+  if (!_cardDrag) return;
+  _cardDrag.card.style.transition = 'opacity 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease';
+  _cardDrag = null;
+});
 
 function createContentCard(data) {
   if (!data.id) return;
   var cardHtml = data.html || '<div style="padding:20px;color:var(--text-dim);text-align:center;">Empty content</div>';
   // Replace if already exists
   if (_contentCards[data.id]) removeContentCard(data.id);
+
+  // Enforce max 5 cards — close oldest when exceeded
+  var cardIds = Object.keys(_contentCards);
+  if (cardIds.length >= 5) {
+    removeContentCard(cardIds[0]);
+  }
 
   var container = document.getElementById('content-cards');
 
@@ -546,25 +566,19 @@ function createContentCard(data) {
     showingSource: false
   };
 
-  // Drag support — mousedown on header starts drag, mousemove repositions, mouseup stops
+  // Drag support — mousedown on header records state; global listeners handle the rest
   var header = card.querySelector('.content-card-header');
-  var dragging = false, startX, startY, startRight, startBottom;
   header.addEventListener('mousedown', function(e) {
     if (e.target.tagName === 'BUTTON') return;
-    dragging = true;
-    startX = e.clientX; startY = e.clientY;
-    startRight = parseInt(card.style.right) || 0;
-    startBottom = parseInt(card.style.bottom) || 0;
+    _cardDrag = {
+      card: card,
+      startX: e.clientX,
+      startY: e.clientY,
+      startRight: parseInt(card.style.right) || 0,
+      startBottom: parseInt(card.style.bottom) || 0
+    };
     card.style.transition = 'none';
     e.preventDefault();
-  });
-  document.addEventListener('mousemove', function(e) {
-    if (!dragging) return;
-    card.style.right = (startRight - (e.clientX - startX)) + 'px';
-    card.style.bottom = (startBottom - (e.clientY - startY)) + 'px';
-  });
-  document.addEventListener('mouseup', function() {
-    if (dragging) { dragging = false; card.style.transition = 'all 0.25s ease'; }
   });
 }
 

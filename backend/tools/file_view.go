@@ -20,7 +20,7 @@ var showFileTool = openai.Tool{
 	Type: "function",
 	Function: &openai.FunctionDefinition{
 		Name: "show_file",
-		Description: "Display a local file in a floating card on the desktop. Images, videos, audio, and PDFs render inline. HTML files render as live web pages by default (with a toggle to view source code). Code and text files display with syntax coloring. NOT for web URLs — use browser_automate for those.",
+		Description: "Display a local file in a floating card on the desktop. Images, videos, audio, and PDFs render inline. HTML files render as live web pages. .scad files render as interactive 3D preview. Code and text files display with syntax coloring. NOT for web URLs — use browser_automate for those.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -99,6 +99,14 @@ iframe{width:100%%;height:100vh;border:none}
 				htmlSource = string(data)
 			}
 		}
+
+	case isSCADExt(ext):
+		data, err := os.ReadFile(cleanPath)
+		if err != nil {
+			return &session.ToolResult{Error: fmt.Sprintf("cannot read file: %v", err)}
+		}
+		doc = buildPreview3DHTML(string(data), title)
+		htmlSource = string(data)
 
 	case isTextExt(ext):
 		if info.Size() >= 200*1024 {
@@ -297,4 +305,255 @@ func formatSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func isSCADExt(ext string) bool {
+	return ext == ".scad"
+}
+
+const preview3DHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#1a1a2e;font-family:system-ui,-apple-system,sans-serif}
+#toolbar{position:absolute;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;gap:10px;padding:8px 14px;background:rgba(15,15,35,0.92);backdrop-filter:blur(8px);border-bottom:1px solid rgba(167,139,250,0.15)}
+#btn-stl{padding:6px 16px;background:#7c3aed;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;transition:background 0.15s}
+#btn-stl:hover:not(:disabled){background:#6d28d9}
+#btn-stl:disabled{opacity:0.45;cursor:not-allowed}
+#status{color:#a78bfa;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#progress-track{width:160px;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden;flex-shrink:0}
+#progress-fill{height:100%;background:linear-gradient(90deg,#7c3aed,#a78bfa);width:0%;transition:width 0.4s ease;border-radius:2px}
+#viewer{width:100%;height:100%}
+.error-overlay{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);color:#f87171;padding:20px 28px;border-radius:8px;font-size:14px;max-width:80%;text-align:center;z-index:30;line-height:1.5;font-family:'JetBrains Mono',monospace;white-space:pre-wrap}
+.error-overlay.visible{display:block}
+</style>
+</head>
+<body>
+<div id="toolbar">
+<button id="btn-stl" disabled>Download STL</button>
+<div id="progress-track"><div id="progress-fill"></div></div>
+<span id="status">Loading OpenSCAD...</span>
+</div>
+<div id="viewer"></div>
+<div id="error-overlay" class="error-overlay"></div>
+
+<script type="importmap">
+{
+"imports": {
+"three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+const SCAD_CODE = __SCAD_CODE__;
+const CARD_TITLE = __CARD_TITLE__;
+
+const statusEl = document.getElementById('status');
+const progressFill = document.getElementById('progress-fill');
+const btnSTL = document.getElementById('btn-stl');
+const errorOverlay = document.getElementById('error-overlay');
+
+function setProgress(pct, text) {
+progressFill.style.width = pct + '%';
+if (text) statusEl.textContent = text;
+}
+
+function showError(msg) {
+errorOverlay.textContent = msg;
+errorOverlay.classList.add('visible');
+statusEl.textContent = 'Error';
+statusEl.style.color = '#f87171';
+progressFill.style.background = '#ef4444';
+}
+
+let currentSTL = null;
+
+async function init() {
+setProgress(10, 'Loading OpenSCAD WASM...');
+const { createOpenSCAD } = await import('https://cdn.jsdelivr.net/npm/openscad-wasm-prebuilt@1.2.0/dist/openscad.js');
+const openSCAD = await createOpenSCAD({
+locateFile: function(path) {
+if (path.indexOf('.wasm') !== -1) {
+return 'https://cdn.jsdelivr.net/npm/openscad-wasm-prebuilt@1.2.0/dist/openscad.wasm';
+}
+return 'https://cdn.jsdelivr.net/npm/openscad-wasm-prebuilt@1.2.0/dist/' + path;
+}
+});
+setProgress(30, 'OpenSCAD loaded. Compiling...');
+
+let stlString;
+try {
+stlString = await openSCAD.renderToStl(SCAD_CODE);
+} catch (compileErr) {
+showError('OpenSCAD compilation error:\n' + (compileErr.message || compileErr));
+return;
+}
+if (!stlString || stlString.length < 10) {
+showError('OpenSCAD produced empty output. Check your SCAD code for geometry.');
+return;
+}
+currentSTL = stlString;
+setProgress(50, 'STL generated (' + (stlString.length / 1024).toFixed(1) + ' KB). Rendering...');
+
+const viewer = document.getElementById('viewer');
+const w = viewer.clientWidth;
+const h = viewer.clientHeight;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(w, h);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+viewer.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const bgColor = new THREE.Color('#1a1a2e');
+scene.background = bgColor;
+const camera = new THREE.PerspectiveCamera(45, w / Math.max(h, 1), 0.1, 2000);
+camera.position.set(10, 7, 12);
+camera.lookAt(0, 0, 0);
+
+setProgress(65, 'Parsing STL geometry...');
+const loader = new STLLoader();
+let geometry;
+try {
+geometry = loader.parse(currentSTL);
+} catch (parseErr) {
+showError('Failed to parse STL: ' + (parseErr.message || parseErr));
+return;
+}
+geometry.computeVertexNormals();
+geometry.center();
+
+geometry.computeBoundingBox();
+const bb = geometry.boundingBox;
+const size = new THREE.Vector3();
+bb.getSize(size);
+const maxDim = Math.max(size.x, size.y, size.z);
+
+camera.far = maxDim * 30;
+camera.updateProjectionMatrix();
+const camDist = maxDim * 3.5;
+camera.position.set(camDist * 0.7, camDist * 0.5, camDist * 0.8);
+camera.lookAt(0, 0, 0);
+
+const material = new THREE.MeshStandardMaterial({
+color: 0x7c3aed,
+roughness: 0.4,
+metalness: 0.1,
+});
+
+const mesh = new THREE.Mesh(geometry, material);
+mesh.castShadow = true;
+mesh.receiveShadow = true;
+scene.add(mesh);
+
+const edgesGeo = new THREE.EdgesGeometry(geometry, 30);
+const edgesMat = new THREE.LineBasicMaterial({ color: 0x1a1a2e, transparent: true, opacity: 0.3 });
+const edgesLine = new THREE.LineSegments(edgesGeo, edgesMat);
+mesh.add(edgesLine);
+
+// Free STL buffer after geometry is built — for large models this saves significant memory
+currentSTL = null;
+stlString = null;
+
+setProgress(80, 'Setting up lights...');
+
+const s = maxDim * 1.5;
+scene.add(new THREE.AmbientLight(0x404060, 1.5));
+
+const keyLight = new THREE.DirectionalLight(0xffeedd, 3.5);
+keyLight.position.set(s, s * 1.5, s);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.camera.near = s * 0.1;
+keyLight.shadow.camera.far = s * 10;
+keyLight.shadow.camera.left = -s * 2;
+keyLight.shadow.camera.right = s * 2;
+keyLight.shadow.camera.top = s * 2;
+keyLight.shadow.camera.bottom = -s * 2;
+keyLight.shadow.bias = -0.0001;
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0xaaccff, 1.2);
+fillLight.position.set(-s * 0.5, -s * 0.3, -s * 0.5);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0xffffff, 1.8);
+rimLight.position.set(0, s * 0.2, -s * 0.8);
+scene.add(rimLight);
+
+setProgress(90, 'Configuring scene...');
+
+const gridHelper = new THREE.GridHelper(maxDim * 4, 20, 0x666688, 0x333355);
+gridHelper.position.y = bb.min.y - 0.01;
+scene.add(gridHelper);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, (bb.max.y - bb.min.y) / 2 + bb.min.y, 0);
+controls.minDistance = maxDim * 0.5;
+controls.maxDistance = maxDim * 8;
+controls.update();
+
+function animate() {
+requestAnimationFrame(animate);
+controls.update();
+renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', function() {
+const rw = viewer.clientWidth;
+const rh = viewer.clientHeight;
+camera.aspect = rw / Math.max(rh, 1);
+camera.updateProjectionMatrix();
+renderer.setSize(rw, rh);
+});
+
+setProgress(100, 'Ready');
+btnSTL.disabled = false;
+statusEl.style.color = '#34d399';
+
+btnSTL.addEventListener('click', async function() {
+const filename = CARD_TITLE.replace(/[^a-zA-Z0-9_-]/g, '_') + '.stl';
+var stlData = currentSTL || await openSCAD.renderToStl(SCAD_CODE);
+const blob = new Blob([stlData], { type: 'application/octet-stream' });
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = filename;
+document.body.appendChild(a);
+a.click();
+document.body.removeChild(a);
+URL.revokeObjectURL(url);
+});
+}
+
+init().catch(function(err) {
+showError('Initialization failed: ' + (err.message || String(err)));
+console.error(err);
+});
+</script>
+</body>
+</html>`
+
+func buildPreview3DHTML(scadCode, title string) string {
+	scadJSON, _ := json.Marshal(scadCode)
+	titleJSON, _ := json.Marshal(title)
+	html := strings.Replace(preview3DHTML, "__SCAD_CODE__", string(scadJSON), 1)
+	html = strings.Replace(html, "__CARD_TITLE__", string(titleJSON), 1)
+	return html
 }
