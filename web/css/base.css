@@ -105,6 +105,15 @@ body {
 .stage {
   flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
   position:relative; z-index:5; min-height:0; padding:10px 0;
+  transition:flex-direction 0.3s, align-items 0.3s;
+}
+/* Split mode: timeline left, cards right */
+.stage.split {
+  flex-direction:row; align-items:stretch; justify-content:flex-start;
+  padding:10px 10px 0;
+}
+.stage.split .content-area {
+  max-width:720px; flex:1 1 auto; min-width:320px;
 }
 
 /* Idle state */
@@ -457,43 +466,68 @@ body {
 ::-webkit-scrollbar-corner { background: transparent; }
 * { scrollbar-width:thin; scrollbar-color:rgba(167,139,250,0.15) transparent; }
 
-/* ═══ Content cards (show_html, show_file) ═══ */
+/* ═══ Content cards panel ═══ */
 .content-cards {
-  position:fixed; bottom:0; right:0; z-index:50;
-  display:flex; flex-direction:column-reverse; gap:6px;
-  padding:8px; max-height:100vh; pointer-events:none;
+  display:none;
 }
-.content-card {
-  pointer-events:auto; display:flex; flex-direction:column;
-  width:800px; max-width:calc(100vw - 16px); height:500px; max-height:60vh;
-  min-width:280px; min-height:180px;
+/* When stage is split, cards panel slides in on the right */
+.stage.split .content-cards {
+  display:flex; flex-direction:column; gap:0;
+  flex:1 1 auto; min-width:360px; max-height:100%;
+  overflow:hidden; padding:0 0 0 8px;
+}
+/* Card tab bar */
+.card-tabs {
+  display:flex; align-items:center; gap:6px;
+  padding:0 0 4px; flex-shrink:0;
+}
+.card-tabs-left {
+  display:flex; align-items:center; gap:2px;
+  flex:1; overflow-x:auto; scrollbar-width:none;
+}
+.card-tabs-left::-webkit-scrollbar { display:none; }
+.card-tab {
+  padding:4px 10px; border-radius:6px 6px 0 0;
+  font-size:11px; font-family:inherit; cursor:pointer;
+  background:rgba(167,139,250,0.06); border:1px solid rgba(167,139,250,0.10);
+  color:var(--text-dim); white-space:nowrap; transition:all 0.15s;
+}
+.card-tab:hover { background:rgba(167,139,250,0.12); color:#fff; }
+.card-tab.active { background:rgba(167,139,250,0.15); border-color:rgba(167,139,250,0.25); color:#fff; }
+.card-tabs-right {
+  display:flex; align-items:center; gap:4px; flex-shrink:0;
+}
+.card-action-btn {
+  font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer;
+  color:var(--text-dim); background:rgba(255,255,255,0.04);
+  border:1px solid rgba(255,255,255,0.06); transition:all 0.15s;
+  white-space:nowrap; user-select:none;
+}
+.card-action-btn:hover { background:rgba(255,255,255,0.1); color:#fff; }
+.card-action-btn.on { background:rgba(167,139,250,0.15); border-color:rgba(167,139,250,0.3); color:var(--primary); }
+.card-close-btn:hover { background:rgba(244,63,94,0.2); border-color:rgba(244,63,94,0.35); color:var(--red); }
+/* Cards in panel — only active is visible */
+.stage.split .content-card {
+  display:none; flex-direction:column;
+  width:100%; min-height:200px; flex:1 1 auto;
   background:rgba(20,16,40,0.96); border:1px solid rgba(167,139,250,0.25);
   border-radius:10px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.5);
-  transition:opacity 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease; resize:both;
+  transition:opacity 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
-.content-card.minimized { height:36px !important; resize:none; transition:none; }
-.content-card-header {
-  display:flex; align-items:center; gap:8px; padding:6px 10px;
-  background:rgba(167,139,250,0.08); border-bottom:1px solid rgba(167,139,250,0.12);
-  cursor:move; flex-shrink:0; user-select:none;
+.content-card {
+  display:flex; flex-direction:column;
+  width:100%; min-height:200px;
+  background:rgba(20,16,40,0.96); border:1px solid rgba(167,139,250,0.25);
+  border-radius:10px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.5);
+  transition:opacity 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
-.content-card-header .card-title {
-  flex:1; font-size:12px; font-weight:500; color:var(--text);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.content-card-header button {
-  width:22px; height:22px; border:none; border-radius:4px;
-  background:transparent; color:var(--text-dim); cursor:pointer;
-  font-size:12px; font-family:inherit; display:flex; align-items:center; justify-content:center;
-  transition:all 0.15s; flex-shrink:0;
-}
-.content-card-header button:hover { background:rgba(255,255,255,0.1); color:#fff; }
-.content-card-header button.card-close:hover { background:var(--red); }
 .content-card-body {
-  flex:1; overflow:hidden; position:relative;
+  flex:1; overflow:hidden; position:relative; min-height:0;
+  background:transparent;
 }
 .content-card-body iframe {
   width:100%; height:100%; border:none; background:transparent;
+  display:block;
 }
 
 /* Toast */

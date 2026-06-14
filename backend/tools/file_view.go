@@ -2,6 +2,7 @@
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -142,7 +143,8 @@ body{font-family:system-ui,sans-serif;font-size:14px;color:#e0d9f5;background:tr
 	}
 
 	sid := SessionIDFromCtx(ctx)
-	id := AddContent(ContentMeta{Title: title, SessionID: sid})
+	id := fmt.Sprintf("file-%x", sha256.Sum256([]byte(cleanPath)))
+	SetContent(id, ContentMeta{Title: title, SessionID: sid})
 
 	if notifyContent != nil {
 		notifyContent("content_created", map[string]any{

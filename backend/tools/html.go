@@ -46,6 +46,14 @@ func AddContent(meta ContentMeta) string {
 	return id
 }
 
+// SetContent registers a content entry with a specific ID, replacing any existing entry with the same ID.
+func SetContent(id string, meta ContentMeta) {
+	contentMu.Lock()
+	defer contentMu.Unlock()
+	meta.ID = id
+	contentRegistry[id] = meta
+}
+
 // RemoveContent removes a content entry.
 func RemoveContent(id string) bool {
 	contentMu.Lock()

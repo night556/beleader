@@ -516,87 +516,122 @@ document.addEventListener('mouseup', function() {
   _cardDrag = null;
 });
 
+var _cardActive = null; // id of currently visible card
+
+function renderCardTabs() {
+  var container = document.getElementById('content-cards');
+  var bar = document.getElementById('card-tabs');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'card-tabs';
+    bar.id = 'card-tabs';
+    container.insertBefore(bar, container.firstChild);
+  }
+  var ids = Object.keys(_contentCards);
+  if (ids.length === 0) {
+    bar.remove();
+    return;
+  }
+
+  // Left: tab buttons
+  var left = bar.querySelector('.card-tabs-left') || bar.appendChild(document.createElement('div'));
+  left.className = 'card-tabs-left';
+  left.innerHTML = ids.map(function(id) {
+    var t = _contentCards[id].title || 'Content';
+    return '<button class="card-tab' + (id === _cardActive ? ' active' : '') +
+      '" onclick="switchCardTab(\'' + id + '\')">' +
+      escapeHtml(t.length > 24 ? t.substring(0, 24) + '...' : t) +
+      '</button>';
+  }).join('');
+
+  // Right: actions for the active card
+  var right = bar.querySelector('.card-tabs-right') || bar.appendChild(document.createElement('div'));
+  right.className = 'card-tabs-right';
+  var entry = _contentCards[_cardActive];
+  if (entry && entry.htmlSource) {
+    right.innerHTML = '<span class="card-action-btn' + (entry.showingSource ? ' on' : '') +
+      '" onclick="toggleCardSource(\'' + _cardActive + '\')">' +
+      (entry.showingSource ? '渲染' : '源码') + '</span>' +
+      '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
+  } else {
+    right.innerHTML = '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
+  }
+}
+
+function switchCardTab(id) {
+  _cardActive = id;
+  Object.keys(_contentCards).forEach(function(cid) {
+    _contentCards[cid].el.style.display = cid === id ? 'flex' : 'none';
+  });
+  renderCardTabs();
+}
+
 function createContentCard(data) {
   if (!data.id) return;
   var cardHtml = data.html || '<div style="padding:20px;color:var(--text-dim);text-align:center;">Empty content</div>';
-  // Replace if already exists
   if (_contentCards[data.id]) removeContentCard(data.id);
 
-  // Enforce max 5 cards — close oldest when exceeded
-  var cardIds = Object.keys(_contentCards);
-  if (cardIds.length >= 5) {
-    removeContentCard(cardIds[0]);
-  }
-
   var container = document.getElementById('content-cards');
+  var stage = document.getElementById('stage');
 
   var card = document.createElement('div');
   card.className = 'content-card';
   card.id = 'card-' + data.id;
-  if (data.width) card.style.width = data.width + 'px';
   if (data.height) card.style.height = data.height + 'px';
-  // Stagger cards so they don't stack completely
-  var offsetX = 40 * Object.keys(_contentCards).length;
-  var offsetY = 40 * Object.keys(_contentCards).length;
-  card.style.right = offsetX + 'px';
-  card.style.bottom = offsetY + 'px';
-  card.style.position = 'absolute';
 
   var htmlSource = data.html_source || '';
   var isHtmlFile = data.is_html_file || false;
 
   card.innerHTML =
-    '<div class="content-card-header">' +
-      '<span class="card-title">' + escapeHtml(data.title || 'Content') + '</span>' +
-      (isHtmlFile && htmlSource ? '<button title="View Source" onclick="toggleCardSource(\'' + data.id + '\')">&#128220;</button>' : '') +
-      '<button title="Minimize" onclick="toggleCardMinimize(\'' + data.id + '\')">&#8211;</button>' +
-      '<button class="card-close" title="Close" onclick="removeContentCard(\'' + data.id + '\')">&#10005;</button>' +
-    '</div>' +
     '<div class="content-card-body">' +
       '<iframe sandbox="allow-scripts allow-same-origin allow-downloads" srcdoc="' + escapeAttr(cardHtml) + '"></iframe>' +
     '</div>';
 
   container.appendChild(card);
+  card.style.display = 'flex';
+
+  // Hide all other cards
+  Object.keys(_contentCards).forEach(function(cid) {
+    _contentCards[cid].el.style.display = 'none';
+  });
 
   _contentCards[data.id] = {
     el: card,
+    title: data.title || 'Content',
     html: data.html,
     htmlSource: htmlSource,
     isHtmlFile: isHtmlFile,
     showingSource: false
   };
 
-  // Drag support — mousedown on header records state; global listeners handle the rest
-  var header = card.querySelector('.content-card-header');
-  header.addEventListener('mousedown', function(e) {
-    if (e.target.tagName === 'BUTTON') return;
-    _cardDrag = {
-      card: card,
-      startX: e.clientX,
-      startY: e.clientY,
-      startRight: parseInt(card.style.right) || 0,
-      startBottom: parseInt(card.style.bottom) || 0
-    };
-    card.style.transition = 'none';
-    e.preventDefault();
-  });
+  _cardActive = data.id;
+  renderCardTabs();
+  stage.classList.add('split');
 }
 
 function removeContentCard(id) {
   var entry = _contentCards[id];
   if (entry && entry.el) entry.el.remove();
   delete _contentCards[id];
-}
 
-function toggleCardMinimize(id) {
-  var entry = _contentCards[id];
-  if (!entry) return;
-  entry.el.classList.toggle('minimized');
+  var ids = Object.keys(_contentCards);
+  if (ids.length === 0) {
+    _cardActive = null;
+    document.getElementById('stage').classList.remove('split');
+    renderCardTabs();
+    return;
+  }
+  // If closing the active card, switch to another
+  if (_cardActive === id) {
+    switchCardTab(ids[ids.length - 1]);
+  } else {
+    renderCardTabs();
+  }
 }
 
 function toggleCardSource(id) {
   var entry = _contentCards[id];
-  if (!entry || !entry.isHtmlFile) return;
+  if (!entry || !entry.htmlSource) return;
   entry.showingSource = !entry.showingSource;
   var iframe = entry.el.querySelector('iframe');
   if (iframe) {

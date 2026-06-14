@@ -49,10 +49,13 @@
     </div>
   </div>
 
-  <!-- Content area: timeline only -->
+  <!-- Content area: timeline -->
   <div class="content-area hidden" id="content-area">
     <div class="timeline" id="timeline"></div>
   </div>
+
+  <!-- Content cards panel (show_html, show_file) — slides in from right when cards are open -->
+  <div class="content-cards" id="content-cards"></div>
 </main>
 
 <!-- TTS progress -->
@@ -60,9 +63,6 @@
   <div class="tts-bar-fill" id="tts-bar-fill" style="width:0%"></div>
   <button class="tts-bar-close" onclick="stopTTS()">✕</button>
 </div>
-
-<!-- Content cards (show_html, show_file) -->
-<div class="content-cards" id="content-cards"></div>
 
 <!-- Image preview -->
 <div class="img-preview" id="img-preview"></div>
