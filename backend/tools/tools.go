@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"beleader/backend/session"
 
@@ -936,6 +937,62 @@ func RegisterFileTools(mgr *session.Manager, workDir string) {
 			return &session.ToolResult{Error: err.Error()}
 		}
 		return &session.ToolResult{Content: fmt.Sprintf("File edited: %s", p.Path)}
+	})
+
+	mgr.RegisterTool("delete_file", func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			Paths []string `json:"paths"`
+		}
+		json.Unmarshal([]byte(args), &p)
+		if len(p.Paths) == 0 {
+			return &session.ToolResult{Error: "paths is required (array of absolute paths)"}
+		}
+
+		ts := time.Now().Format("20060102_150405")
+		trashDir := filepath.Join(workDir, ".trash", ts)
+		if err := os.MkdirAll(trashDir, 0755); err != nil {
+			return &session.ToolResult{Error: fmt.Sprintf("create trash dir: %v", err)}
+		}
+
+		var moved, skipped, failed []string
+		for _, path := range p.Paths {
+			path = filepath.Clean(path)
+			if path == "" {
+				skipped = append(skipped, "(empty)")
+				continue
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				failed = append(failed, fmt.Sprintf("%s: %v", path, err))
+				continue
+			}
+			name := filepath.Base(path)
+			dest := filepath.Join(trashDir, name)
+			if err := os.Rename(path, dest); err != nil {
+				failed = append(failed, fmt.Sprintf("%s: %v", path, err))
+				continue
+			}
+			kind := "file"
+			if info.IsDir() {
+				kind = "dir"
+			}
+			moved = append(moved, fmt.Sprintf("[%s] %s", kind, path))
+		}
+
+		var lines []string
+		if len(moved) > 0 {
+			lines = append(lines, fmt.Sprintf("Moved %d item(s) to %s:", len(moved), trashDir))
+			lines = append(lines, moved...)
+		}
+		if len(skipped) > 0 {
+			lines = append(lines, "Skipped:")
+			lines = append(lines, skipped...)
+		}
+		if len(failed) > 0 {
+			lines = append(lines, "Failed:")
+			lines = append(lines, failed...)
+		}
+		return &session.ToolResult{Content: strings.Join(lines, "\n")}
 	})
 
 	// ── Status tools (Coordinator only) ──

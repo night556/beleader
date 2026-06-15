@@ -900,6 +900,10 @@ func (h *Handler) handleSwitchModel(c *gin.Context) {
 	}
 
 	model := h.Config.ResolveModel(req.ModelID)
+	if model == nil {
+		c.JSON(400, gin.H{"error": "no models configured"})
+		return
+	}
 	c.JSON(200, gin.H{"model_id": req.ModelID, "model_name": model.ID, "vision": model.Vision, "context_limit": model.ContextLimit})
 }
 
@@ -910,6 +914,10 @@ func (h *Handler) handleGetSessionModel(c *gin.Context) {
 	modelID := ""
 	if err == nil {
 		modelID = sess.ModelID
+	}
+	if model == nil {
+		c.JSON(200, gin.H{"model_id": modelID, "model_name": "", "vision": false, "context_limit": 0})
+		return
 	}
 	c.JSON(200, gin.H{
 		"model_id":      modelID,

@@ -48,16 +48,8 @@ func DefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
 	return &Config{
 		LLM: LLMConfig{
-			Models: []ModelProfile{
-				{
-					ID:           "default",
-					BaseURL:      "https://api.openai.com/v1",
-					Model:        "gpt-4o",
-					Vision:       true,
-					ContextLimit: 128000,
-				},
-			},
-			Active: "default",
+			Models: []ModelProfile{},
+			Active: "",
 		},
 		HC: HCConfig{
 			Max: 5,
