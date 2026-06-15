@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -111,8 +112,10 @@ func showHTMLHandler(ctx context.Context, args string) *session.ToolResult {
 	}
 	json.Unmarshal([]byte(args), &p)
 
+	var cleanPath string
 	if p.Path != "" {
-		data, err := os.ReadFile(filepath.Clean(p.Path))
+		cleanPath = filepath.Clean(p.Path)
+		data, err := os.ReadFile(cleanPath)
 		if err != nil {
 			return &session.ToolResult{Error: fmt.Sprintf("cannot read file: %v", err)}
 		}
@@ -123,19 +126,33 @@ func showHTMLHandler(ctx context.Context, args string) *session.ToolResult {
 	}
 
 	sid := SessionIDFromCtx(ctx)
-	id := AddContent(ContentMeta{
-		Title:     p.Title,
-		SessionID: sid,
-	})
+	var id string
+	if cleanPath != "" {
+		id = fmt.Sprintf("file-%x", sha256.Sum256([]byte(cleanPath)))
+		SetContent(id, ContentMeta{Title: p.Title, SessionID: sid})
+	} else {
+		id = AddContent(ContentMeta{Title: p.Title, SessionID: sid})
+	}
+
+	// Pass source for source/render toggle when showing a file
+	var htmlSource string
+	var isHTMLFile bool
+	if cleanPath != "" {
+		htmlSource = p.Content
+		isHTMLFile = strings.HasSuffix(strings.ToLower(cleanPath), ".html") || strings.HasSuffix(strings.ToLower(cleanPath), ".htm")
+	}
 
 	if notifyContent != nil {
 		notifyContent("content_created", map[string]any{
-			"id":         id,
-			"title":      p.Title,
-			"html":       p.Content,
-			"session_id": sid,
-			"width":      p.Width,
-			"height":     p.Height,
+			"id":           id,
+			"title":        p.Title,
+			"html":         p.Content,
+			"html_source":  htmlSource,
+			"is_html_file": isHTMLFile,
+			"file_path":    cleanPath,
+			"session_id":   sid,
+			"width":        p.Width,
+			"height":       p.Height,
 		})
 	}
 

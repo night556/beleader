@@ -552,9 +552,11 @@ function renderCardTabs() {
     right.innerHTML = '<span class="card-action-btn' + (entry.showingSource ? ' on' : '') +
       '" onclick="toggleCardSource(\'' + _cardActive + '\')">' +
       (entry.showingSource ? '渲染' : '源码') + '</span>' +
+      '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">截图</span>' +
       '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
   } else {
-    right.innerHTML = '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
+    right.innerHTML = '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">截图</span>' +
+      '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
   }
 }
 
@@ -644,6 +646,37 @@ function toggleCardSource(id) {
       iframe.srcdoc = entry.html;
     }
   }
+}
+
+function screenshotCard(id) {
+  var entry = _contentCards[id];
+  if (!entry || !entry.html) return;
+  var html = entry.showingSource ?
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:monospace;font-size:13px;color:#e0d9f5;background:#141028;margin:0;padding:16px;white-space:pre-wrap;line-height:1.6}</style></head><body>' + escapeHtml(entry.htmlSource) + '</body></html>' :
+    entry.html;
+
+  fetch('/api/render-html', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ html: html, width: 800 })
+  })
+  .then(function(res) {
+    if (!res.ok) throw new Error('render failed');
+    return res.blob();
+  })
+  .then(function(blob) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = (entry.title || 'screenshot') + '.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  })
+  .catch(function(err) {
+    console.error('Screenshot failed:', err);
+  });
 }
 
 function escapeAttr(s) {

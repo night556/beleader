@@ -139,6 +139,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.DELETE("/knowledge/:id", h.handleDeleteKnowledge)
 
 		api.GET("/files/view", gin.WrapF(tools.FileViewHandler))
+		api.POST("/render-html", h.handleRenderHTML)
 	}
 }
 
@@ -979,6 +980,27 @@ func (h *Handler) handleDeleteKnowledge(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"status": "deleted"})
+}
+
+func (h *Handler) handleRenderHTML(c *gin.Context) {
+	var req struct {
+		HTML  string `json:"html"`
+		Width int    `json:"width"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.HTML == "" {
+		c.JSON(400, gin.H{"error": "html is required"})
+		return
+	}
+
+	png, err := tools.RenderHTMLToPNG(req.HTML, req.Width)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Header("Content-Type", "image/png")
+	c.Header("Content-Disposition", "attachment; filename=\"screenshot.png\"")
+	c.Data(200, "image/png", png)
 }
 
 func (h *Handler) getClient(modelID string) *llm.Client {

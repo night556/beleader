@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -920,6 +921,50 @@ func browserScreenshot(pg *rod.Page) *session.ToolResult {
 		Width:   w,
 		Height:  h,
 	}
+}
+
+// RenderHTMLToPNG renders HTML content to a PNG image using the headless browser.
+func RenderHTMLToPNG(html string, width int) ([]byte, error) {
+	if width <= 0 {
+		width = 800
+	}
+
+	bs, err := getOrCreateBrowser()
+	if err != nil {
+		return nil, fmt.Errorf("render html: %w", err)
+	}
+
+	page, err := bs.browser.Page(proto.TargetCreateTarget{URL: "about:blank"})
+	if err != nil {
+		return nil, fmt.Errorf("render html: create page: %w", err)
+	}
+	defer page.Close()
+
+	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
+		Width:             width,
+		Height:            600,
+		DeviceScaleFactor: 1,
+		Mobile:            false,
+	}); err != nil {
+		return nil, fmt.Errorf("render html: set viewport: %w", err)
+	}
+
+	dataURL := "data:text/html;base64," + base64.StdEncoding.EncodeToString([]byte(html))
+	if err := page.Navigate(dataURL); err != nil {
+		return nil, fmt.Errorf("render html: navigate: %w", err)
+	}
+	if err := page.WaitLoad(); err != nil {
+		return nil, fmt.Errorf("render html: wait load: %w", err)
+	}
+
+	// Brief wait for any JS-driven layout
+	time.Sleep(300 * time.Millisecond)
+
+	buf, err := page.Screenshot(true, &proto.PageCaptureScreenshot{})
+	if err != nil {
+		return nil, fmt.Errorf("render html: screenshot: %w", err)
+	}
+	return buf, nil
 }
 
 func browserSleep(durMs float64) *session.ToolResult {

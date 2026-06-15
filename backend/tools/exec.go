@@ -120,7 +120,7 @@ func prepareCommandWindows(command string) string {
 	return command
 }
 
-func startBackground(command, workDir string) *execSession {
+func startBackground(ctx context.Context, command, workDir string) *execSession {
 	execMu.Lock()
 	execSeq++
 	id := fmt.Sprintf("e%d", execSeq)
@@ -137,7 +137,7 @@ func startBackground(command, workDir string) *execSession {
 		shellFlag = "-c"
 	}
 
-	cmd := exec.Command(shell, shellFlag, command)
+	cmd := exec.CommandContext(ctx, shell, shellFlag, command)
 	cmd.Dir = workDir
 
 	stdin, _ := cmd.StdinPipe()
@@ -263,7 +263,7 @@ func execHandler(ctx context.Context, args string) *session.ToolResult {
 
 	// --- Background mode ---
 	if p.Background {
-		sess := startBackground(p.Command, execWorkDir)
+		sess := startBackground(ctx, p.Command, execWorkDir)
 		if sess == nil {
 			return &session.ToolResult{Error: "failed to start background process"}
 		}
