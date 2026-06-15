@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Provider Presets Demo</title>
+<style>
+  :root {
+    --bg: #141028;
+    --surface: #1e1a3a;
+    --border: #2d2854;
+    --text: #e0d9f5;
+    --dim: #8b83b8;
+    --accent: #7c6ff7;
+    --green: #4ade80;
+    --red: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; padding: 24px;
+  }
+
+  /* ── Model Card ── */
+  .model-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    width: 520px;
+  }
+  .model-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .model-name-display { font-size: 15px; font-weight: 600; }
+  .model-card-actions { display: flex; gap: 8px; align-items: center; }
+  .model-badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 20px;
+    cursor: pointer; border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+  .model-badge:hover { border-color: var(--accent); color: #fff; }
+  .model-badge-active {
+    background: rgba(124,111,247,0.15); color: var(--accent);
+    border-color: var(--accent); cursor: default;
+  }
+  .model-badge-delete { color: var(--dim); }
+  .model-badge-delete:hover { color: var(--red); border-color: var(--red); }
+
+  /* ── Fields ── */
+  .model-field {
+    margin-bottom: 10px;
+  }
+  .model-field label {
+    display: block; font-size: 12px; color: var(--dim);
+    margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .model-field input,
+  .model-field select {
+    width: 100%; padding: 8px 12px; font-size: 13px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    outline: none; transition: border-color 0.15s;
+  }
+  .model-field input:focus,
+  .model-field select:focus { border-color: var(--accent); }
+
+  /* ── Provider Row: select + preset badge + link ── */
+  .provider-row {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .provider-row select { flex: 1; }
+
+  .provider-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: var(--accent); cursor: pointer;
+    white-space: nowrap; text-decoration: none;
+  }
+  .provider-link:hover { text-decoration: underline; }
+
+  /* ── Model row: select + preset badge ── */
+  .model-select-row {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .model-select-row select {
+    flex: 0 0 auto;
+    min-width: 180px;
+    width: auto;
+  }
+  .model-select-row input {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+
+  /* ── Toggle row ── */
+  .model-field-inline {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .model-field-inline label { margin-bottom: 0; }
+  .toggle-switch {
+    position: relative; display: inline-block; width: 40px; height: 22px;
+  }
+  .toggle-switch input { display: none; }
+  .toggle-slider {
+    position: absolute; inset: 0; background: var(--border);
+    border-radius: 22px; cursor: pointer; transition: 0.2s;
+  }
+  .toggle-slider::before {
+    content: ''; position: absolute; width: 16px; height: 16px;
+    left: 3px; top: 3px; border-radius: 50%; background: #fff;
+    transition: 0.2s;
+  }
+  .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+  .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+  /* ── Preset badge on provider/model selects ── */
+  .preset-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(124,111,247,0.1); color: var(--accent);
+    white-space: nowrap; border: 1px solid rgba(124,111,247,0.2);
+  }
+
+  .divider {
+    height: 1px; background: var(--border); margin: 16px 0;
+  }
+  .note {
+    font-size: 11px; color: var(--dim);
+    margin-top: 12px; line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<div class="model-card">
+  <div class="model-card-header">
+    <span class="model-name-display">My Model</span>
+    <span class="model-card-actions">
+      <span class="model-badge model-badge-active">active</span>
+      <span class="model-badge model-badge-delete">&times;</span>
+    </span>
+  </div>
+
+  <div class="model-card-body">
+
+    <!-- ID -->
+    <div class="model-field">
+      <label>ID</label>
+      <input value="my-model" placeholder="my-model">
+    </div>
+
+    <!-- Provider preset -->
+    <div class="model-field">
+      <label>Provider</label>
+      <div class="provider-row">
+        <select id="provider-select" onchange="onProviderChange()">
+          <option value="">Custom</option>
+          <option value="openai">OpenAI</option>
+          <option value="google">Google Gemini</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="groq">Groq</option>
+          <option value="ollama">Ollama</option>
+        </select>
+        <span class="preset-badge" id="provider-badge" style="display:none"></span>
+        <a class="provider-link" id="provider-link" style="display:none" href="#" target="_blank">↗ keys</a>
+      </div>
+    </div>
+
+    <!-- Base URL -->
+    <div class="model-field">
+      <label>Base URL</label>
+      <input id="base-url" value="" placeholder="https://api.openai.com/v1">
+    </div>
+
+    <!-- API Key -->
+    <div class="model-field">
+      <label>API Key</label>
+      <input type="password" id="api-key" value="" placeholder="sk-...">
+    </div>
+
+    <!-- Model -->
+    <div class="model-field">
+      <label>Model</label>
+      <div class="model-select-row">
+        <select id="model-select" onchange="onModelChange()">
+          <option value="">Custom</option>
+        </select>
+        <input id="model-custom" placeholder="Enter model name...">
+      </div>
+    </div>
+
+    <!-- Context Limit -->
+    <div class="model-field model-field-inline">
+      <label>Context Limit</label>
+      <input type="number" value="128000" min="4096" step="1024" style="width:120px">
+    </div>
+
+    <!-- Vision -->
+    <div class="model-field model-field-inline">
+      <label>Vision</label>
+      <span class="toggle-switch">
+        <input type="checkbox" checked>
+        <span class="toggle-slider"></span>
+      </span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  <div class="note">
+    Select a <strong>Provider</strong> to auto-fill the Base URL and see preset models.<br>
+    Switch to <strong>Custom</strong> to enter values manually.
+  </div>
+</div>
+
+<script>
+  var PROVIDERS = {
+    openai:    { name: 'OpenAI',         base: 'https://api.openai.com/v1', keyLink: 'https://platform.openai.com/api-keys',
+                 models: ['gpt-4o', 'gpt-4-turbo', 'gpt-4.1', 'o4-mini', 'o3-mini'] },
+    google:    { name: 'Google Gemini',  base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyLink: 'https://aistudio.google.com/apikey',
+                 models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+    deepseek:  { name: 'DeepSeek',       base: 'https://api.deepseek.com', keyLink: 'https://platform.deepseek.com/api_keys',
+                 models: ['deepseek-chat', 'deepseek-reasoner'] },
+    groq:      { name: 'Groq',           base: 'https://api.groq.com/openai/v1', keyLink: 'https://console.groq.com/keys',
+                 models: ['llama-4-scout-17b-16e', 'qwen-qwq-32b', 'deepseek-r1-distill-llama-70b'] },
+    ollama:    { name: 'Ollama',         base: 'http://localhost:11434/v1', keyLink: '',
+                 models: [] }
+  };
+
+  function onProviderChange() {
+    var sel = document.getElementById('provider-select');
+    var key = sel.value;
+    var badge = document.getElementById('provider-badge');
+    var link = document.getElementById('provider-link');
+    var urlInput = document.getElementById('base-url');
+    var modelSelect = document.getElementById('model-select');
+
+    if (key && PROVIDERS[key]) {
+      var p = PROVIDERS[key];
+      urlInput.value = p.base;
+      badge.textContent = p.name;
+      badge.style.display = '';
+      if (p.keyLink) {
+        link.href = p.keyLink; link.style.display = '';
+      } else {
+        link.style.display = 'none';
+      }
+
+      // Populate model dropdown
+      modelSelect.innerHTML = '<option value="">Custom</option>';
+      for (var i = 0; i < p.models.length; i++) {
+        var m = p.models[i];
+        modelSelect.innerHTML += '<option value="' + m + '">' + m + '</option>';
+      }
+    } else {
+      urlInput.value = '';
+      badge.style.display = 'none';
+      link.style.display = 'none';
+      modelSelect.innerHTML = '<option value="">Custom</option>';
+    }
+    modelSelect.value = '';
+    document.getElementById('model-custom').value = '';
+  }
+
+  function onModelChange() {
+    var sel = document.getElementById('model-select');
+    var inp = document.getElementById('model-custom');
+    if (sel.value) {
+      // Preset model selected — auto-fill the input
+      inp.value = sel.value;
+    } else {
+      // Custom — clear input for manual entry
+      inp.value = '';
+    }
+  }
+</script>
+
+</body>
+</html>

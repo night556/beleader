@@ -24,6 +24,63 @@ document.addEventListener('keydown', function(e) {
 
 var activeModelId = '';
 
+var PROVIDERS = {
+  openai:   { name: 'OpenAI',        base: 'https://api.openai.com/v1', keyLink: 'https://platform.openai.com/api-keys',
+              models: ['gpt-5.5', 'gpt-5.4-mini', 'gpt-4.1', 'o4-mini', 'gpt-4o'] },
+  google:   { name: 'Google Gemini', base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyLink: 'https://aistudio.google.com/apikey',
+              models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'] },
+  deepseek: { name: 'DeepSeek',      base: 'https://api.deepseek.com', keyLink: 'https://platform.deepseek.com/api_keys',
+              models: ['deepseek-v4-pro', 'deepseek-v4-flash'] },
+  groq:     { name: 'Groq',          base: 'https://api.groq.com/openai/v1', keyLink: 'https://console.groq.com/keys',
+              models: ['meta-llama/llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct', 'qwen/qwen3-32b', 'llama-3.1-8b-instant'] },
+  ollama:   { name: 'Ollama',        base: 'http://localhost:11434/v1', keyLink: '',
+              models: [] }
+};
+
+function onProviderChange(sel, idx) {
+  var key = sel.value;
+  var card = sel.closest('.model-card');
+  var urlInput = card.querySelector('input[data-field="base_url"]');
+  var modelSelect = card.querySelector('.model-preset-select');
+  var keyLink = card.querySelector('.provider-key-link');
+
+  if (key && PROVIDERS[key]) {
+    var p = PROVIDERS[key];
+    urlInput.value = p.base;
+    modelSelect.innerHTML = '<option value="">Custom</option>';
+    for (var i = 0; i < p.models.length; i++) {
+      modelSelect.innerHTML += '<option value="' + escapeHtml(p.models[i]) + '">' + escapeHtml(p.models[i]) + '</option>';
+    }
+    if (p.keyLink) {
+      if (!keyLink) {
+        var link = document.createElement('a');
+        link.className = 'provider-key-link';
+        link.target = '_blank';
+        link.textContent = '↗ keys';
+        link.style.cssText = 'font-size:11px;color:var(--accent);margin-left:6px;text-decoration:none;white-space:nowrap';
+        sel.parentNode.appendChild(link);
+        keyLink = link;
+      }
+      keyLink.href = p.keyLink;
+      keyLink.style.display = '';
+    } else if (keyLink) {
+      keyLink.style.display = 'none';
+    }
+  } else {
+    urlInput.value = '';
+    modelSelect.innerHTML = '<option value="">Custom</option>';
+    if (keyLink) keyLink.style.display = 'none';
+  }
+}
+
+function onModelPresetChange(sel, idx) {
+  var card = sel.closest('.model-card');
+  var modelInput = card.querySelector('input[data-field="model"]');
+  if (sel.value) {
+    modelInput.value = sel.value;
+  }
+}
+
 function loadSettings() {
   fetch(SERVER_URL + '/api/settings')
     .then(function(r) { return r.json(); })
@@ -80,9 +137,10 @@ function modelRowHTML(m, idx, isActive) {
   h += '  </div>';
   h += '  <div class="model-card-body">';
   h += '    <div class="model-field"><label>' + t('model.id_label') + '</label><input value="' + escapeHtml(m.id || '') + '" data-model="' + idx + '" data-field="id" placeholder="' + t('model.id_placeholder') + '"></div>';
+  h += '    <div class="model-field"><label>Provider</label><div class="provider-row"><select class="provider-select" onchange="onProviderChange(this,' + idx + ')"><option value="">Custom</option><option value="openai">OpenAI</option><option value="google">Google Gemini</option><option value="deepseek">DeepSeek</option><option value="groq">Groq</option><option value="ollama">Ollama</option></select></div></div>';
   h += '    <div class="model-field"><label>Base URL</label><input value="' + escapeHtml(m.base_url || '') + '" data-model="' + idx + '" data-field="base_url" placeholder="https://api.openai.com/v1"></div>';
   h += '    <div class="model-field"><label>API Key</label><input type="password" value="' + escapeHtml(m.api_key || '') + '" data-model="' + idx + '" data-field="api_key" placeholder="sk-..."></div>';
-  h += '    <div class="model-field"><label>Model</label><input value="' + escapeHtml(m.model || '') + '" data-model="' + idx + '" data-field="model" placeholder="gpt-4o"></div>';
+  h += '    <div class="model-field"><label>Model</label><div class="model-select-row"><select class="model-preset-select" onchange="onModelPresetChange(this,' + idx + ')"><option value="">Custom</option></select><input value="' + escapeHtml(m.model || '') + '" data-model="' + idx + '" data-field="model" placeholder="Enter model name..."></div></div>';
   h += '    <div class="model-field model-field-inline">';
   h += '      <label>Context Limit</label>';
   h += '      <input type="number" value="' + (m.context_limit || 128000) + '" data-model="' + idx + '" data-field="context_limit" min="4096" step="1024">';

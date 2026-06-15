@@ -6,6 +6,7 @@
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
   --green: #34d399; --red: #f43f5e; --amber: #fbbf24; --blue: #60a5fa;
   --radius: 10px;
+  color-scheme:dark;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
@@ -454,6 +455,23 @@ body {
   flex-direction:row; align-items:center; justify-content:flex-start; gap:10px;
 }
 .model-field-inline label { min-width:60px; margin-bottom:0; }
+.provider-row { display:flex; align-items:center; gap:6px; }
+.provider-row select,
+.model-select-row select {
+  background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);
+  border-radius:6px; color:var(--text); padding:6px 10px; font-size:12px;
+  font-family:var(--font); flex:0 0 auto; min-width:160px; width:auto;
+  transition:border-color 0.15s; color-scheme:dark;
+}
+.provider-row select:focus,
+.model-select-row select:focus { outline:none; border-color:rgba(167,139,250,0.35); }
+.model-select-row { display:flex; align-items:center; gap:6px; }
+.model-select-row input { flex:1; min-width:0; width:auto; }
+
+/* ── Select dropdown option styling ── */
+select option {
+  background: #141028; color: var(--text);
+}
 .toggle-switch {
   position:relative; display:inline-block; width:40px; height:22px;
   flex-shrink:0;
