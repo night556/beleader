@@ -960,7 +960,11 @@ func RenderHTMLToPNG(html string, width int) ([]byte, error) {
 	// Brief wait for any JS-driven layout
 	time.Sleep(300 * time.Millisecond)
 
-	buf, err := page.Screenshot(true, &proto.PageCaptureScreenshot{})
+	el, err := page.Element("body")
+	if err != nil {
+		return nil, fmt.Errorf("render html: find body: %w", err)
+	}
+	buf, err := el.Screenshot(proto.PageCaptureScreenshotFormatPng, 100)
 	if err != nil {
 		return nil, fmt.Errorf("render html: screenshot: %w", err)
 	}

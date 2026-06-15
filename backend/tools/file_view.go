@@ -121,14 +121,19 @@ iframe{width:100%%;height:100vh;border:none}
 			if err != nil {
 				return &session.ToolResult{Error: fmt.Sprintf("cannot read file: %v", err)}
 			}
+			lang := langFromExt(ext)
 			doc = fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-body{font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;font-size:13px;color:#e0d9f5;background:transparent;margin:0;padding:16px;line-height:1.65;white-space:pre-wrap;word-break:break-word;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(167,139,250,0.35) transparent}
+body{font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;font-size:13px;color:#e0d9f5;background:transparent;margin:0;padding:16px;line-height:1.65;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(167,139,250,0.35) transparent}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:rgba(167,139,250,0.35);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:rgba(167,139,250,0.55)}
-*{background-color:transparent!important}
-</style></head><body>%s</body></html>`, html.EscapeString(string(data)))
+.hljs{background:transparent!important}
+</style></head><body>
+<pre><code class="language-%s">%s</code></pre>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+</body></html>`, lang, html.EscapeString(string(data)))
 		}
 
 	default:
@@ -294,6 +299,90 @@ func isTextExt(ext string) bool {
 		return true
 	}
 	return false
+}
+
+// langFromExt maps a file extension (with dot) to a highlight.js language class.
+func langFromExt(ext string) string {
+	switch ext {
+	case ".go":
+		return "go"
+	case ".py":
+		return "python"
+	case ".js", ".jsx":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".rs":
+		return "rust"
+	case ".java":
+		return "java"
+	case ".kt":
+		return "kotlin"
+	case ".swift":
+		return "swift"
+	case ".c", ".h":
+		return "cpp"
+	case ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx":
+		return "cpp"
+	case ".css":
+		return "css"
+	case ".scss":
+		return "scss"
+	case ".less":
+		return "less"
+	case ".html", ".htm":
+		return "xml"
+	case ".vue":
+		return "html"
+	case ".svelte":
+		return "html"
+	case ".json":
+		return "json"
+	case ".xml":
+		return "xml"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".toml":
+		return "ini"
+	case ".ini", ".cfg", ".env":
+		return "ini"
+	case ".sql":
+		return "sql"
+	case ".sh", ".bash", ".zsh", ".fish":
+		return "bash"
+	case ".bat":
+		return "dos"
+	case ".ps1":
+		return "powershell"
+	case ".r":
+		return "r"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".pl":
+		return "perl"
+	case ".lua":
+		return "lua"
+	case ".zig":
+		return "zig"
+	case ".nim":
+		return "nim"
+	case ".ex", ".exs":
+		return "elixir"
+	case ".md":
+		return "markdown"
+	case ".proto":
+		return "protobuf"
+	case ".dockerfile":
+		return "dockerfile"
+	case ".makefile":
+		return "makefile"
+	case ".csv":
+		return "plaintext"
+	default:
+		return "plaintext"
+	}
 }
 
 func formatSize(bytes int64) string {

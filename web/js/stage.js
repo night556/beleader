@@ -631,29 +631,32 @@ function removeContentCard(id) {
   }
 }
 
+function highlightSourceHTML(code) {
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+    '<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css">' +
+    '<style>body{font-family:monospace;font-size:13px;color:#e0d9f5;background:#141028;margin:0;padding:16px;white-space:pre-wrap;line-height:1.6}' +
+    '.hljs{background:transparent!important}</style></head><body>' +
+    '<pre><code>' + escapeHtml(code) + '</code></pre>' +
+    '<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>' +
+    '<script>hljs.highlightAll();</script>' +
+    '</body></html>';
+}
+
 function toggleCardSource(id) {
   var entry = _contentCards[id];
   if (!entry || !entry.htmlSource) return;
   entry.showingSource = !entry.showingSource;
   var iframe = entry.el.querySelector('iframe');
   if (iframe) {
-    if (entry.showingSource) {
-      var src = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
-        'body{font-family:monospace;font-size:13px;color:#e0d9f5;background:#141028;margin:0;padding:16px;white-space:pre-wrap;line-height:1.6}' +
-        '</style></head><body>' + escapeHtml(entry.htmlSource) + '</body></html>';
-      iframe.srcdoc = src;
-    } else {
-      iframe.srcdoc = entry.html;
-    }
+    iframe.srcdoc = entry.showingSource ? highlightSourceHTML(entry.htmlSource) : entry.html;
   }
+  renderCardTabs();
 }
 
 function screenshotCard(id) {
   var entry = _contentCards[id];
   if (!entry || !entry.html) return;
-  var html = entry.showingSource ?
-    '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:monospace;font-size:13px;color:#e0d9f5;background:#141028;margin:0;padding:16px;white-space:pre-wrap;line-height:1.6}</style></head><body>' + escapeHtml(entry.htmlSource) + '</body></html>' :
-    entry.html;
+  var html = entry.showingSource ? highlightSourceHTML(entry.htmlSource) : entry.html;
 
   fetch('/api/render-html', {
     method: 'POST',
