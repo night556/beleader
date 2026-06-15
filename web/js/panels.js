@@ -22,6 +22,8 @@ document.addEventListener('keydown', function(e) {
 
 // ── Settings ──
 
+var activeModelId = '';
+
 function loadSettings() {
   fetch(SERVER_URL + '/api/settings')
     .then(function(r) { return r.json(); })
@@ -32,12 +34,11 @@ function loadSettings() {
       document.getElementById('set-speak-enabled').checked = cfg.speak_enabled !== false;
       if (cfg.llm) {
         var models = cfg.llm.models || [];
-        var activeId = cfg.llm.active || '';
+        activeModelId = cfg.llm.active || (models.length > 0 ? models[0].id : '');
         if (models.length === 0) {
           document.getElementById('model-list').innerHTML = '<div class="model-empty"><div class="model-empty-icon">⚡</div><div class="model-empty-text">' + t('timeline.no_models_setup_title') + '</div><div class="model-empty-hint">' + t('timeline.no_models_setup_hint') + '</div><button class="btn-add" onclick="addModel()" style="margin-top:8px">' + t('timeline.no_models_setup_btn') + '</button></div>';
-          document.getElementById('set-active-model').innerHTML = '<option value="">(none)</option>';
         } else {
-          renderModelList(models, activeId);
+          renderModelList(models, activeModelId);
         }
       }
     })
@@ -53,18 +54,14 @@ var modelCounter = 0;
 
 function renderModelList(models, activeId) {
   var container = document.getElementById('model-list');
-  var select = document.getElementById('set-active-model');
   var html = '';
-  var optionsHtml = '';
   modelCounter = 0;
   for (var i = 0; i < models.length; i++) {
     var m = models[i];
     html += modelRowHTML(m, modelCounter, m.id === activeId);
-    optionsHtml += '<option value="' + escapeHtml(m.id) + '"' + (m.id === activeId ? ' selected' : '') + '>' + escapeHtml(m.id) + '</option>';
     modelCounter++;
   }
   container.innerHTML = html;
-  select.innerHTML = optionsHtml;
 }
 
 function modelRowHTML(m, idx, isActive) {
@@ -103,41 +100,27 @@ function modelRowHTML(m, idx, isActive) {
 }
 
 function setActiveModel(id) {
-  document.getElementById('set-active-model').value = id;
+  activeModelId = id;
+  var models = collectModels();
+  renderModelList(models, id);
 }
 
 function addModel() {
   var container = document.getElementById('model-list');
   var idx = modelCounter++;
   container.insertAdjacentHTML('beforeend', modelRowHTML({id: '', base_url: '', api_key: '', model: '', vision: false, context_limit: 128000}, idx, false));
-  var select = document.getElementById('set-active-model');
-  var opt = document.createElement('option');
-  opt.value = '';
-  opt.textContent = 'New Model';
-  select.appendChild(opt);
 }
 
 function deleteModel(idx) {
   var card = document.querySelector('.model-card[data-model-idx="' + idx + '"]');
   if (!card) return;
-  // Prevent deleting the active model
   var idInput = card.querySelector('input[data-field="id"]');
   var modelId = idInput ? idInput.value : '';
-  var activeId = document.getElementById('set-active-model').value;
-  if (modelId && modelId === activeId) {
+  if (modelId && modelId === activeModelId) {
     alert(t('error.cannot_delete_active'));
     return;
   }
   card.remove();
-  var select = document.getElementById('set-active-model');
-  var cards = document.querySelectorAll('#model-list .model-card');
-  var optionsHtml = '';
-  for (var i = 0; i < cards.length; i++) {
-    var idInput = cards[i].querySelector('input[data-field="id"]');
-    var mid = idInput ? idInput.value : '';
-    optionsHtml += '<option value="' + escapeHtml(mid) + '">' + escapeHtml(mid) + '</option>';
-  }
-  select.innerHTML = optionsHtml || '<option value="">(none)</option>';
 }
 
 function collectModels() {
@@ -171,8 +154,9 @@ function saveSettings() {
     alert(t('error.at_least_one_model'));
     return;
   }
+  if (!activeModelId && models.length > 0) activeModelId = models[0].id;
   var body = {
-    llm: { models: models, active: document.getElementById('set-active-model').value },
+    llm: { models: models, active: activeModelId },
     hc: { max: parseInt(document.getElementById('set-hc-max').value) || 5 },
     thresholds: { max_context_pct: parseInt(document.getElementById('set-context-pct').value) || 60 },
     browser: { headless: document.getElementById('set-headless').checked },

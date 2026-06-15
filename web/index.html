@@ -98,7 +98,7 @@
       <h4 data-i18n="settings.general">通用</h4>
       <div class="set-row"><label data-i18n="settings.max_hc">最大并发 (HC)</label><input type="number" id="set-hc-max" min="1" max="20" value="5"></div>
       <div class="set-row"><label data-i18n="settings.context_threshold">上下文阈值 (%)</label><input type="number" id="set-context-pct" min="10" max="95" value="60"></div>
-      <div class="set-row"><label data-i18n="settings.headless">无头模式</label><input type="checkbox" id="set-headless"></div>
+      <div class="set-row set-row-check"><label data-i18n="settings.headless">无头模式</label><input type="checkbox" id="set-headless"></div>
     </div>
     <div class="set-section">
       <h4 data-i18n="settings.voice">语音</h4>
@@ -111,15 +111,12 @@
       <div class="set-row"><label data-i18n="settings.tts_rate">TTS 语速</label><input type="range" id="set-tts-rate" min="0.5" max="2" step="0.1" value="1"></div>
       <div class="set-row"><label data-i18n="settings.tts_pitch">TTS 音调</label><input type="range" id="set-tts-pitch" min="0.5" max="2" step="0.1" value="1"></div>
       <div class="set-row"><label data-i18n="settings.tts_voice">TTS 语音</label><select id="set-tts-voice"></select></div>
-      <div class="set-row"><label data-i18n="settings.speak_enabled">语音输出</label><input type="checkbox" id="set-speak-enabled" checked></div>
+      <div class="set-row set-row-check"><label data-i18n="settings.speak_enabled">语音输出</label><input type="checkbox" id="set-speak-enabled" checked></div>
     </div>
     <div class="set-section">
       <h4 data-i18n="settings.models">模型</h4>
       <div id="model-list"></div>
       <button class="btn-add" onclick="addModel()" data-i18n="settings.add_model">+ 添加模型</button>
-      <div class="set-row" style="margin-top:10px">
-        <label data-i18n="settings.active_model">活跃模型</label><select id="set-active-model"></select>
-      </div>
     </div>
     <div class="set-section">
       <h4>Agents</h4>
