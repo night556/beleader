@@ -160,6 +160,24 @@ function isCurrentViewSession(sid) {
   return false;
 }
 
+function maybeResetStatus() {
+  if (currentView === 'home') {
+    updateStatus(t('status.ready'), 'idle');
+    return;
+  }
+  for (var ri = 0; ri < sessions.length; ri++) {
+    if (sessions[ri].ref_id === currentView || sessions[ri].id === currentView) {
+      var agents = sessions[ri].agents || [];
+      var allIdle = true;
+      for (var rj = 0; rj < agents.length; rj++) {
+        if (agents[rj].status !== 'idle') { allIdle = false; break; }
+      }
+      if (allIdle) updateStatus(t('status.ready'), 'idle');
+      return;
+    }
+  }
+}
+
 // Central dispatcher
 window.updateState = function(name, data) {
   data = data || {};
@@ -335,6 +353,18 @@ window.updateState = function(name, data) {
           errLabel = '[' + sid + '] ' + t('status.error');
         }
       }
+      // Update agent status to idle in sessions array
+      for (var esi = 0; esi < sessions.length; esi++) {
+        if (sessions[esi].agents) {
+          for (var eai = 0; eai < sessions[esi].agents.length; eai++) {
+            if (sessions[esi].agents[eai].session_id === sid) {
+              sessions[esi].agents[eai].status = 'idle';
+              break;
+            }
+          }
+        }
+      }
+      updateAgentBar();
       var errItem = {
         type: 'error',
         icon: '⚠',
@@ -376,6 +406,7 @@ window.updateState = function(name, data) {
       }
       updateProjectTabs();
       updateAgentBar();
+      maybeResetStatus();
       break;
 
     case 'worker_spawned':
@@ -426,6 +457,24 @@ window.updateState = function(name, data) {
       }
       updateProjectTabs();
       updateAgentBar();
+      maybeResetStatus();
+      break;
+
+    case 'worker_intervened':
+      if (data.status === 'restarted') {
+        for (var wii = 0; wii < sessions.length; wii++) {
+          if (sessions[wii].ref_id === data.ref_id && sessions[wii].agents) {
+            for (var wj = 0; wj < sessions[wii].agents.length; wj++) {
+              if (sessions[wii].agents[wj].name === data.worker_name) {
+                sessions[wii].agents[wj].status = 'running';
+                break;
+              }
+            }
+            break;
+          }
+        }
+      }
+      updateAgentBar();
       break;
 
     case 'session_stopped':
@@ -449,6 +498,14 @@ window.updateState = function(name, data) {
     case 'context_pct':
       _contextPcts[sid || 'main'] = data.pct || 0;
       if (isCurrentViewSession(sid)) updateContextBar(data.pct || 0);
+      break;
+
+    case 'session_focused':
+      var focusRef = data.session_id || data.ref_id || '';
+      if (focusRef === 'main') focusRef = 'home';
+      if (focusRef && currentView !== focusRef) {
+        switchView(focusRef);
+      }
       break;
 
     case 'content_created':
@@ -489,7 +546,7 @@ window.updateState = function(name, data) {
         }
       }
       state.name = name;
-      updateStatus(t('status.ready'), 'idle');
+      maybeResetStatus();
       updateAgentBar();
       break;
   }

@@ -404,6 +404,7 @@ function fillInput(text) {
 // ── View switching ──
 
 function switchView(view) {
+  if (view === 'main') view = 'home';
   if (voiceMode) stopVoiceAndDeactivate();
   currentView = view;
   _agentFilter = null;
