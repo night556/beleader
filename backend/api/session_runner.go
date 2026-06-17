@@ -147,6 +147,17 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		toolList = tools.CoordinatorTools(model.Vision)
 	case "worker":
 		tools.RegisterAll(sessionMgr, workDir, nil)
+		tools.RegisterKnowledgeTools(sessionMgr,
+			func(query string, limit int) (string, error) {
+				knowledge, err := h.DB.SearchKnowledge(query, limit)
+				if err != nil {
+					return "", err
+				}
+				b, _ := json.Marshal(knowledge)
+				return string(b), nil
+			},
+			nil, nil,
+		)
 		if opts.EnableBrowser {
 			tools.RegisterBrowserTools(sessionMgr)
 		}

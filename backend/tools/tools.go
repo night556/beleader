@@ -190,7 +190,9 @@ func CoordinatorTools(vision bool) []openai.Tool {
 
 // WorkerTools returns tools for Worker agents.
 func WorkerTools(vision bool) []openai.Tool {
-	return BaseTools(vision)
+	tools := BaseTools(vision)
+	tools = append(tools, searchKnowledgeTool)
+	return tools
 }
 
 func RegisterAll(mgr *session.Manager, workDir string, createProjectCallback func(title, prompt string) (string, string, error)) {
