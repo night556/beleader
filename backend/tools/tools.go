@@ -42,12 +42,12 @@ var searchKnowledgeTool = openai.Tool{
 	Type: "function",
 	Function: &openai.FunctionDefinition{
 		Name:        "search_knowledge",
-		Description: "Search the cross-project knowledge base for relevant experience, conventions, and decisions. Use before starting work on a task to check if similar situations have been handled before.",
+		Description: "Search the cross-project knowledge base by title. Returns full content when results ≤ 10, title-only list when 11-100 (refine your query to get full content), and an error when > 100 (add more keywords).",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "Search query in natural language"},
-				"limit": map[string]any{"type": "integer", "description": "Max results to return. Default 5, max 10."},
+				"query": map[string]any{"type": "string", "description": "Search query matching knowledge titles"},
+				"limit": map[string]any{"type": "integer", "description": "Max results to return. Default 5, max 20."},
 			},
 			"required": []string{"query"},
 		},
@@ -62,10 +62,10 @@ var saveKnowledgeTool = openai.Tool{
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
+				"title":   map[string]any{"type": "string", "description": "Short title summarizing the knowledge. Used for FTS5 full-text search. e.g. 'Go error handling convention'"},
 				"content": map[string]any{"type": "string", "description": "The knowledge entry. Self-contained, one paragraph."},
-				"tags":    map[string]any{"type": "string", "description": "Comma-separated keywords for search. e.g. 'UI, workflow, frontend'"},
 			},
-			"required": []string{"content", "tags"},
+			"required": []string{"title", "content"},
 		},
 	},
 }
@@ -85,7 +85,7 @@ var deleteKnowledgeTool = openai.Tool{
 	},
 }
 
-func RegisterKnowledgeTools(mgr *session.Manager, searchFn func(query string, limit int) (string, error), saveFn func(content, tags string) (int64, error), deleteFn func(id int64) error) {
+func RegisterKnowledgeTools(mgr *session.Manager, searchFn func(query string, limit int) (string, error), saveFn func(title, content string) (int64, error), deleteFn func(id int64) error) {
 	if searchFn != nil {
 		mgr.RegisterTool("search_knowledge", makeSearchKnowledgeHandler(searchFn))
 	}
@@ -114,22 +114,22 @@ func makeSearchKnowledgeHandler(searchFn func(query string, limit int) (string, 
 	}
 }
 
-func makeSaveKnowledgeHandler(saveFn func(content, tags string) (int64, error)) func(ctx context.Context, args string) *session.ToolResult {
+func makeSaveKnowledgeHandler(saveFn func(title, content string) (int64, error)) func(ctx context.Context, args string) *session.ToolResult {
 	return func(ctx context.Context, args string) *session.ToolResult {
 		var p struct {
+			Title   string `json:"title"`
 			Content string `json:"content"`
-			Tags    string `json:"tags"`
 		}
 		if err := json.Unmarshal([]byte(args), &p); err != nil {
 			return &session.ToolResult{Error: "invalid args: " + err.Error()}
 		}
+		if len(p.Title) > 200 {
+			return &session.ToolResult{Error: "title too long (max 200 characters)"}
+		}
 		if len(p.Content) > 500 {
 			return &session.ToolResult{Error: "content too long (max 500 characters)"}
 		}
-		if len(p.Tags) > 200 {
-			return &session.ToolResult{Error: "tags too long (max 200 characters)"}
-		}
-		id, err := saveFn(p.Content, p.Tags)
+		id, err := saveFn(p.Title, p.Content)
 		if err != nil {
 			return &session.ToolResult{Error: "save failed: " + err.Error()}
 		}

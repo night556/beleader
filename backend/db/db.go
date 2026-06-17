@@ -47,8 +47,45 @@ func (db *DB) autoMigrate() error {
 	if err := db.GORM.AutoMigrate(&Session{}, &ProjectRef{}, &Message{}, &Agent{}, &ProjectAgent{}, &Knowledge{}); err != nil {
 		return err
 	}
-	// FTS5 virtual table for full-text search on knowledge
-	return db.GORM.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(content, tags)").Error
+
+	// Schema version via PRAGMA user_version (default 0 = uninitialized)
+	var schemaVersion int
+	db.GORM.Raw("PRAGMA user_version").Scan(&schemaVersion)
+
+	if schemaVersion < 1 {
+		// Migrate FTS5 from old (content, tags) to (title) — check if title column exists
+		needMigrate := true
+		rows, err := db.GORM.Raw("PRAGMA table_info('knowledge_fts')").Rows()
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var cid int; var name, colType string; var notNull int; var dflt *string; var pk int
+				rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk)
+				if name == "title" {
+					needMigrate = false
+					break
+				}
+			}
+		}
+		if needMigrate {
+			db.GORM.Exec("DROP TABLE IF EXISTS knowledge_fts")
+		}
+		if err := db.GORM.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(title, tokenize='unicode61')").Error; err != nil {
+			return err
+		}
+		// Re-index existing entries
+		var knowledges []Knowledge
+		db.GORM.Select("id, title").Find(&knowledges)
+		for _, k := range knowledges {
+			if k.Title != "" {
+				db.GORM.Exec("INSERT OR IGNORE INTO knowledge_fts(rowid, title) VALUES(?, ?)", k.ID, k.Title)
+			}
+		}
+		// Mark migration done
+		db.GORM.Exec("PRAGMA user_version = 1")
+	}
+
+	return nil
 }
 
 // ── Session ──
@@ -128,8 +165,8 @@ func (Agent) TableName() string { return "agents" }
 
 type Knowledge struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Title     string    `gorm:"default:''" json:"title"`
 	Content   string    `gorm:"default:''" json:"content"`
-	Tags      string    `gorm:"default:''" json:"tags"`
 	Source    string    `gorm:"size:128;default:''" json:"source"`
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
@@ -390,13 +427,13 @@ func (db *DB) GetAgentByName(name string) (*Agent, error) {
 
 // ── Knowledge methods ──
 
-func (db *DB) InsertKnowledge(content, tags, source string) (int64, error) {
-	k := &Knowledge{Content: content, Tags: tags, Source: source}
+func (db *DB) InsertKnowledge(title, content, source string) (int64, error) {
+	k := &Knowledge{Title: title, Content: content, Source: source}
 	if err := db.GORM.Create(k).Error; err != nil {
 		return 0, err
 	}
 	// Sync to FTS5
-	if err := db.GORM.Exec("INSERT INTO knowledge_fts(rowid, content, tags) VALUES(?, ?, ?)", k.ID, content, tags).Error; err != nil {
+	if err := db.GORM.Exec("INSERT INTO knowledge_fts(rowid, title) VALUES(?, ?)", k.ID, title).Error; err != nil {
 		return 0, err
 	}
 	return k.ID, nil
@@ -406,24 +443,45 @@ func (db *DB) SearchKnowledge(query string, limit int) ([]Knowledge, error) {
 	if limit <= 0 {
 		limit = 5
 	}
-	if limit > 10 {
-		limit = 10
+	if limit > 20 {
+		limit = 20
 	}
-	var ids []int64
-	err := db.GORM.Raw(
-		"SELECT rowid FROM knowledge_fts WHERE knowledge_fts MATCH ? ORDER BY rank LIMIT ?",
-		query, limit,
-	).Scan(&ids).Error
-	if err != nil {
+
+	// Count total FTS5 matches
+	var count int64
+	if err := db.GORM.Raw(
+		"SELECT COUNT(*) FROM knowledge_fts WHERE knowledge_fts MATCH ?", query,
+	).Scan(&count).Error; err != nil {
 		return nil, err
 	}
-	if len(ids) == 0 {
+	if count == 0 {
 		return nil, nil
 	}
+	if count > 100 {
+		return nil, fmt.Errorf("结果过多(%d条)，添加更多关键词", count)
+	}
+
+	// Get matching rowids ordered by BM25 rank
+	var ids []int64
+	if err := db.GORM.Raw(
+		"SELECT rowid FROM knowledge_fts WHERE knowledge_fts MATCH ? ORDER BY rank LIMIT ?",
+		query, limit,
+	).Scan(&ids).Error; err != nil {
+		return nil, err
+	}
+
 	var knowledge []Knowledge
 	if err := db.GORM.Where("id IN ?", ids).Order("created_at DESC").Find(&knowledge).Error; err != nil {
 		return nil, err
 	}
+
+	// If 11-100 results, return title-only (content stripped) to prompt LLM refinement
+	if count > 10 {
+		for i := range knowledge {
+			knowledge[i].Content = ""
+		}
+	}
+
 	return knowledge, nil
 }
 
@@ -431,6 +489,30 @@ func (db *DB) ListKnowledge(limit, offset int) ([]Knowledge, error) {
 	var knowledge []Knowledge
 	err := db.GORM.Order("created_at DESC").Limit(limit).Offset(offset).Find(&knowledge).Error
 	return knowledge, err
+}
+
+func (db *DB) UpdateKnowledge(id int64, title, content string) error {
+	updates := map[string]any{}
+	if title != "" {
+		updates["title"] = title
+	}
+	if content != "" {
+		updates["content"] = content
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	if err := db.GORM.Model(&Knowledge{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return err
+	}
+	if title != "" {
+		// Re-sync FTS5 title
+		db.GORM.Exec("DELETE FROM knowledge_fts WHERE rowid = ?", id)
+		if err := db.GORM.Exec("INSERT INTO knowledge_fts(rowid, title) VALUES(?, ?)", id, title).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *DB) DeleteKnowledge(id int64) error {
@@ -453,10 +535,10 @@ func (db *DB) SearchKnowledgeByQuery(q string, limit, offset int) ([]Knowledge, 
 	var knowledge []Knowledge
 	var count int64
 	query := "%" + q + "%"
-	if err := db.GORM.Model(&Knowledge{}).Where("content LIKE ? OR tags LIKE ?", query, query).Count(&count).Error; err != nil {
+	if err := db.GORM.Model(&Knowledge{}).Where("title LIKE ? OR content LIKE ?", query, query).Count(&count).Error; err != nil {
 		return nil, 0, err
 	}
-	err := db.GORM.Where("content LIKE ? OR tags LIKE ?", query, query).
+	err := db.GORM.Where("title LIKE ? OR content LIKE ?", query, query).
 		Order("created_at DESC").Limit(limit).Offset(offset).Find(&knowledge).Error
 	return knowledge, count, err
 }

@@ -136,6 +136,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.PUT("/agents/desc", h.handleUpdateAgentDesc)
 		api.GET("/knowledge", h.handleListKnowledge)
 		api.GET("/knowledge/search", h.handleSearchKnowledge)
+		api.PUT("/knowledge/:id", h.handleUpdateKnowledge)
 		api.DELETE("/knowledge/:id", h.handleDeleteKnowledge)
 
 		api.GET("/files/view", gin.WrapF(tools.FileViewHandler))
@@ -975,6 +976,31 @@ func (h *Handler) handleSearchKnowledge(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"knowledge": knowledge, "count": count})
+}
+
+func (h *Handler) handleUpdateKnowledge(c *gin.Context) {
+	var id int64
+	if _, err := fmt.Sscanf(c.Param("id"), "%d", &id); err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	var req struct {
+		Title   string `json:"title"`
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Title == "" && req.Content == "" {
+		c.JSON(400, gin.H{"error": "title or content required"})
+		return
+	}
+	if err := h.DB.UpdateKnowledge(id, req.Title, req.Content); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "updated"})
 }
 
 func (h *Handler) handleDeleteKnowledge(c *gin.Context) {

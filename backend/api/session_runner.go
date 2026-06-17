@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"context"
@@ -99,8 +99,8 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 				b, _ := json.Marshal(knowledge)
 				return string(b), nil
 			},
-			func(content, tags string) (int64, error) {
-				return h.DB.InsertKnowledge(content, tags, "main")
+			func(title, content string) (int64, error) {
+				return h.DB.InsertKnowledge(title, content, "main")
 			},
 			func(id int64) error {
 				return h.DB.DeleteKnowledge(id)
@@ -137,8 +137,8 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 				b, _ := json.Marshal(knowledge)
 				return string(b), nil
 			},
-			func(content, tags string) (int64, error) {
-				return h.DB.InsertKnowledge(content, tags, refID)
+			func(title, content string) (int64, error) {
+				return h.DB.InsertKnowledge(title, content, refID)
 			},
 			func(id int64) error {
 				return h.DB.DeleteKnowledge(id)
