@@ -99,7 +99,10 @@ function renderTimeline() {
       var expOpen = selected ? ' open' : '';
 
       h += '<div class="tl-expand' + expOpen + '" id="exp-' + item.id + '">';
-      h += '<div class="exp-body">' + formatExpandBody(item) + '</div>';
+      // Only render expand body for the selected item — rendering all
+      // bodies for every timeline item causes massive DOM bloat when
+      // tool outputs are large (file reads, directory scans) and freezes the page.
+      h += '<div class="exp-body">' + (selected ? formatExpandBody(item) : '') + '</div>';
       h += '</div>';
     }
   }
@@ -122,6 +125,11 @@ function expandTimelineItem(id) {
   if (currentStage && currentStage.item) {
     var exp = document.getElementById('exp-' + currentStage.item.id);
     if (exp) {
+      // Lazy-populate expand body — only rendered when opened now
+      var bodyEl = exp.querySelector('.exp-body');
+      if (bodyEl && !bodyEl.innerHTML) {
+        bodyEl.innerHTML = formatExpandBody(currentStage.item);
+      }
       exp.classList.add('open');
       // Scroll so expanded content is visible
       var tl = document.getElementById('timeline');
@@ -203,11 +211,18 @@ function formatExpandBody(item) {
 }
 
 function formatToolContent(text, isRunning) {
-  var out = text.split('\n').map(function(line) {
+  var lines = text.split('\n');
+  var truncated = false;
+  if (lines.length > 500) {
+    lines = lines.slice(0, 500);
+    truncated = true;
+  }
+  var out = lines.map(function(line) {
     if (/^\$ /.test(line)) return '<span class="t-prompt">' + escapeHtml(line) + '</span>';
     if (/^Error:/.test(line) || /^.*error/i.test(line)) return '<span class="t-err">' + escapeHtml(line) + '</span>';
     return escapeHtml(line);
   }).join('\n');
+  if (truncated) out += '\n\n[Output truncated — showing first 500 lines]';
   if (isRunning && out.length > 0) out += '<span class="t-cursor">▊</span>';
   return out;
 }
