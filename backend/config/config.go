@@ -13,9 +13,15 @@ type Config struct {
 	Thresholds ThresholdConfig `yaml:"thresholds" json:"thresholds"`
 	Browser      BrowserConfig   `yaml:"browser" json:"browser"`
 	SpeakEnabled bool            `yaml:"speak_enabled" json:"speak_enabled"`
+	PortMaps     []PortMapEntry  `yaml:"port_maps" json:"port_maps"`
 	WorkDir      string          `yaml:"work_dir" json:"work_dir"`
 
 	path string `yaml:"-" json:"-"`
+}
+
+type PortMapEntry struct {
+	Name      string `yaml:"name" json:"name"`
+	LocalPort int    `yaml:"local_port" json:"local_port"`
 }
 
 type BrowserConfig struct {
@@ -61,6 +67,7 @@ func DefaultConfig() *Config {
 			Headless: true,
 		},
 		SpeakEnabled: true,
+		PortMaps:     []PortMapEntry{},
 		WorkDir: filepath.Join(home, ".beleader", "projects"),
 	}
 }

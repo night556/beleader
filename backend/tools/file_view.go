@@ -15,6 +15,7 @@ import (
 	"beleader/backend/session"
 
 	"github.com/sashabaranov/go-openai"
+	"github.com/yuin/goldmark"
 )
 
 var showFileTool = openai.Tool{
@@ -108,6 +109,21 @@ iframe{width:100%%;height:100vh;border:none}
 		}
 		doc = buildPreview3DHTML(string(data), title)
 		htmlSource = string(data)
+
+	case ext == ".md":
+			data, err := os.ReadFile(cleanPath)
+			if err != nil {
+				return &session.ToolResult{Error: fmt.Sprintf("cannot read file: %v", err)}
+			}
+			var buf strings.Builder
+			if err := goldmark.Convert(data, &buf); err != nil {
+				return &session.ToolResult{Error: fmt.Sprintf("markdown conversion failed: %v", err)}
+			}
+			doc = fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css/github-markdown-light.css">
+	<style>body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#faf8f2;color:#2d2520;margin:0;padding:32px 40px;line-height:1.6;scrollbar-width:thin;scrollbar-color:rgba(0,0,0,0.15) transparent}
+	::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.15);border-radius:3px}
+	.markdown-body{max-width:900px;margin:0 auto}</style></head><body><div class="markdown-body">%s</div></body></html>`, buf.String())
 
 	case isTextExt(ext):
 		if info.Size() >= 200*1024 {

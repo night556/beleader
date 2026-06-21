@@ -96,13 +96,13 @@ function renderTimeline() {
     h += '</div>';
 
     if (isExpandable) {
-      var expOpen = selected ? ' open' : '';
+      var expOpen = (selected && item.type !== 'tool') ? ' open' : '';
 
       h += '<div class="tl-expand' + expOpen + '" id="exp-' + item.id + '">';
       // Only render expand body for the selected item — rendering all
       // bodies for every timeline item causes massive DOM bloat when
       // tool outputs are large (file reads, directory scans) and freezes the page.
-      h += '<div class="exp-body">' + (selected ? formatExpandBody(item) : '') + '</div>';
+      h += '<div class="exp-body markdown-body">' + (selected ? formatExpandBody(item) : '') + '</div>';
       h += '</div>';
     }
   }
@@ -568,10 +568,12 @@ function renderCardTabs() {
     right.innerHTML = '<span class="card-action-btn' + (entry.showingSource ? ' on' : '') +
       '" onclick="toggleCardSource(\'' + _cardActive + '\')">' +
       (entry.showingSource ? '渲染' : '源码') + '</span>' +
+      '<span class="card-action-btn" onclick="refreshCard(\'' + _cardActive + '\')">刷新</span>' +
       '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">截图</span>' +
       '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
   } else {
-    right.innerHTML = '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">截图</span>' +
+    right.innerHTML = '<span class="card-action-btn" onclick="refreshCard(\'' + _cardActive + '\')">刷新</span>' +
+      '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">截图</span>' +
       '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
   }
 }
@@ -645,6 +647,14 @@ function removeContentCard(id) {
   } else {
     renderCardTabs();
   }
+}
+
+function refreshCard(id) {
+  var entry = _contentCards[id];
+  if (!entry) return;
+  var iframe = entry.el.querySelector('iframe');
+  if (!iframe) return;
+  iframe.srcdoc = entry.html || '';
 }
 
 function highlightSourceHTML(code) {

@@ -89,6 +89,7 @@ function loadSettings() {
       document.getElementById('set-context-pct').value = cfg.thresholds && cfg.thresholds.max_context_pct || 60;
       document.getElementById('set-headless').checked = cfg.browser && cfg.browser.headless || false;
       document.getElementById('set-speak-enabled').checked = cfg.speak_enabled !== false;
+      renderPortMapList(cfg.port_maps || []);
       if (cfg.llm) {
         var models = cfg.llm.models || [];
         activeModelId = cfg.llm.active || (models.length > 0 ? models[0].id : '');
@@ -218,7 +219,8 @@ function saveSettings() {
     hc: { max: parseInt(document.getElementById('set-hc-max').value) || 5 },
     thresholds: { max_context_pct: parseInt(document.getElementById('set-context-pct').value) || 60 },
     browser: { headless: document.getElementById('set-headless').checked },
-    speak_enabled: document.getElementById('set-speak-enabled').checked
+    speak_enabled: document.getElementById('set-speak-enabled').checked,
+    port_maps: collectPortMaps()
   };
   fetch(SERVER_URL + '/api/settings', {
     method: 'PUT',
@@ -242,5 +244,60 @@ function renderAgentList(agents) {
   }
   if (!agents.length) html = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0;">No agents configured</div>';
   container.innerHTML = html;
+}
+
+// ── Port Maps ──
+
+var _portMapCounter = 0;
+
+function renderPortMapList(portMaps) {
+  var container = document.getElementById('port-map-list');
+  if (!portMaps || portMaps.length === 0) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">No port maps configured</div>';
+    return;
+  }
+  _portMapCounter = portMaps.length;
+  var html = '';
+  for (var i = 0; i < portMaps.length; i++) {
+    var pm = portMaps[i];
+    var port = pm.local_port || '';
+    var name = pm.name || '';
+    var directUrl = 'http://127.0.0.1:' + port;
+    html += '<div class="form-row" style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+    html += '<input placeholder="Name" value="' + escapeHtml(name) + '" data-pm="' + i + '" data-field="pm-name" style="flex:1;min-width:0">';
+    html += '<span style="color:var(--text-dim)">:</span>';
+    html += '<input type="number" placeholder="Port" value="' + port + '" data-pm="' + i + '" data-field="pm-port" min="1" max="65535" style="width:80px;min-width:0">';
+    html += '<a href="' + directUrl + '" target="_blank" title="Open in browser" style="color:var(--primary);text-decoration:none;font-size:13px">↗</a>';
+    html += '<span class="model-badge model-badge-delete" onclick="this.closest(\'.form-row\').remove()">&times;</span>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function addPortMap() {
+  var container = document.getElementById('port-map-list');
+  var idx = _portMapCounter++;
+  var html = '<div class="form-row" style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+  html += '<input placeholder="Name" data-pm="' + idx + '" data-field="pm-name" style="flex:1;min-width:0">';
+  html += '<span style="color:var(--text-dim)">:</span>';
+  html += '<input type="number" placeholder="Port" data-pm="' + idx + '" data-field="pm-port" min="1" max="65535" style="width:80px;min-width:0">';
+  html += '<span class="model-badge model-badge-delete" onclick="this.closest(\'.form-row\').remove()">&times;</span>';
+  html += '</div>';
+  container.insertAdjacentHTML('beforeend', html);
+}
+
+function collectPortMaps() {
+  var rows = document.querySelectorAll('#port-map-list .form-row');
+  var maps = [];
+  for (var i = 0; i < rows.length; i++) {
+    var nameInput = rows[i].querySelector('[data-field="pm-name"]');
+    var portInput = rows[i].querySelector('[data-field="pm-port"]');
+    var name = (nameInput && nameInput.value || '').trim();
+    var port = parseInt(portInput && portInput.value || '0') || 0;
+    if (name && port > 0 && port <= 65535) {
+      maps.push({ name: name, local_port: port });
+    }
+  }
+  return maps;
 }
 

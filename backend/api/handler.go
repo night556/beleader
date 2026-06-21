@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"context"
@@ -33,9 +33,9 @@ type Handler struct {
 	SessionMgr      *session.Manager
 	Config          *config.Config
 	SSE             *SSEBroker
-	hcSlots    chan struct{}
-	hcSessions sync.Map
-	pauseChs   map[string]chan struct{}
+	hcSlots         chan struct{}
+	hcSessions      sync.Map
+	pauseChs        map[string]chan struct{}
 	interveneChs    map[string]chan session.InterveneMsg
 	cancelFuncs     map[string]context.CancelFunc
 	pauseMu         sync.Mutex
@@ -268,7 +268,7 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, prompt, task st
 	}
 
 	if customPrompt == "" {
-		return "", fmt.Errorf("no agent template named '%s' and no prompt provided — check list_agents or provide a prompt", name)
+		return "", fmt.Errorf("no agent template named '%s' and no prompt provided 闁?check list_agents or provide a prompt", name)
 	}
 
 	workerSessionID := uuid.New().String()
@@ -363,12 +363,12 @@ func (h *Handler) interveneWorker(refID, workerName, message string) (string, er
 		}
 		h.Notify(SessionEvent{
 			Type: "worker_intervened",
-			Data: gin.H{"ref_id": refID, "session_id": sid, "name": workerName, "message": message, "status": "injected"},
+			Data: gin.H{"ref_id": refID, "session_id": sid, "worker_name": workerName, "message": message, "status": "injected"},
 		})
 		return fmt.Sprintf("Message sent to Worker '%s'.", workerName), nil
 	}
 
-	// Worker idle — restart RunLoop
+	// Worker idle 闁?restart RunLoop
 	h.DB.InsertMessage(&db.Message{SessionID: sid, Role: "user", Content: message})
 	h.acquireHC(sid)
 	h.DB.ResumeSession(sid)
@@ -385,7 +385,7 @@ func (h *Handler) interveneWorker(refID, workerName, message string) (string, er
 
 	h.Notify(SessionEvent{
 		Type: "worker_intervened",
-		Data: gin.H{"ref_id": refID, "session_id": sid, "name": workerName, "message": message, "status": "restarted"},
+		Data: gin.H{"ref_id": refID, "session_id": sid, "worker_name": workerName, "message": message, "status": "restarted"},
 	})
 	return fmt.Sprintf("Worker '%s' restarted and message sent.", workerName), nil
 }
@@ -506,7 +506,9 @@ func (h *Handler) DeleteProject(refID string) (string, error) {
 
 func (h *Handler) RegisterDeleteProjectTool() {
 	h.SessionMgr.RegisterTool("delete_project", func(ctx context.Context, args string) *session.ToolResult {
-		var p struct{ RefID string `json:"ref_id"` }
+		var p struct {
+			RefID string `json:"ref_id"`
+		}
 		json.Unmarshal([]byte(args), &p)
 		if p.RefID == "" {
 			return &session.ToolResult{Error: "ref_id required"}
@@ -636,7 +638,7 @@ func (h *Handler) handleIntervene(c *gin.Context) {
 			c.JSON(200, gin.H{"status": "ok"})
 			return
 		}
-		// Session goroutine gone — fall through to restart
+		// Session goroutine gone 闁?fall through to restart
 	}
 
 	workDir := h.Config.ProjectDir(refID)
@@ -786,7 +788,16 @@ func (h *Handler) handleStop(c *gin.Context) {
 }
 
 func (h *Handler) handleGetSettings(c *gin.Context) {
-	c.JSON(200, h.Config)
+	cfg := h.Config
+	c.JSON(200, gin.H{
+		"llm":           cfg.LLM,
+		"hc":            cfg.HC,
+		"thresholds":    cfg.Thresholds,
+		"browser":       cfg.Browser,
+		"speak_enabled": cfg.SpeakEnabled,
+		"port_maps":     cfg.PortMaps,
+		"work_dir":      cfg.WorkDir,
+	})
 }
 
 func (h *Handler) handleUpdateSettings(c *gin.Context) {
@@ -871,8 +882,8 @@ func (h *Handler) handleClearContext(c *gin.Context) {
 		return
 	}
 
-	h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "notice", Content: "--- 上下文已清空 ---"})
-	h.Notify(SessionEvent{Type: "notice", SessionID: sessionID, Data: gin.H{"content": "--- 上下文已清空 ---"}})
+	h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "notice", Content: "--- 濞戞挸锕ｇ粭鍛村棘閸パ冨殥婵炴挸鎳愰埞?---"})
+	h.Notify(SessionEvent{Type: "notice", SessionID: sessionID, Data: gin.H{"content": "--- 濞戞挸锕ｇ粭鍛村棘閸パ冨殥婵炴挸鎳愰埞?---"}})
 
 	c.JSON(200, gin.H{"status": "ok", "context_start_id": lastID})
 }
@@ -936,7 +947,7 @@ func (h *Handler) resolveModel(sessionID string) *config.ModelProfile {
 	return h.Config.ResolveModel(sess.ModelID)
 }
 
-// ── Knowledge API handlers ──
+// 闁冲厜鍋撻柍鍏夊亾 Knowledge API handlers 闁冲厜鍋撻柍鍏夊亾
 
 func (h *Handler) handleListKnowledge(c *gin.Context) {
 	offset := 0
