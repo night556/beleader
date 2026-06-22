@@ -57,6 +57,55 @@ function renderTimeline() {
   tl.innerHTML = h;
 }
 
+// ── Targeted DOM update for streaming items (avoids full re-render flicker) ──
+
+function updateStreamingContent(item) {
+  var tl = document.getElementById('timeline');
+
+  if (item.type === 'reply' && item.status === 'running') {
+    // Update the last .md-body in the last AI bubble in-place
+    var aiBubbles = tl.querySelectorAll('.msg-ai');
+    if (aiBubbles.length > 0) {
+      var lastAI = aiBubbles[aiBubbles.length - 1];
+      var mdBodies = lastAI.querySelectorAll('.md-body');
+      if (mdBodies.length > 0) {
+        var lastMd = mdBodies[mdBodies.length - 1];
+        try { lastMd.innerHTML = marked.parse(item.content || ''); } catch(e) {}
+        tl.scrollTop = tl.scrollHeight;
+        return true;
+      }
+    }
+  }
+
+  if (item.type === 'tool' && item.status === 'running' && item.tool_call_id) {
+    // Find the tool card by tool_call_id and update its result text in-place
+    var cards = tl.querySelectorAll('.tool-card');
+    for (var ci = 0; ci < cards.length; ci++) {
+      if (cards[ci].getAttribute('data-tool-call-id') === item.tool_call_id) {
+        var resultEl = cards[ci].querySelector('.tool-result');
+        if (resultEl) {
+          var content = item.content || '';
+          var lines = content.split('\n');
+          if (lines.length > 500) { lines = lines.slice(0, 500); }
+          var html = '';
+          for (var li = 0; li < lines.length; li++) {
+            var line = lines[li];
+            if (/^\$ /.test(line)) html += '<span style="color:var(--green)">' + escapeHtml(line) + '</span>\n';
+            else if (/^Error:/.test(line)) html += '<span style="color:#c48a82">' + escapeHtml(line) + '</span>\n';
+            else html += escapeHtml(line) + '\n';
+          }
+          html += '<span class="stream-cursor"></span>';
+          resultEl.innerHTML = html;
+          tl.scrollTop = tl.scrollHeight;
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 // ── Turn building ──
 
 function buildTurns() {
@@ -149,7 +198,8 @@ function renderToolCard(item) {
   }
   if (item.status === 'running' && content) contentHtml += '<span class="stream-cursor"></span>';
 
-  return '<div class="tool-card' + isOpen + '">' +
+  var tcidAttr = item.tool_call_id ? ' data-tool-call-id="' + item.tool_call_id + '"' : '';
+  return '<div class="tool-card' + isOpen + '"' + tcidAttr + '>' +
     '<div class="tool-card-header" onclick="this.parentElement.classList.toggle(\'open\')">' +
       '<span class="tool-dot ' + dotClass + '"></span>' +
       '<span class="tool-name">' + escapeHtml(item.label || '') + '</span>' +
@@ -167,7 +217,10 @@ function renderToolCard(item) {
 function expandTimelineItem(id) {}
 
 function updateExpandContent(item) {
-  renderAll();
+  // Try targeted DOM update first (no flicker); fall back to full render
+  if (!updateStreamingContent(item)) {
+    renderAll();
+  }
 }
 
 // ── Expand Body Formatting ──
