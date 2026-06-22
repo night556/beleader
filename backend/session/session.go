@@ -413,7 +413,23 @@ func (m *Manager) RunLoop(ctx context.Context, sessionID string, sysPrompt strin
 			}
 		}
 
-		resp, err := llmClient.Chat(ctx, msgs, toolList, false)
+		roleLabel, _ := ctx.Value(CtxKeyRoleLabel).(string)
+
+		// If progress is available, send thinking indicator
+		if progress != nil {
+			progress("thinking", map[string]any{"session_id": sessionID})
+		}
+
+		resp, err := llmClient.ChatStream(ctx, msgs, toolList, func(delta string) error {
+			if progress != nil {
+				progress("assistant_message_chunk", map[string]any{
+					"content":    delta,
+					"session_id": sessionID,
+					"role_label": roleLabel,
+				})
+			}
+			return nil
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return &LoopResult{Stopped: true, Rounds: rounds}, nil
@@ -434,7 +450,6 @@ func (m *Manager) RunLoop(ctx context.Context, sessionID string, sysPrompt strin
 		}
 
 		tcJSON, _ := json.Marshal(assistantMsg.ToolCalls)
-		roleLabel, _ := ctx.Value(CtxKeyRoleLabel).(string)
 		m.DB.InsertMessage(&db.Message{
 			SessionID:        sessionID,
 			Role:             "assistant",

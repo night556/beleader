@@ -99,6 +99,7 @@ var _lang = 'en';
     'model.new':                  { en: 'New Model', zh: '新建模型' },
     'model.id_label':             { en: 'ID', zh: '标识' },
     'model.id_placeholder':       { en: 'e.g. gpt-4o', zh: '例如 gpt-4o' },
+    'model.params_label':         { en: 'Parameters', zh: '参数' },
 
     // Project
     'project.name_prompt':        { en: 'Project Name:', zh: '项目名称:' },

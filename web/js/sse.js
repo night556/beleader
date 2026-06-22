@@ -184,7 +184,7 @@ window.updateState = function(name, data) {
   var sid = data.session_id || '';
 
   // Filter timeline events to current view's session only
-  var timelineTypes = ['thinking', 'tool_calls', 'tool_call', 'tool_result', 'responding', 'assistant_message', 'idle', 'stopped', 'context_compressed', 'notice'];
+  var timelineTypes = ['thinking', 'tool_calls', 'tool_call', 'tool_result', 'responding', 'assistant_message', 'assistant_message_chunk', 'idle', 'stopped', 'context_compressed', 'notice'];
   if (timelineTypes.indexOf(name) !== -1 && !isCurrentViewSession(sid)) return;
 
   switch (name) {
@@ -193,8 +193,7 @@ window.updateState = function(name, data) {
       state.name = 'thinking';
       updateStatus(t('status.thinking'), 'thinking');
       hideIdle();
-      var thinkItem = { type: 'thinking', icon: '✦', label: '', content: '', status: 'running' };
-      setLiveStage(thinkItem);
+      // Thinking is a status-bar indicator only — not a timeline item
       break;
 
     case 'tool_call':
@@ -294,6 +293,38 @@ window.updateState = function(name, data) {
       } catch(e3) {}
       break;
 
+    case 'assistant_message_chunk':
+      hideIdle();
+      var chunkContent = data.content || '';
+      if (!chunkContent) break;
+
+      var chunkItem = null;
+      for (var ci2 = timelineItems.length - 1; ci2 >= 0; ci2--) {
+        if (timelineItems[ci2].type === 'reply' &&
+            timelineItems[ci2].status === 'running' &&
+            (timelineItems[ci2].session_id || '') === (sid || '')) {
+          chunkItem = timelineItems[ci2];
+          break;
+        }
+      }
+
+      if (!chunkItem) {
+        updateStatus(t('status.replying'), 'thinking');
+        chunkItem = {
+          type: 'reply',
+          icon: '✦',
+          label: data.role_label || t('timeline.ai_reply'),
+          content: '',
+          status: 'running',
+          session_id: sid || ''
+        };
+        pushTimelineItem(chunkItem);
+      }
+
+      chunkItem.content += chunkContent;
+      setLiveStage(chunkItem);
+      break;
+
     case 'speaking':
       if (typeof speak === 'function') speak(data.text);
       break;
@@ -303,22 +334,45 @@ window.updateState = function(name, data) {
       state.name = 'responding';
       hideIdle();
       updateStatus(t('status.replying'), 'thinking');
-      var cardHTML = data.html || '';
-      if (!cardHTML && data.content) {
-        try { cardHTML = marked.parse(data.content); } catch(me) { cardHTML = data.content; }
+
+      // Finalize any existing streaming reply item
+      var streamItem = null;
+      for (var si2 = timelineItems.length - 1; si2 >= 0; si2--) {
+        if (timelineItems[si2].type === 'reply' &&
+            timelineItems[si2].status === 'running' &&
+            (timelineItems[si2].session_id || '') === (sid || '')) {
+          streamItem = timelineItems[si2];
+          break;
+        }
       }
-      var isWorker = data.role_label && data.role_label !== 'coordinator';
-      if (cardHTML && (!isWorker || _agentFilter === sid)) {
-        var replyItem = {
-          type: 'reply',
-          icon: '✦',
-          label: t('timeline.ai_reply'),
-          content: cardHTML,
-          status: 'done'
-        };
-        pushTimelineItem(replyItem);
-        setLiveStage(replyItem);
-        // keep current status — agent may still be in a loop
+
+      if (streamItem) {
+        streamItem.status = 'done';
+        var finalContent = data.content || '';
+        if (finalContent && finalContent !== streamItem.content) {
+          streamItem.content = finalContent;
+        }
+        // Parse accumulated markdown to HTML for done rendering
+        try { streamItem.content = marked.parse(streamItem.content); } catch(e) {}
+        setLiveStage(streamItem);
+      } else {
+        // Fallback: no streaming reply, create one from the full content
+        var cardHTML = data.html || '';
+        if (!cardHTML && data.content) {
+          try { cardHTML = marked.parse(data.content); } catch(me) { cardHTML = data.content; }
+        }
+        var isWorker = data.role_label && data.role_label !== 'coordinator';
+        if (cardHTML && (!isWorker || _agentFilter === sid)) {
+          var replyItem = {
+            type: 'reply',
+            icon: '✦',
+            label: t('timeline.ai_reply'),
+            content: cardHTML,
+            status: 'done'
+          };
+          pushTimelineItem(replyItem);
+          setLiveStage(replyItem);
+        }
       }
       if (sid) {
         _agentActivities[sid] = { text: t('status.replying_activity'), since: Date.now() };

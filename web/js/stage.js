@@ -47,142 +47,127 @@ function renderAll() {
 
 function renderTimeline() {
   var tl = document.getElementById('timeline');
-  var h = '';
-  var stageId = currentStage ? currentStage.item.id : '';
-
-  for (var i = 0; i < timelineItems.length; i++) {
-    var item = timelineItems[i];
-    var icon = item.icon || '';
-    var summary = '';
-    var tagClass = '';
-    var tagText = '';
-    var selected = item.id === stageId;
-    var isExpandable = item.type !== 'thinking';
-
-    if (item.type === 'user') {
-      tagClass = 'user'; tagText = 'You';
-      summary = (item.content || '').substring(0, 60);
-      if (item.content && item.content.length > 60) summary += '…';
-    } else if (item.type === 'reply') {
-      tagClass = 'reply'; tagText = 'AI';
-      summary = stripHtml(item.content || '').substring(0, 60);
-      if (stripHtml(item.content || '').length > 60) summary += '…';
-    } else if (item.type === 'tool') {
-      tagClass = item.status === 'running' ? 'running' : 'tool';
-      tagText = item.status === 'running' ? t('status.executing') : (item.error ? t('status.failed') : t('status.tool'));
-      summary = item.label || '';
-    } else if (item.type === 'error') {
-      tagClass = 'tool'; tagText = t('status.error');
-      summary = (item.content || '').substring(0, 60);
-    } else if (item.type === 'notice') {
-      tagClass = 'tool'; tagText = '';
-      summary = (item.content || '').substring(0, 60);
-    } else if (item.type === 'thinking') {
-      tagClass = 'reply'; tagText = '…';
-      summary = t('status.thinking');
-    }
-
-    var rowStyle = '';
-    if (item.status === 'running') rowStyle = 'border-left:2px solid var(--green);';
-    if (!isExpandable) rowStyle = (rowStyle ? rowStyle + ' ' : '') + 'cursor:default;';
-    var rowExtra = rowStyle ? ' style="' + rowStyle + '"' : '';
-
-    h += '<div class="tl-row' + (selected ? ' selected' : '') + '"' +
-         (isExpandable ? ' onclick="expandTimelineItem(\'' + item.id + '\')" data-expand="exp-' + item.id + '"' : '') +
-         rowExtra + '>';
-    h += '<span class="tl-icon">' + icon + '</span>';
-    h += '<span class="tl-summary">' + escapeHtml(summary) + '</span>';
-    h += '<span class="tl-tag ' + tagClass + '">' + tagText + '</span>';
-    h += '</div>';
-
-    if (isExpandable) {
-      var expOpen = (selected && item.type !== 'tool') ? ' open' : '';
-
-      h += '<div class="tl-expand' + expOpen + '" id="exp-' + item.id + '">';
-      // Only render expand body for the selected item — rendering all
-      // bodies for every timeline item causes massive DOM bloat when
-      // tool outputs are large (file reads, directory scans) and freezes the page.
-      h += '<div class="exp-body markdown-body">' + (selected ? formatExpandBody(item) : '') + '</div>';
-      h += '</div>';
-    }
+  var h = '<div class="timeline-inner">';
+  var turns = buildTurns();
+  for (var i = 0; i < turns.length; i++) {
+    var turn = turns[i];
+    h += renderTurn(turn, i);
   }
+  h += '</div>';
   tl.innerHTML = h;
 }
 
-// ── Accordion Toggle ──
+// ── Turn building ──
 
-function expandTimelineItem(id) {
-  var item = findTimelineItem(id);
-  if (!item) return;
-  if (currentStage && currentStage.item && currentStage.item.id === id && !currentStage.live) {
-    currentStage = null;
-  } else {
-    setHistoryStage(item);
-  }
-  // Close all, then open selected
-  document.querySelectorAll('.tl-expand.open').forEach(function(e) { e.classList.remove('open'); });
-  document.querySelectorAll('.tl-row.selected').forEach(function(r) { r.classList.remove('selected'); });
-  if (currentStage && currentStage.item) {
-    var exp = document.getElementById('exp-' + currentStage.item.id);
-    if (exp) {
-      // Lazy-populate expand body — only rendered when opened now
-      var bodyEl = exp.querySelector('.exp-body');
-      if (bodyEl && !bodyEl.innerHTML) {
-        bodyEl.innerHTML = formatExpandBody(currentStage.item);
-      }
-      exp.classList.add('open');
-      // Scroll so expanded content is visible
-      var tl = document.getElementById('timeline');
-      var expBottom = exp.offsetTop + exp.offsetHeight;
-      var viewBottom = tl.scrollTop + tl.clientHeight;
-      if (expBottom > viewBottom) {
-        tl.scrollTop = expBottom - tl.clientHeight + 20;
-      }
+function buildTurns() {
+  var turns = [];
+  var curAI = null;
+
+  function flushAI() {
+    if (curAI && curAI.items.length > 0) {
+      turns.push(curAI);
+      curAI = null;
     }
-    var row = document.querySelector('.tl-row[data-expand="exp-' + currentStage.item.id + '"]');
-    if (row) row.classList.add('selected');
   }
+
+  for (var i = 0; i < timelineItems.length; i++) {
+    var item = timelineItems[i];
+
+    if (item.type === 'user') {
+      flushAI();
+      turns.push({ type: 'user', item: item });
+    } else if (item.type === 'thinking') {
+      flushAI();
+      turns.push({ type: 'thinking', item: item });
+    } else if (item.type === 'error' || item.type === 'notice') {
+      flushAI();
+      turns.push({ type: 'notice', item: item });
+    } else {
+      // reply, tool → group into AI turn
+      if (!curAI) curAI = { type: 'ai', items: [] };
+      curAI.items.push(item);
+    }
+  }
+  flushAI();
+  return turns;
 }
 
-// ── Inline Expand Content Update (for live streaming) ──
-
-function updateExpandContent(item) {
-  var exp = document.getElementById('exp-' + item.id);
-  if (!exp) return;
-
-  var body = exp.querySelector('.exp-body');
-  if (body) {
-    body.innerHTML = formatExpandBody(item);
-    body.scrollTop = body.scrollHeight;
+function renderTurn(turn, idx) {
+  var tid = 'turn-' + idx;
+  if (turn.type === 'user') {
+    return '<div class="msg msg-user" id="' + tid + '">' +
+      '<div class="msg-bubble">' + escapeHtml(turn.item.content || '') + '</div>' +
+    '</div>';
   }
-
-  var expId = 'exp-' + item.id;
-  var row = document.querySelector('.tl-row[data-expand="' + expId + '"]');
-  if (row) {
-    var tag = row.querySelector('.tl-tag');
-    if (tag) {
-      var isTool = item.type === 'tool';
-      if (isTool) {
-        tag.className = 'tl-tag ' + (item.status === 'running' ? 'running' : 'tool');
-        tag.textContent = item.status === 'running' ? t('status.executing') : (item.error ? t('status.failed') : t('status.tool'));
+  if (turn.type === 'ai') {
+    var body = '';
+    for (var i = 0; i < turn.items.length; i++) {
+      var item = turn.items[i];
+      if (item.type === 'reply') {
+        // For streaming status, use raw markdown rendered; for done, use content as-is (already HTML from marked)
+        var html = item.content || '';
+        if (item.status === 'running') {
+          try { html = marked.parse(item.content || ''); } catch(e) {}
+        }
+        body += '<div class="md-body">' + html + '</div>';
+      } else if (item.type === 'tool') {
+        body += renderToolCard(item);
       }
     }
-    if (item.status === 'running') row.style.borderLeft = '2px solid var(--green)';
-    else row.style.borderLeft = '';
+    return '<div class="msg msg-ai" id="' + tid + '">' +
+      '<div class="msg-bubble">' + body + '</div>' +
+    '</div>';
   }
-
-  if (!exp.classList.contains('open')) exp.classList.add('open');
-  if (row && !row.classList.contains('selected')) row.classList.add('selected');
-
-  // Auto-scroll if this is a live streaming item
-  if (currentStage && currentStage.live && currentStage.item === item) {
-    var tl = document.getElementById('timeline');
-    var expBottom = exp.offsetTop + exp.offsetHeight;
-    var viewBottom = tl.scrollTop + tl.clientHeight;
-    if (expBottom > viewBottom) {
-      tl.scrollTop = expBottom - tl.clientHeight + 20;
-    }
+  if (turn.type === 'notice') {
+    return '<div class="msg msg-notice" id="' + tid + '">' +
+      '<div class="msg-bubble">' + escapeHtml(turn.item.content || '') + '</div>' +
+    '</div>';
   }
+  if (turn.type === 'thinking') {
+    // Active thinking shows the pulse bubble; old ones are invisible separators
+    if (turn.item.status !== 'running') return '';
+    return '<div class="msg msg-ai msg-thinking" id="' + tid + '">' +
+      '<div class="msg-bubble">' + t('status.thinking') + '</div>' +
+    '</div>';
+  }
+  return '';
+}
+
+function renderToolCard(item) {
+  var isOpen = item.status === 'running' ? ' open' : '';
+  var dotClass = item.status === 'running' ? 'running' : (item.error ? 'error' : 'done');
+  var content = item.content || '';
+  // Format tool output lines
+  var contentHtml = '';
+  var lines = content.split('\n');
+  if (lines.length > 500) { lines = lines.slice(0, 500); contentHtml += '[Output truncated — showing first 500 lines]\n'; }
+  for (var li = 0; li < lines.length; li++) {
+    var line = lines[li];
+    if (/^\$ /.test(line)) contentHtml += '<span style="color:var(--green)">' + escapeHtml(line) + '</span>\n';
+    else if (/^Error:/.test(line)) contentHtml += '<span style="color:#c48a82">' + escapeHtml(line) + '</span>\n';
+    else contentHtml += escapeHtml(line) + '\n';
+  }
+  if (item.status === 'running' && content) contentHtml += '<span class="stream-cursor"></span>';
+
+  return '<div class="tool-card' + isOpen + '">' +
+    '<div class="tool-card-header" onclick="this.parentElement.classList.toggle(\'open\')">' +
+      '<span class="tool-dot ' + dotClass + '"></span>' +
+      '<span class="tool-name">' + escapeHtml(item.label || '') + '</span>' +
+      '<span class="tool-chevron">▾</span>' +
+    '</div>' +
+    '<div class="tool-card-body">' +
+      (item.detail ? '<div class="tool-params"><strong>' + t('model.params_label') + '</strong><code>' + escapeHtml(item.detail) + '</code></div>' : '') +
+      '<div class="tool-result">' + contentHtml + '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+// ── Legacy (no-op in chat layout) ──
+
+function expandTimelineItem(id) {}
+
+function updateExpandContent(item) {
+  renderAll();
 }
 
 // ── Expand Body Formatting ──
