@@ -664,9 +664,7 @@ func browserClose(id string) *session.ToolResult {
 	}
 
 	if len(bState.pages) == 0 {
-		if err := bState.browser.Close(); err != nil {
-			return &session.ToolResult{Error: fmt.Sprintf("close browser: %v", err)}
-		}
+		killBrowserLocked()
 		bState = nil
 		return &session.ToolResult{Content: fmt.Sprintf("Closed %s. No more pages, browser exited.", id)}
 	}
