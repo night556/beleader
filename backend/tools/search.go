@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
+	"time"
 
 	"beleader/backend/session"
 
+	"github.com/go-rod/rod/lib/input"
+	"github.com/go-rod/rod/lib/proto"
+	"github.com/go-rod/stealth"
 	"golang.org/x/net/html"
 )
 
@@ -43,31 +44,57 @@ type searchResult struct {
 }
 
 func searchBing(ctx context.Context, query string) ([]searchResult, error) {
-	u := "https://cn.bing.com/search?q=" + url.QueryEscape(query)
-	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	bs, err := getOrCreateBrowser()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("browser: %w", err)
 	}
-	req.Header.Set("User-Agent", bingUA)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 
-	resp, err := http.DefaultClient.Do(req)
+	page, err := stealth.Page(bs.browser)
 	if err != nil {
-		return nil, fmt.Errorf("search request failed: %w", err)
+		return nil, fmt.Errorf("create page: %w", err)
 	}
-	defer resp.Body.Close()
+	defer page.Close()
 
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("search returned status %d", resp.StatusCode)
+	page = page.Timeout(30 * time.Second).Context(ctx)
+
+	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
+		Width:             1920,
+		Height:            1080,
+		DeviceScaleFactor: 1,
+		Mobile:            false,
+	}); err != nil {
+		return nil, fmt.Errorf("viewport: %w", err)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	// Open Bing homepage and use the search box like a real user.
+	// Direct navigation to /search?q=... triggers Bing's rdr=1 redirect
+	// and returns degraded results.
+	if err := page.Navigate("https://cn.bing.com/"); err != nil {
+		return nil, fmt.Errorf("navigate: %w", err)
+	}
+	if err := page.WaitLoad(); err != nil {
+		return nil, fmt.Errorf("wait load: %w", err)
+	}
+
+	el, err := page.Element("#sb_form_q")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("find search box: %w", err)
+	}
+	if err := el.Input(query); err != nil {
+		return nil, fmt.Errorf("type query: %w", err)
+	}
+	if err := page.Keyboard.Press(input.Enter); err != nil {
+		return nil, fmt.Errorf("press enter: %w", err)
 	}
 
-	return parseBingResults(string(body)), nil
+	page.MustElement("li.b_algo")
+
+	html, err := page.HTML()
+	if err != nil {
+		return nil, fmt.Errorf("get html: %w", err)
+	}
+
+	return parseBingResults(html), nil
 }
 
 func parseBingResults(htmlContent string) []searchResult {
