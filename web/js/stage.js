@@ -294,7 +294,7 @@ function renderTurn(turn, idx) {
 }
 
 function renderToolCard(item) {
-  var isOpen = item.status === 'running' ? ' open' : '';
+  var isOpen = '';
   var dotClass = item.status === 'running' ? 'running' : (item.error ? 'error' : 'done');
   var content = item.content || '';
 
