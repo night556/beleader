@@ -46,6 +46,7 @@ type browserState struct {
 	pages   map[string]*pageInfo
 	active  string
 	pid     int
+	launcher *launcher.Launcher
 }
 
 type pageInfo struct {
@@ -511,6 +512,7 @@ func getOrCreateBrowser() (*browserState, error) {
 		browser: browser,
 		pages:   make(map[string]*pageInfo),
 		pid:     l.PID(),
+		launcher: l,
 	}
 	return bState, nil
 }
@@ -1142,6 +1144,20 @@ func browserSelect(pg *rod.Page, ref, option string) *session.ToolResult {
 	return &session.ToolResult{Content: fmt.Sprintf("Selected '%s' in %s", option, sel)}
 }
 
+
+// killBrowserLocked kills the browser process tree. Must be called with bmu held.
+func killBrowserLocked() {
+	if bState == nil || bState.browser == nil {
+		return
+	}
+	_ = bState.browser.Close()
+	if bState.launcher != nil {
+		bState.launcher.Kill()
+		bState.launcher.Cleanup()
+	} else if bState.pid != 0 {
+		exec.Command("taskkill", "/f", "/t", "/pid", strconv.Itoa(bState.pid)).Run()
+	}
+}
 func findBrowser() string {
 	paths := []string{
 		"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",

@@ -53,6 +53,14 @@ func searchBing(ctx context.Context, query string) ([]searchResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create page: %w", err)
 	}
+	defer func() {
+		bmu.Lock()
+		if bState != nil && len(bState.pages) == 0 {
+			killBrowserLocked()
+			bState = nil
+		}
+		bmu.Unlock()
+	}()
 	defer page.Close()
 
 	page = page.Timeout(30 * time.Second).Context(ctx)
