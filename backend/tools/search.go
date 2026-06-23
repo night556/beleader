@@ -95,7 +95,15 @@ func searchBing(ctx context.Context, query string) ([]searchResult, error) {
 		return nil, fmt.Errorf("press enter: %w", err)
 	}
 
-	page.MustElement("li.b_algo")
+	// Wait for search results page to load — navigation destroys the old
+	// execution context and MustElement will panic if the page is mid-transition.
+	if err := page.WaitLoad(); err != nil {
+		return nil, fmt.Errorf("wait search results: %w", err)
+	}
+
+	if _, err := page.Element("li.b_algo"); err != nil {
+		return nil, fmt.Errorf("wait results: %w", err)
+	}
 
 	html, err := page.HTML()
 	if err != nil {
