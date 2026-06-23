@@ -74,7 +74,20 @@ function renderTimeline(forceFull) {
   if (turns.length === domCount && turns.length > 0) {
     var lastEl = inner.children[domCount - 1];
     if (lastEl) {
+      // Save user-expanded tool-cards so we can restore them after re-render
+      var openIds = [];
+      var openCards = lastEl.querySelectorAll('.tool-card.open');
+      for (var oi = 0; oi < openCards.length; oi++) {
+        var tcid = openCards[oi].getAttribute('data-tool-call-id');
+        if (tcid) openIds.push(tcid);
+      }
       lastEl.outerHTML = renderTurn(turns[turns.length - 1], turns.length - 1);
+      // Restore open state on matching tool-cards
+      var newLastEl = inner.children[domCount - 1];
+      for (var oj = 0; oj < openIds.length; oj++) {
+        var card = newLastEl.querySelector('.tool-card[data-tool-call-id="' + openIds[oj] + '"]');
+        if (card) card.classList.add('open');
+      }
     }
     _renderedTurnCount = turns.length;
     return;
@@ -91,6 +104,7 @@ function renderTimeline(forceFull) {
 
 function updateStreamingContent(item) {
   var tl = document.getElementById('timeline');
+  var wasAtBottom = tl.scrollTop + tl.clientHeight >= tl.scrollHeight - 50;
 
   if (item.type === 'reply' && item.status === 'running') {
     // Update the last .md-body in the last AI bubble in-place
@@ -101,7 +115,7 @@ function updateStreamingContent(item) {
       if (mdBodies.length > 0) {
         var lastMd = mdBodies[mdBodies.length - 1];
         try { lastMd.innerHTML = marked.parse(item.content || ''); } catch(e) {}
-        tl.scrollTop = tl.scrollHeight;
+        if (wasAtBottom) tl.scrollTop = tl.scrollHeight;
         return true;
       }
     }
@@ -117,7 +131,7 @@ function updateStreamingContent(item) {
           var fullContent = item.content || '';
           var renderedLen = parseInt(resultEl.getAttribute('data-rendered-len') || '0');
           if (renderedLen >= fullContent.length) {
-            tl.scrollTop = tl.scrollHeight;
+            if (wasAtBottom) tl.scrollTop = tl.scrollHeight;
             return true; // nothing new
           }
 
@@ -130,7 +144,7 @@ function updateStreamingContent(item) {
             newRendered = renderedLen + toRender.length;
           } else {
             // No complete line yet — wait for next chunk
-            tl.scrollTop = tl.scrollHeight;
+            if (wasAtBottom) tl.scrollTop = tl.scrollHeight;
             return true;
           }
 
@@ -152,7 +166,7 @@ function updateStreamingContent(item) {
           resultEl.insertAdjacentHTML('beforeend', '<span class="stream-cursor"></span>');
           resultEl.setAttribute('data-rendered-len', newRendered);
 
-          tl.scrollTop = tl.scrollHeight;
+          if (wasAtBottom) tl.scrollTop = tl.scrollHeight;
           return true;
         }
       }
@@ -179,8 +193,7 @@ function updateStreamingContent(item) {
           var cur = resEl.querySelector('.stream-cursor');
           if (cur) cur.remove();
         }
-        // Update card status styling
-        cards2[cj].classList.remove('open');
+        // Update card status styling (keep user's open/close preference)
         var dot = cards2[cj].querySelector('.tool-dot');
         if (dot) { dot.className = 'tool-dot ' + (item.error ? 'error' : 'done'); }
         // Remove the data-rendered-len tracking (no longer needed)
