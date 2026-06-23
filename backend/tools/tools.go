@@ -726,10 +726,10 @@ func validateRequired(args string, required []string) *session.ToolResult {
 	for _, k := range required {
 		v, ok := m[k]
 		if !ok || v == nil {
-			return &session.ToolResult{Error: fmt.Sprintf("%%s is required", k)}
+			return &session.ToolResult{Error: fmt.Sprintf("%s is required", k)}
 		}
 		if s, ok := v.(string); ok && s == "" {
-			return &session.ToolResult{Error: fmt.Sprintf("%%s is required", k)}
+			return &session.ToolResult{Error: fmt.Sprintf("%s is required", k)}
 		}
 	}
 	return nil

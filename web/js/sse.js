@@ -45,7 +45,7 @@ function loadSessionMessages(sessionId) {
           showIdle();
         } else {
           hideIdle();
-          renderAll();
+          renderAll(true);
         }
         return;
       }
@@ -74,7 +74,7 @@ function loadSessionMessages(sessionId) {
         if (m.hidden) continue;
         var item = null;
         if (m.role === 'user') {
-          item = { type: 'user', icon: '\u{1F464}', label: 'You', content: m.content, status: 'done' };
+          item = { type: 'user', icon: '\u{1F464}', label: 'You', content: m.content, status: 'done', db_id: m.id, bookmarked: m.bookmarked };
         } else if (m.role === 'assistant') {
           var content = m.content || '';
           var hasToolCalls = false;
@@ -82,7 +82,7 @@ function loadSessionMessages(sessionId) {
           if (!content && hasToolCalls) continue;
           var html = content;
           try { html = marked.parse(content); } catch(e) {}
-          item = { type: 'reply', icon: '✦', label: m.role_label || 'AI', content: html, status: 'done' };
+          item = { type: 'reply', icon: '✦', label: m.role_label || 'AI', content: html, status: 'done', db_id: m.id, bookmarked: m.bookmarked };
         } else if (m.role === 'tool') {
           var toolContent = m.content || '';
           var toolLabel = t('status.tool');
@@ -104,19 +104,19 @@ function loadSessionMessages(sessionId) {
             toolLabel = hasError ? t('status.tool_error') : t('status.tool_result');
             toolDetail = '';
           }
-          item = { type: 'tool', icon: toolIcon, label: toolLabel, detail: toolDetail, content: toolContent, status: hasError ? 'fail' : 'done', error: hasError };
+          item = { type: 'tool', icon: toolIcon, label: toolLabel, detail: toolDetail, content: toolContent, status: hasError ? 'fail' : 'done', error: hasError, db_id: m.id, bookmarked: m.bookmarked };
         } else if (m.role === 'system') {
           continue;
         } else if (m.role === 'error') {
-          item = { type: 'error', icon: '⚠', label: t('status.error'), content: m.content || '', status: 'fail' };
+          item = { type: 'error', icon: '⚠', label: t('status.error'), content: m.content || '', status: 'fail', db_id: m.id, bookmarked: m.bookmarked };
         } else if (m.role === 'notice') {
-          item = { type: 'notice', icon: 'ℹ', label: '', content: m.content || '', status: 'done' };
+          item = { type: 'notice', icon: 'ℹ', label: '', content: m.content || '', status: 'done', db_id: m.id, bookmarked: m.bookmarked };
         }
         if (item) pushTimelineItem(item);
       }
       hideIdle();
       currentStage = null;
-      renderAll();
+      renderAll(true);
     })
     .catch(function(err) { console.error('load history error:', err); });
 }
@@ -266,7 +266,10 @@ window.updateState = function(name, data) {
         try {
           var parsed = typeof data.content === 'string' ? JSON.parse(data.content) : data.content;
           if (parsed && parsed.error) { resultText = parsed.error; hasError = true; }
-          if (parsed && parsed.content && !hasError) resultText = parsed.content;
+          if (parsed && parsed.content) {
+            // Show stdout/stderr even when there's an error
+            resultText = hasError ? parsed.content + '\n\n' + resultText : parsed.content;
+          }
         } catch(e2) {}
 
         var resultItem = null;
@@ -276,8 +279,7 @@ window.updateState = function(name, data) {
         if (resultItem) {
           resultItem.status = hasError ? 'fail' : 'done';
           resultItem.error = hasError;
-          if (resultText && !hasError) resultItem.content = resultText;
-          else if (hasError) resultItem.content = resultText || t('status.unknown_error');
+          resultItem.content = resultText || (hasError ? t('status.unknown_error') : '');
           if (currentStage && currentStage.item === resultItem) {
             updateExpandContent(resultItem);
           }

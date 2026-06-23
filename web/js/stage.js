@@ -35,26 +35,56 @@ function setHistoryStage(item) {
 
 // ── Render All ──
 
-function renderAll() {
-  renderTimeline();
-  if (!currentStage || currentStage.live) {
-    var tl = document.getElementById('timeline');
+var _renderedTurnCount = 0;
+
+function renderAll(forceFull) {
+  var tl = document.getElementById('timeline');
+  var wasAtBottom = tl.scrollTop + tl.clientHeight >= tl.scrollHeight - 50;
+  renderTimeline(forceFull);
+  // Only auto-scroll if user was already at the bottom
+  if ((!currentStage || currentStage.live) && wasAtBottom) {
     tl.scrollTop = tl.scrollHeight;
   }
 }
 
 // ── Timeline Rendering ──
 
-function renderTimeline() {
+function renderTimeline(forceFull) {
   var tl = document.getElementById('timeline');
-  var h = '<div class="timeline-inner">';
   var turns = buildTurns();
-  for (var i = 0; i < turns.length; i++) {
-    var turn = turns[i];
-    h += renderTurn(turn, i);
+
+  // Full render: first time, force flag, or turn count decreased (reset)
+  if (forceFull || _renderedTurnCount === 0 || turns.length < _renderedTurnCount) {
+    var h = '<div class="timeline-inner">';
+    for (var i = 0; i < turns.length; i++) {
+      h += renderTurn(turns[i], i);
+    }
+    h += '</div>';
+    tl.innerHTML = h;
+    _renderedTurnCount = turns.length;
+    return;
   }
-  h += '</div>';
-  tl.innerHTML = h;
+
+  var inner = tl.querySelector('.timeline-inner');
+  if (!inner) return;
+
+  var domCount = inner.children.length;
+
+  // Last turn changed (items added/modified)? Re-render it in-place
+  if (turns.length === domCount && turns.length > 0) {
+    var lastEl = inner.children[domCount - 1];
+    if (lastEl) {
+      lastEl.outerHTML = renderTurn(turns[turns.length - 1], turns.length - 1);
+    }
+    _renderedTurnCount = turns.length;
+    return;
+  }
+
+  // New turns: append only (use DOM count as ground truth)
+  for (var i = domCount; i < turns.length; i++) {
+    inner.insertAdjacentHTML('beforeend', renderTurn(turns[i], i));
+  }
+  _renderedTurnCount = turns.length;
 }
 
 // ── Targeted DOM update for streaming items (avoids full re-render flicker) ──
@@ -78,27 +108,84 @@ function updateStreamingContent(item) {
   }
 
   if (item.type === 'tool' && item.status === 'running' && item.tool_call_id) {
-    // Find the tool card by tool_call_id and update its result text in-place
+    // Update tool card result in-place — only append new content, never rebuild
     var cards = tl.querySelectorAll('.tool-card');
     for (var ci = 0; ci < cards.length; ci++) {
       if (cards[ci].getAttribute('data-tool-call-id') === item.tool_call_id) {
         var resultEl = cards[ci].querySelector('.tool-result');
         if (resultEl) {
-          var content = item.content || '';
-          var lines = content.split('\n');
-          if (lines.length > 500) { lines = lines.slice(0, 500); }
+          var fullContent = item.content || '';
+          var renderedLen = parseInt(resultEl.getAttribute('data-rendered-len') || '0');
+          if (renderedLen >= fullContent.length) {
+            tl.scrollTop = tl.scrollHeight;
+            return true; // nothing new
+          }
+
+          // Find last complete lines in the new content
+          var newPart = fullContent.substring(renderedLen);
+          var lastNewline = newPart.lastIndexOf('\n');
+          var toRender, newRendered;
+          if (lastNewline >= 0) {
+            toRender = newPart.substring(0, lastNewline + 1);
+            newRendered = renderedLen + toRender.length;
+          } else {
+            // No complete line yet — wait for next chunk
+            tl.scrollTop = tl.scrollHeight;
+            return true;
+          }
+
+          // Format and append only the new lines
+          var lines = toRender.split('\n');
           var html = '';
           for (var li = 0; li < lines.length; li++) {
             var line = lines[li];
+            if (line === '') { html += '\n'; continue; }
             if (/^\$ /.test(line)) html += '<span style="color:var(--green)">' + escapeHtml(line) + '</span>\n';
             else if (/^Error:/.test(line)) html += '<span style="color:#c48a82">' + escapeHtml(line) + '</span>\n';
             else html += escapeHtml(line) + '\n';
           }
-          html += '<span class="stream-cursor"></span>';
-          resultEl.innerHTML = html;
+
+          // Remove old cursor, append new lines, re-add cursor
+          var cursorEl = resultEl.querySelector('.stream-cursor');
+          if (cursorEl) cursorEl.remove();
+          resultEl.insertAdjacentHTML('beforeend', html);
+          resultEl.insertAdjacentHTML('beforeend', '<span class="stream-cursor"></span>');
+          resultEl.setAttribute('data-rendered-len', newRendered);
+
           tl.scrollTop = tl.scrollHeight;
           return true;
         }
+      }
+    }
+  }
+
+  // Tool finished — flush final partial line, remove cursor, update status
+  if (item.type === 'tool' && item.status !== 'running' && item.tool_call_id) {
+    var cards2 = tl.querySelectorAll('.tool-card');
+    for (var cj = 0; cj < cards2.length; cj++) {
+      if (cards2[cj].getAttribute('data-tool-call-id') === item.tool_call_id) {
+        var resEl = cards2[cj].querySelector('.tool-result');
+        if (resEl) {
+          var full = item.content || '';
+          var rendered = parseInt(resEl.getAttribute('data-rendered-len') || '0');
+          if (rendered < full.length) {
+            var tail = full.substring(rendered);
+            if (/^\$ /.test(tail)) resEl.insertAdjacentHTML('beforeend', '<span style="color:var(--green)">' + escapeHtml(tail) + '</span>');
+            else if (/^Error:/.test(tail)) resEl.insertAdjacentHTML('beforeend', '<span style="color:#c48a82">' + escapeHtml(tail) + '</span>');
+            else resEl.insertAdjacentHTML('beforeend', escapeHtml(tail));
+            resEl.setAttribute('data-rendered-len', full.length);
+          }
+          // Remove cursor
+          var cur = resEl.querySelector('.stream-cursor');
+          if (cur) cur.remove();
+        }
+        // Update card status styling
+        cards2[cj].classList.remove('open');
+        var dot = cards2[cj].querySelector('.tool-dot');
+        if (dot) { dot.className = 'tool-dot ' + (item.error ? 'error' : 'done'); }
+        // Remove the data-rendered-len tracking (no longer needed)
+        // Keep scroll position
+        return true;
       }
     }
   }
@@ -141,14 +228,25 @@ function buildTurns() {
   return turns;
 }
 
+function starBtn(dbId, bookmarked) {
+  if (!dbId) return '';
+  var cls = bookmarked ? ' msg-star bookmarked' : ' msg-star';
+  var sym = bookmarked ? '★' : '☆';
+  return '<button class="' + cls + '" data-msg-id="' + dbId + '" onclick="event.stopPropagation();var b=!this.classList.contains(\'bookmarked\');toggleMessageBookmark(' + dbId + ',b)" title="' + (bookmarked ? '取消收藏' : '收藏') + '">' + sym + '</button>';
+}
+
 function renderTurn(turn, idx) {
   var tid = 'turn-' + idx;
   if (turn.type === 'user') {
     return '<div class="msg msg-user" id="' + tid + '">' +
-      '<div class="msg-bubble">' + escapeHtml(turn.item.content || '') + '</div>' +
+      '<div class="msg-bubble">' + starBtn(turn.item.db_id, turn.item.bookmarked) + escapeHtml(turn.item.content || '') + '</div>' +
     '</div>';
   }
   if (turn.type === 'ai') {
+    var dbId = null, bm = false;
+    for (var i = 0; i < turn.items.length; i++) {
+      if (turn.items[i].type === 'reply' && turn.items[i].db_id) { dbId = turn.items[i].db_id; bm = turn.items[i].bookmarked; break; }
+    }
     var body = '';
     for (var i = 0; i < turn.items.length; i++) {
       var item = turn.items[i];
@@ -164,12 +262,12 @@ function renderTurn(turn, idx) {
       }
     }
     return '<div class="msg msg-ai" id="' + tid + '">' +
-      '<div class="msg-bubble">' + body + '</div>' +
+      '<div class="msg-bubble">' + starBtn(dbId, bm) + body + '</div>' +
     '</div>';
   }
   if (turn.type === 'notice') {
     return '<div class="msg msg-notice" id="' + tid + '">' +
-      '<div class="msg-bubble">' + escapeHtml(turn.item.content || '') + '</div>' +
+      '<div class="msg-bubble">' + starBtn(turn.item.db_id, turn.item.bookmarked) + escapeHtml(turn.item.content || '') + '</div>' +
     '</div>';
   }
   if (turn.type === 'thinking') {
@@ -186,17 +284,31 @@ function renderToolCard(item) {
   var isOpen = item.status === 'running' ? ' open' : '';
   var dotClass = item.status === 'running' ? 'running' : (item.error ? 'error' : 'done');
   var content = item.content || '';
-  // Format tool output lines
+
+  // Render complete lines only; keep partial line buffered for streaming
+  var lastNewline = content.lastIndexOf('\n');
+  var renderedContent = lastNewline >= 0 ? content.substring(0, lastNewline + 1) : '';
+  var renderedLen = renderedContent.length;
+
   var contentHtml = '';
-  var lines = content.split('\n');
+  var lines = renderedContent.split('\n');
   if (lines.length > 500) { lines = lines.slice(0, 500); contentHtml += '[Output truncated — showing first 500 lines]\n'; }
   for (var li = 0; li < lines.length; li++) {
     var line = lines[li];
+    if (line === '') { contentHtml += '\n'; continue; }
     if (/^\$ /.test(line)) contentHtml += '<span style="color:var(--green)">' + escapeHtml(line) + '</span>\n';
     else if (/^Error:/.test(line)) contentHtml += '<span style="color:#c48a82">' + escapeHtml(line) + '</span>\n';
     else contentHtml += escapeHtml(line) + '\n';
   }
-  if (item.status === 'running' && content) contentHtml += '<span class="stream-cursor"></span>';
+  if (item.status === 'running') contentHtml += '<span class="stream-cursor"></span>';
+  // For done/fail, flush any remaining partial line
+  if (item.status !== 'running' && renderedLen < content.length) {
+    var tail = content.substring(renderedLen);
+    if (/^\$ /.test(tail)) contentHtml += '<span style="color:var(--green)">' + escapeHtml(tail) + '</span>';
+    else if (/^Error:/.test(tail)) contentHtml += '<span style="color:#c48a82">' + escapeHtml(tail) + '</span>';
+    else contentHtml += escapeHtml(tail);
+    renderedLen = content.length;
+  }
 
   var tcidAttr = item.tool_call_id ? ' data-tool-call-id="' + item.tool_call_id + '"' : '';
   return '<div class="tool-card' + isOpen + '"' + tcidAttr + '>' +
@@ -207,7 +319,7 @@ function renderToolCard(item) {
     '</div>' +
     '<div class="tool-card-body">' +
       (item.detail ? '<div class="tool-params"><strong>' + t('model.params_label') + '</strong><code>' + escapeHtml(item.detail) + '</code></div>' : '') +
-      '<div class="tool-result">' + contentHtml + '</div>' +
+      '<div class="tool-result" data-rendered-len="' + renderedLen + '">' + contentHtml + '</div>' +
     '</div>' +
   '</div>';
 }

@@ -144,6 +144,7 @@ type Message struct {
 	ReasoningContent string    `gorm:"column:reasoning_content;default:''" json:"reasoning_content"`
 	RoleLabel        string    `gorm:"size:64;default:'';column:role_label" json:"role_label"`
 	Hidden           bool      `gorm:"default:0" json:"hidden"`
+	Bookmarked       bool      `gorm:"default:0" json:"bookmarked"`
 	CreatedAt        time.Time `gorm:"autoCreateTime;index:idx_messages_session,priority:2" json:"created_at"`
 }
 
@@ -274,6 +275,18 @@ func (db *DB) SearchMessages(query string, limit int) ([]Message, error) {
 	var msgs []Message
 	err := db.GORM.Where("content LIKE ? AND role != 'system'", "%"+query+"%").
 		Order("id DESC").Limit(limit).Find(&msgs).Error
+	return msgs, err
+}
+
+func (db *DB) SetBookmark(msgID int64, bookmarked bool) error {
+	return db.GORM.Model(&Message{}).Where("id = ?", msgID).Update("bookmarked", bookmarked).Error
+}
+
+func (db *DB) GetBookmarkedMessages(sessionIDs []string) ([]Message, error) {
+	var msgs []Message
+	err := db.GORM.Where("session_id IN ? AND bookmarked = 1", sessionIDs).
+		Order("id DESC").
+		Find(&msgs).Error
 	return msgs, err
 }
 

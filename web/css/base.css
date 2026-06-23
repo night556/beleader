@@ -165,7 +165,7 @@ body {
 }
 
 /* ── Message row ── */
-.msg { animation: msgIn 250ms ease-out; }
+.msg { animation: msgIn 250ms ease-out; position:relative; }
 @keyframes msgIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 
 .msg-user {
@@ -194,6 +194,19 @@ body {
   font-size:14px; line-height:1.7;
   box-shadow:0 1px 3px rgba(0,0,0,0.04);
 }
+
+/* ── Bookmark star on messages ── */
+.msg-star {
+  position:absolute; top:2px; right:6px; width:22px; height:22px; z-index:2;
+  border:none; background:transparent; color:rgba(0,0,0,0.12);
+  font-size:13px; cursor:pointer; border-radius:4px; transition:all 0.2s;
+  display:flex; align-items:center; justify-content:center; opacity:0;
+}
+.msg-bubble { position:relative; }
+.msg:hover .msg-star,
+.msg-star.bookmarked { opacity:1; }
+.msg-star:hover { color:rgba(184,134,11,0.6); background:rgba(184,134,11,0.08); }
+.msg-star.bookmarked { color:var(--primary); opacity:1; }
 
 /* ── Tool card (inside AI bubble) ── */
 .tool-card {
@@ -417,13 +430,15 @@ body {
 #speak-btn.off { color:var(--red); }
 
 /* ═══ Panels ═══ */
-.settings-panel {
+.settings-panel,
+.bookmarks-panel {
   position:fixed; top:0; right:0; bottom:0; width:420px; z-index:60;
   background:rgba(255,255,255,0.97); border-left:1px solid rgba(0,0,0,0.06);
   backdrop-filter:blur(40px); display:flex; flex-direction:column;
   transform:translateX(100%); transition:transform 0.35s cubic-bezier(0.4,0,0.2,1);
 }
-.settings-panel.open { transform:translateX(0); }
+.settings-panel.open,
+.bookmarks-panel.open { transform:translateX(0); }
 .panel-head {
   display:flex; align-items:center; justify-content:space-between;
   padding:20px 24px; border-bottom:1px solid rgba(0,0,0,0.05); flex-shrink:0;
@@ -440,6 +455,32 @@ body {
 }
 .panel-body::-webkit-scrollbar { width:4px; }
 .panel-body::-webkit-scrollbar-thumb { background:rgba(0,0,0,0.12); border-radius:2px; }
+
+/* Bookmark list items */
+.bookmarks-empty {
+  text-align:center; color:var(--text-dim); padding:40px 0; font-size:14px;
+}
+.bkm-item {
+  display:flex; align-items:flex-start; gap:12px; padding:14px 16px;
+  border-radius:10px; border:1px solid rgba(0,0,0,0.04);
+  background:rgba(0,0,0,0.015); margin-bottom:10px; cursor:pointer;
+  transition:all 0.2s;
+}
+.bkm-item:hover { border-color:rgba(184,134,11,0.2); background:rgba(184,134,11,0.04); }
+.bkm-item .bkm-star { color:var(--primary); font-size:14px; flex-shrink:0; margin-top:2px; }
+.bkm-item .bkm-body { flex:1; min-width:0; }
+.bkm-item .bkm-role { font-size:11px; color:var(--text-dim); margin-bottom:4px; }
+.bkm-item .bkm-text {
+  font-size:13px; color:var(--text); line-height:1.5;
+  overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
+}
+.bkm-item .bkm-time { font-size:11px; color:var(--text-dim); margin-top:4px; }
+.bkm-item .bkm-unstar {
+  flex-shrink:0; width:28px; height:28px; border:none; background:transparent;
+  color:rgba(0,0,0,0.25); cursor:pointer; border-radius:6px; font-size:14px;
+  transition:all 0.2s;
+}
+.bkm-item .bkm-unstar:hover { color:#c4554d; background:rgba(196,85,77,0.08); }
 
 /* Settings sections — card style */
 .set-section {

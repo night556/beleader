@@ -3,7 +3,27 @@
 function toggleSettings() {
   var panel = document.getElementById('settings-panel');
   if (panel.classList.contains('open')) { closePanels(); }
-  else { openPanel('settings-panel'); loadSettings(); }
+  else {
+    var bp = document.getElementById('bookmarks-panel');
+    var kp = document.getElementById('knowledge-panel');
+    if (bp) bp.classList.remove('open');
+    if (kp) kp.classList.remove('open');
+    openPanel('settings-panel');
+    loadSettings();
+  }
+}
+
+function toggleBookmarks() {
+  var panel = document.getElementById('bookmarks-panel');
+  if (panel.classList.contains('open')) { closePanels(); }
+  else {
+    var sp = document.getElementById('settings-panel');
+    var kp = document.getElementById('knowledge-panel');
+    if (sp) sp.classList.remove('open');
+    if (kp) kp.classList.remove('open');
+    openPanel('bookmarks-panel');
+    loadBookmarks();
+  }
 }
 
 function openPanel(panelId) {
@@ -13,6 +33,8 @@ function openPanel(panelId) {
 
 function closePanels() {
   document.getElementById('settings-panel').classList.remove('open');
+  document.getElementById('bookmarks-panel').classList.remove('open');
+  document.getElementById('knowledge-panel').classList.remove('open');
   document.getElementById('backdrop').classList.remove('open');
 }
 
@@ -301,3 +323,70 @@ function collectPortMaps() {
   return maps;
 }
 
+function loadBookmarks() {
+  var projectId = currentView === 'home' ? null : currentView;
+  if (!projectId) {
+    document.getElementById('bookmarks-body').innerHTML = '<div class="bookmarks-empty">请在项目中收藏消息</div>';
+    return;
+  }
+  fetch(SERVER_URL + '/api/messages/bookmarked?project_id=' + encodeURIComponent(projectId))
+    .then(function(r) { return r.json(); })
+    .then(function(msgs) {
+      var body = document.getElementById('bookmarks-body');
+      if (!Array.isArray(msgs) || msgs.length === 0) {
+        body.innerHTML = '<div class="bookmarks-empty">暂无收藏</div>';
+        return;
+      }
+      var roleLabels = { user: 'You', assistant: 'AI', tool: 'Tool' };
+      var html = '';
+      for (var i = 0; i < msgs.length; i++) {
+        var m = msgs[i];
+        var text = (m.content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var preview = text.length > 200 ? text.substring(0, 200) + '...' : text;
+        var time = new Date(m.created_at).toLocaleString();
+        html += '<div class="bkm-item" onclick="scrollToMessage(' + m.id + ')">' +
+          '<span class="bkm-star">★</span>' +
+          '<div class="bkm-body">' +
+            '<div class="bkm-role">' + (roleLabels[m.role] || m.role) + ' · ' + time + '</div>' +
+            '<div class="bkm-text">' + preview + '</div>' +
+          '</div>' +
+          '<button class="bkm-unstar" onclick="event.stopPropagation();toggleMessageBookmark(' + m.id + ', false)" title="取消收藏">✕</button>' +
+        '</div>';
+      }
+      body.innerHTML = html;
+    })
+    .catch(function(err) { console.error('load bookmarks error:', err); });
+}
+
+function toggleMessageBookmark(msgId, bookmarked) {
+  fetch(SERVER_URL + '/api/messages/' + msgId + '/bookmark', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bookmarked: bookmarked })
+  }).then(function() {
+    // Update star icon in timeline if message is visible
+    var stars = document.querySelectorAll('.msg-star[data-msg-id="' + msgId + '"]');
+    for (var i = 0; i < stars.length; i++) {
+      if (bookmarked) {
+        stars[i].classList.add('bookmarked');
+        stars[i].textContent = '★';
+      } else {
+        stars[i].classList.remove('bookmarked');
+        stars[i].textContent = '☆';
+      }
+    }
+  }).catch(function(err) { console.error('bookmark error:', err); });
+}
+
+function scrollToMessage(msgId) {
+  // Try to find message in current timeline, or suggest loading history
+  closePanels();
+  // Seek the turn that contains this message
+  var el = document.querySelector('.msg-star[data-msg-id="' + msgId + '"]');
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.transition = 'transform 0.3s';
+    el.style.transform = 'scale(1.4)';
+    setTimeout(function() { el.style.transform = ''; }, 600);
+  }
+}

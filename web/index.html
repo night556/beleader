@@ -25,6 +25,7 @@
     </div>
   </div>
   <div class="top-right">
+    <button class="icon-btn" data-i18n-title="bookmark.button_title" title="收藏" onclick="toggleBookmarks()">☆</button>
     <button class="icon-btn" data-i18n-title="knowledge.button_title" title="Knowledge" onclick="toggleKnowledge()">📚</button>
     <button class="icon-btn" data-i18n-title="settings.button_title" title="设置" onclick="toggleSettings()">⚙</button>
   </div>
@@ -87,6 +88,17 @@
     <button class="capsule-btn send-btn" id="send-btn" data-i18n-title="input.send_title" title="Send">↑</button>
   </div>
 </footer>
+
+<!-- Bookmarks panel (slide from right) -->
+<div class="bookmarks-panel" id="bookmarks-panel">
+  <div class="panel-head">
+    <h3>★ 收藏消息</h3>
+    <button class="panel-close" onclick="toggleBookmarks()">✕</button>
+  </div>
+  <div class="panel-body" id="bookmarks-body">
+    <div class="bookmarks-empty">暂无收藏</div>
+  </div>
+</div>
 
 <!-- Settings panel (slide from right) -->
 <div class="settings-panel" id="settings-panel">

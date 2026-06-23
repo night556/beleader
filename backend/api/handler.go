@@ -128,6 +128,8 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/settings", h.handleGetSettings)
 		api.PUT("/settings", h.handleUpdateSettings)
 		api.GET("/messages", h.handleGetMessages)
+		api.GET("/messages/bookmarked", h.handleGetBookmarkedMessages)
+		api.PUT("/messages/:id/bookmark", h.handleBookmarkMessage)
 		api.POST("/sessions/:id/clear", h.handleClearContext)
 		api.POST("/sessions/:id/stop", h.handleStop)
 		api.POST("/sessions/:id/model", h.handleSwitchModel)
@@ -863,6 +865,54 @@ func (h *Handler) handleGetMessages(c *gin.Context) {
 		filtered = append(filtered, m)
 	}
 	c.JSON(200, filtered)
+}
+
+func (h *Handler) handleBookmarkMessage(c *gin.Context) {
+	idStr := c.Param("id")
+	msgID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid message id"})
+		return
+	}
+	var body struct{ Bookmarked bool `json:"bookmarked"` }
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(400, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.DB.SetBookmark(msgID, body.Bookmarked); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func (h *Handler) handleGetBookmarkedMessages(c *gin.Context) {
+	projectID := c.DefaultQuery("project_id", "")
+	if projectID == "" {
+		c.JSON(400, gin.H{"error": "project_id required"})
+		return
+	}
+	ref, err := h.DB.GetProject(projectID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	sessionIDs := make([]string, 0, len(ref.Agents))
+	for _, a := range ref.Agents {
+		if a.SessionID != "" {
+			sessionIDs = append(sessionIDs, a.SessionID)
+		}
+	}
+	if len(sessionIDs) == 0 {
+		c.JSON(200, []db.Message{})
+		return
+	}
+	msgs, err := h.DB.GetBookmarkedMessages(sessionIDs)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, msgs)
 }
 
 func (h *Handler) handleClearContext(c *gin.Context) {

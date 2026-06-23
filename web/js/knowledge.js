@@ -10,7 +10,9 @@ function toggleKnowledge() {
     panel.classList.remove('open');
   } else {
     var sp = document.getElementById('settings-panel');
+    var bp = document.getElementById('bookmarks-panel');
     if (sp) sp.classList.remove('open');
+    if (bp) bp.classList.remove('open');
     panel.classList.add('open');
     knowledgePage = 0;
     loadKnowledge();

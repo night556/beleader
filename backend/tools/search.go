@@ -43,7 +43,7 @@ type searchResult struct {
 }
 
 func searchBing(ctx context.Context, query string) ([]searchResult, error) {
-	u := "https://www.bing.com/search?q=" + url.QueryEscape(query)
+	u := "https://cn.bing.com/search?q=" + url.QueryEscape(query)
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, err
