@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"io/fs"
+	"os/exec"
 
 	"beleader/backend/config"
 	"beleader/backend/db"
@@ -142,6 +143,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.DELETE("/knowledge/:id", h.handleDeleteKnowledge)
 
 		api.GET("/files/view", gin.WrapF(tools.FileViewHandler))
+		api.POST("/files/open", h.handleFileOpen)
 		api.POST("/render-html", h.handleRenderHTML)
 	}
 }
@@ -932,8 +934,8 @@ func (h *Handler) handleClearContext(c *gin.Context) {
 		return
 	}
 
-	h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "notice", Content: "--- 濞戞挸锕ｇ粭鍛村棘閸パ冨殥婵炴挸鎳愰埞?---"})
-	h.Notify(SessionEvent{Type: "notice", SessionID: sessionID, Data: gin.H{"content": "--- 濞戞挸锕ｇ粭鍛村棘閸パ冨殥婵炴挸鎳愰埞?---"}})
+	h.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "notice", Content: "--- 上下文已清空 ---"})
+	h.Notify(SessionEvent{Type: "notice", SessionID: sessionID, Data: gin.H{"content": "--- 上下文已清空 ---"}})
 
 	c.JSON(200, gin.H{"status": "ok", "context_start_id": lastID})
 }
@@ -1075,6 +1077,32 @@ func (h *Handler) handleDeleteKnowledge(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"status": "deleted"})
+}
+
+func (h *Handler) handleFileOpen(c *gin.Context) {
+	var p struct{ Path string }
+	if err := c.ShouldBindJSON(&p); err != nil || p.Path == "" {
+		c.JSON(400, gin.H{"error": "path required"})
+		return
+	}
+	if _, err := os.Stat(p.Path); err != nil {
+		c.JSON(404, gin.H{"error": "file not found"})
+		return
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", p.Path)
+	case "darwin":
+		cmd = exec.Command("open", p.Path)
+	default:
+		cmd = exec.Command("xdg-open", p.Path)
+	}
+	if err := cmd.Run(); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"ok": true})
 }
 
 func (h *Handler) handleRenderHTML(c *gin.Context) {

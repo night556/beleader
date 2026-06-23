@@ -322,14 +322,16 @@ var searchContentTool = openai.Tool{
 	Type: "function",
 	Function: &openai.FunctionDefinition{
 		Name:        "search_content",
-		Description: "Search for a keyword or pattern across files. Use before creating new code to check if patterns already exist.",
+		Description: "Search for a keyword or pattern across files. Results are paginated — use offset/limit to page through large result sets.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"pattern":      map[string]any{"type": "string", "description": "Text or regex pattern to search for in file contents"},
-				"file_pattern": map[string]any{"type": "string", "description": "Optional glob pattern, e.g. '*.go' or '**/*.tsx'"},
-				"path":         map[string]any{"type": "string", "description": "Optional directory path to limit search scope"},
+				"pattern":       map[string]any{"type": "string", "description": "Text or regex pattern to search for in file contents"},
+				"file_pattern":  map[string]any{"type": "string", "description": "Optional glob pattern, e.g. '*.go' or '**/*.tsx'"},
+				"path":          map[string]any{"type": "string", "description": "Optional directory path to limit search scope"},
 				"context_lines": map[string]any{"type": "integer", "description": "Number of surrounding lines to show. Default 0."},
+				"offset":        map[string]any{"type": "integer", "description": "Starting position for pagination. Default 0."},
+				"limit":         map[string]any{"type": "integer", "description": "Max results to return. Default 50, max 200."},
 			},
 			"required": []string{"pattern"},
 		},
@@ -814,6 +816,8 @@ func RegisterFileTools(mgr *session.Manager, workDir string) {
 			FilePattern  string `json:"file_pattern"`
 			Path         string `json:"path"`
 			ContextLines int    `json:"context_lines"`
+			Offset       int    `json:"offset"`
+			Limit        int    `json:"limit"`
 		}
 		json.Unmarshal([]byte(args), &p)
 		if p.Pattern == "" {
@@ -830,11 +834,35 @@ func RegisterFileTools(mgr *session.Manager, workDir string) {
 		if p.ContextLines > 10 {
 			p.ContextLines = 10
 		}
-		results, _ := searchFiles(searchPath, pattern, p.Pattern, p.ContextLines)
-		if len(results) == 0 {
+		if p.Limit <= 0 {
+			p.Limit = 50
+		} else if p.Limit > 200 {
+			p.Limit = 200
+		}
+		if p.Offset < 0 {
+			p.Offset = 0
+		}
+		allResults, _ := searchFiles(searchPath, pattern, p.Pattern, p.ContextLines)
+		total := len(allResults)
+		if total == 0 {
 			return &session.ToolResult{Content: "No matches found."}
 		}
-		return &session.ToolResult{Content: strings.Join(results, "\n")}
+		start := p.Offset
+		if start > total {
+			start = total
+		}
+		end := start + p.Limit
+		if end > total {
+			end = total
+		}
+		page := allResults[start:end]
+		var out strings.Builder
+		fmt.Fprintf(&out, "Showing %d-%d of %d total matches.", start+1, end, total)
+		if end < total {
+			fmt.Fprintf(&out, " Use offset=%d for next page.", end)
+		}
+		fmt.Fprintf(&out, "\n\n%s", strings.Join(page, "\n"))
+		return &session.ToolResult{Content: out.String()}
 	})
 
 	mgr.RegisterTool("search_files", func(ctx context.Context, args string) *session.ToolResult {
@@ -1173,11 +1201,15 @@ func makeInterveneProjectHandler(callback func(refID, message string) (string, e
 }
 
 func searchFiles(root, pattern, query string, ctxLines int) ([]string, error) {
+	const maxResults = 500
 	var results []string
 	query = strings.ToLower(query)
 
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
+			return nil
+		}
+		if len(results) >= maxResults {
 			return nil
 		}
 		match, _ := filepath.Match(pattern, filepath.Base(path))
@@ -1191,6 +1223,9 @@ func searchFiles(root, pattern, query string, ctxLines int) ([]string, error) {
 			}
 			lines := strings.Split(string(data), "\n")
 			for i, line := range lines {
+				if len(results) >= maxResults {
+					break
+				}
 				if strings.Contains(strings.ToLower(line), query) {
 					if ctxLines > 0 {
 						start := i - ctxLines

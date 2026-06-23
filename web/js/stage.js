@@ -714,15 +714,19 @@ function renderCardTabs() {
   var right = bar.querySelector('.card-tabs-right') || bar.appendChild(document.createElement('div'));
   right.className = 'card-tabs-right';
   var entry = _contentCards[_cardActive];
+  var localBtn = entry && entry.filePath
+    ? '<span class="card-action-btn" onclick="openFileLocal(\'' + _cardActive + '\')">本地</span>'
+    : '';
   if (entry && entry.htmlSource) {
     right.innerHTML = '<span class="card-action-btn' + (entry.showingSource ? ' on' : '') +
       '" onclick="toggleCardSource(\'' + _cardActive + '\')">' +
-      (entry.showingSource ? '渲染' : '源码') + '</span>' +
+      (entry.showingSource ? '渲染' : '源码') + '</span>' + localBtn +
       '<span class="card-action-btn" onclick="refreshCard(\'' + _cardActive + '\')">刷新</span>' +
       '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">截图</span>' +
       '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
   } else {
-    right.innerHTML = '<span class="card-action-btn" onclick="refreshCard(\'' + _cardActive + '\')">刷新</span>' +
+    right.innerHTML = localBtn +
+      '<span class="card-action-btn" onclick="refreshCard(\'' + _cardActive + '\')">刷新</span>' +
       '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">截图</span>' +
       '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
   }
@@ -771,7 +775,8 @@ function createContentCard(data) {
     html: data.html,
     htmlSource: htmlSource,
     isHtmlFile: isHtmlFile,
-    showingSource: false
+    showingSource: false,
+    filePath: data.file_path || ''
   };
 
   _cardActive = data.id;
@@ -797,6 +802,16 @@ function removeContentCard(id) {
   } else {
     renderCardTabs();
   }
+}
+
+function openFileLocal(id) {
+  var entry = _contentCards[id];
+  if (!entry || !entry.filePath) return;
+  fetch('/api/files/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: entry.filePath })
+  });
 }
 
 function refreshCard(id) {
