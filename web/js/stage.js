@@ -601,6 +601,7 @@ function switchView(view) {
     showProjectDash(view);
     loadSessionMessages(view);
   }
+  syncContentCards();
 }
 
 function showProjectDash(refId) {
@@ -707,6 +708,12 @@ function renderCardTabs() {
     container.insertBefore(bar, container.firstChild);
   }
   var ids = Object.keys(_contentCards);
+  // Only show tabs for cards belonging to the current project
+  var currentSid = getCurrentSessionId();
+  ids = ids.filter(function(id) {
+    var sid = _contentCards[id].sessionId;
+    return !sid || sid === currentSid;
+  });
   if (ids.length === 0) {
     bar.remove();
     return;
@@ -746,10 +753,50 @@ function renderCardTabs() {
 }
 
 function switchCardTab(id) {
+  // Guard: don't switch to a card hidden for the current project
+  var currentSid = getCurrentSessionId();
+  var entry = _contentCards[id];
+  if (entry && entry.sessionId && entry.sessionId !== currentSid) return;
   _cardActive = id;
   Object.keys(_contentCards).forEach(function(cid) {
     _contentCards[cid].el.style.display = cid === id ? 'flex' : 'none';
   });
+  renderCardTabs();
+}
+
+
+function getCurrentSessionId() {
+  if (currentView === 'home') return 'main';
+  for (var i = 0; i < sessions.length; i++) {
+    if (sessions[i].ref_id === currentView || sessions[i].id === currentView) {
+      return sessions[i].session_id || sessions[i].id;
+    }
+  }
+  return '';
+}
+
+function syncContentCards() {
+  var stage = document.getElementById('stage');
+  var currentSid = getCurrentSessionId();
+  var visible = false;
+  var firstVisible = null;
+  for (var id in _contentCards) {
+    var card = _contentCards[id];
+    var belongs = !card.sessionId || card.sessionId === currentSid;
+    card.el.style.display = belongs ? 'flex' : 'none';
+    if (belongs) {
+      if (!firstVisible) firstVisible = id;
+      visible = true;
+    }
+  }
+  if (visible) {
+    var active = _contentCards[_cardActive];
+    if (!active || active.el.style.display === 'none') _cardActive = firstVisible;
+    stage.classList.add('split');
+  } else {
+    _cardActive = null;
+    stage.classList.remove('split');
+  }
   renderCardTabs();
 }
 
@@ -759,7 +806,6 @@ function createContentCard(data) {
   if (_contentCards[data.id]) removeContentCard(data.id);
 
   var container = document.getElementById('content-cards');
-  var stage = document.getElementById('stage');
 
   var card = document.createElement('div');
   card.className = 'content-card';
@@ -775,12 +821,6 @@ function createContentCard(data) {
     '</div>';
 
   container.appendChild(card);
-  card.style.display = 'flex';
-
-  // Hide all other cards
-  Object.keys(_contentCards).forEach(function(cid) {
-    _contentCards[cid].el.style.display = 'none';
-  });
 
   _contentCards[data.id] = {
     el: card,
@@ -789,12 +829,12 @@ function createContentCard(data) {
     htmlSource: htmlSource,
     isHtmlFile: isHtmlFile,
     showingSource: false,
-    filePath: data.file_path || ''
+    filePath: data.file_path || '',
+    sessionId: data.session_id || ''
   };
 
   _cardActive = data.id;
-  renderCardTabs();
-  stage.classList.add('split');
+  syncContentCards();
 }
 
 function removeContentCard(id) {
@@ -802,19 +842,8 @@ function removeContentCard(id) {
   if (entry && entry.el) entry.el.remove();
   delete _contentCards[id];
 
-  var ids = Object.keys(_contentCards);
-  if (ids.length === 0) {
-    _cardActive = null;
-    document.getElementById('stage').classList.remove('split');
-    renderCardTabs();
-    return;
-  }
-  // If closing the active card, switch to another
-  if (_cardActive === id) {
-    switchCardTab(ids[ids.length - 1]);
-  } else {
-    renderCardTabs();
-  }
+  if (_cardActive === id) _cardActive = null;
+  syncContentCards();
 }
 
 function openFileLocal(id) {
