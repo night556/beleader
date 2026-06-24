@@ -177,65 +177,97 @@ function loadOlderMessages() {
 // Load main session history on startup
 loadSessionMessages('main');
 
-// SSE Event Stream
+// ── SSE Event Stream ──
+// Named handlers so we can removeEventListener before close() — guarantees
+// old handlers never fire on a new EventSource after reconnect.
 var evtSource = null;
 var _sseRetryCount = 0;
 var _sseRetryTimer = null;
+var _sseFirstOpen = true;
+
+function _onSSEMessage(e) {
+  try {
+    var d = JSON.parse(e.data);
+    window.updateState(d.type, d.payload);
+  } catch (err) {
+    console.error('[SSE] parse error:', err);
+  }
+}
+
+function _onSSEOpen() {
+  _sseRetryCount = 0;
+  showConnBanner('connected');
+  var bar = document.getElementById('status-bar');
+  if (bar) {
+    var label = bar.querySelector('.status-text');
+    if (label && label.textContent === '连接断开') updateStatus(t('status.ready'), 'idle');
+  }
+  setTimeout(function () {
+    if (evtSource && evtSource.readyState === EventSource.OPEN) hideConnBanner();
+  }, 1500);
+
+  if (!_sseFirstOpen) {
+    console.log('[SSE] reconnected, refreshing current view');
+    var sid = currentView === 'home' ? 'main' : currentView;
+    loadSessionMessages(sid);
+    fetch(SERVER_URL + '/api/projects')
+      .then(function (r) { return r.json(); })
+      .then(function (projects) {
+        if (Array.isArray(projects)) {
+          sessions = [];
+          projects.forEach(function (p) {
+            var pAgents = p.agents || [];
+            var coordSid = '';
+            for (var ai = 0; ai < pAgents.length; ai++) {
+              if (pAgents[ai].role === 'coordinator') { coordSid = pAgents[ai].session_id || ''; break; }
+            }
+            sessions.push({ id: p.id, ref_id: p.id, title: p.title || p.id, status: p.status, agents: pAgents, session_id: coordSid });
+          });
+          updateProjectTabs();
+        }
+      })
+      .catch(function (err) { console.error('fetch projects error:', err); });
+  }
+  _sseFirstOpen = false;
+}
+
+function _onSSEError() {
+  var state = evtSource ? evtSource.readyState : EventSource.CLOSED;
+  if (state === EventSource.CLOSED) {
+    showConnBanner('failed');
+  } else {
+    _sseRetryCount++;
+    showConnBanner('retrying');
+    if (_sseRetryTimer) clearTimeout(_sseRetryTimer);
+    _sseRetryTimer = setTimeout(function () {
+      if (evtSource && evtSource.readyState !== EventSource.OPEN) {
+        console.log('[SSE] forcing reconnect after backoff timeout');
+        initSSE();
+      }
+    }, 10000);
+  }
+  updateStatus('连接断开', 'error');
+}
 
 function initSSE() {
+  // Tear down old connection cleanly: remove listeners BEFORE close so no
+  // queued event can fire a stale handler on the new EventSource.
   if (evtSource) {
-    try { evtSource.close(); } catch(e) {}
+    evtSource.removeEventListener('message', _onSSEMessage);
+    evtSource.removeEventListener('open', _onSSEOpen);
+    evtSource.removeEventListener('error', _onSSEError);
+    try { evtSource.close(); } catch (e) {}
+    evtSource = null;
   }
-  evtSource = new EventSource(SERVER_URL + '/api/sse');
+  if (_sseRetryTimer) { clearTimeout(_sseRetryTimer); _sseRetryTimer = null; }
 
-  evtSource.onmessage = function(e) {
-    try {
-      var d = JSON.parse(e.data);
-      window.updateState(d.type, d.payload);
-    } catch(err) {
-      console.error('[SSE] parse error:', err);
-    }
-  };
-
-  evtSource.onopen = function() {
-    _sseRetryCount = 0;
-    showConnBanner('connected');
-    var bar = document.getElementById('status-bar');
-    if (bar) {
-      var label = bar.querySelector('.status-text');
-      if (label && label.textContent === '连接断开') updateStatus(t('status.ready'), 'idle');
-    }
-    setTimeout(function() {
-      if (evtSource && evtSource.readyState === EventSource.OPEN) {
-        hideConnBanner();
-      }
-    }, 1500);
-  };
-
-  evtSource.onerror = function() {
-    var state = evtSource ? evtSource.readyState : EventSource.CLOSED;
-    if (state === EventSource.CLOSED) {
-      // EventSource gave up — won't auto-reconnect. Show manual reconnect button.
-      showConnBanner('failed');
-    } else {
-      // CONNECTING — browser will retry. Show attempt count.
-      _sseRetryCount++;
-      showConnBanner('retrying');
-      // Safety net: if browser backoff grows too large, force reconnect ourselves
-      if (_sseRetryTimer) clearTimeout(_sseRetryTimer);
-      _sseRetryTimer = setTimeout(function() {
-        if (evtSource && evtSource.readyState !== EventSource.OPEN) {
-          console.log('[SSE] forcing reconnect after backoff timeout');
-          initSSE();
-        }
-      }, 10000);
-    }
-    updateStatus('连接断开', 'error');
-  };
+  evtSource = new EventSource(SERVER_URL + '/api/sse?t=' + Date.now());
+  evtSource.addEventListener('message', _onSSEMessage);
+  evtSource.addEventListener('open', _onSSEOpen);
+  evtSource.addEventListener('error', _onSSEError);
 }
 
 function reconnectSSE() {
-  if (_sseRetryTimer) { clearTimeout(_sseRetryTimer); _sseRetryTimer = null; }
   _sseRetryCount = 0;
   showConnBanner('retrying');
   initSSE();

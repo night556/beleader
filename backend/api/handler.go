@@ -442,6 +442,11 @@ func (h *Handler) handleSSE(c *gin.Context) {
 	ch := h.SSE.Subscribe()
 	defer h.SSE.Unsubscribe(ch)
 
+	// Flush headers immediately so the browser fires the EventSource 'open'
+	// event without waiting for the first broadcast message.
+	fmt.Fprintf(c.Writer, ":ok\n\n")
+	c.Writer.Flush()
+
 	notify := c.Request.Context().Done()
 	for {
 		select {
