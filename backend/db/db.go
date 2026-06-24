@@ -297,6 +297,76 @@ func (db *DB) GetMessagesBefore(sessionID string, beforeID int64, limit int) ([]
 	return msgs, err
 }
 
+// GetMessagesSessionBubble 按用户气泡分页加载单 session 消息。
+// beforeID=0 表示首屏（最新 turns 个气泡）；非 0 表示加载 id < beforeID 的更早 turns 个气泡。
+// 一个气泡 = 一条 role='user' 消息 + 后续所有非 user 消息。
+func (db *DB) GetMessagesSessionBubble(sessionID string, beforeID int64, turns int) ([]Message, error) {
+	cutoffID, err := db.bubbleCutoff([]string{sessionID}, beforeID, turns)
+	if err != nil {
+		return nil, err
+	}
+	q := db.GORM.Model(&Message{}).Where("session_id = ?", sessionID)
+	if cutoffID > 0 {
+		q = q.Where("id >= ?", cutoffID)
+	}
+	if beforeID > 0 {
+		q = q.Where("id < ?", beforeID)
+	}
+	var msgs []Message
+	err = q.Order("id ASC").Find(&msgs).Error
+	return msgs, err
+}
+
+// GetMessagesProjectBubble 按用户气泡分页加载 project 合并消息。
+// coordinator session 取所有 role；worker session 跳过 role='user'（任务消息，已在 coordinator 的 spawn_worker 工具调用参数里）。
+func (db *DB) GetMessagesProjectBubble(coordSids, workerSids []string, beforeID int64, turns int) ([]Message, error) {
+	cutoffID, err := db.bubbleCutoff(coordSids, beforeID, turns)
+	if err != nil {
+		return nil, err
+	}
+	var msgs []Message
+	q := db.GORM.Model(&Message{})
+	if len(coordSids) > 0 && len(workerSids) > 0 {
+		q = q.Where("(session_id IN ?) OR (session_id IN ? AND role != 'user')", coordSids, workerSids)
+	} else if len(coordSids) > 0 {
+		q = q.Where("session_id IN ?", coordSids)
+	} else if len(workerSids) > 0 {
+		q = q.Where("session_id IN ? AND role != 'user'", workerSids)
+	} else {
+		return msgs, nil
+	}
+	if cutoffID > 0 {
+		q = q.Where("id >= ?", cutoffID)
+	}
+	if beforeID > 0 {
+		q = q.Where("id < ?", beforeID)
+	}
+	err = q.Order("id ASC").Find(&msgs).Error
+	return msgs, err
+}
+
+// bubbleCutoff 找到第 turns 个最老的 user 消息 id（作为气泡分页的左边界）。
+// user 消息只在 coordinator session（worker 的被过滤）。返回 0 表示不足 turns 个，从头加载。
+func (db *DB) bubbleCutoff(coordSids []string, beforeID int64, turns int) (int64, error) {
+	if len(coordSids) == 0 || turns <= 0 {
+		return 0, nil
+	}
+	q := db.GORM.Model(&Message{}).
+		Where("session_id IN ? AND role = 'user'", coordSids).
+		Order("id DESC").
+		Limit(1).
+		Offset(turns - 1)
+	if beforeID > 0 {
+		q = q.Where("id < ?", beforeID)
+	}
+	var m Message
+	err := q.First(&m).Error
+	if err != nil {
+		return 0, nil // 不足 turns 个，从头加载
+	}
+	return m.ID, nil
+}
+
 func (db *DB) SearchMessages(query string, limit int) ([]Message, error) {
 	var msgs []Message
 	err := db.GORM.Where("content LIKE ? AND role != 'system'", "%"+query+"%").

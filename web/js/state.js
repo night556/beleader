@@ -35,6 +35,13 @@ var _sessionTokens = {};
 // Per-project total token usage (coordinator + all workers summed by backend)
 var _projectTokens = {};
 
+// Pagination state
+var _loadingOlder = false;
+var _noMoreMessages = false;
+
+// Agent bar expanded state (collapse idle workers by default)
+var _agentBarExpanded = false;
+
 // Cached agent list for agents panel
 var _agentsCache = [];
 

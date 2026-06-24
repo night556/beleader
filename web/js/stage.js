@@ -47,6 +47,51 @@ function renderAll(forceFull) {
   }
 }
 
+// Prepend older messages (pagination), preserve scroll position
+function prependMessages(msgs) {
+  var tl = document.getElementById('timeline');
+  var oldHeight = tl.scrollHeight;
+  var oldScrollTop = tl.scrollTop;
+  appendMessagesInternal(msgs, true);
+  renderAll(true);
+  // Compensate scroll: keep user at the same visual position
+  var newHeight = tl.scrollHeight;
+  tl.scrollTop = oldScrollTop + (newHeight - oldHeight);
+}
+
+// Top loader spinner for pagination
+function showTopLoader(show) {
+  var loader = document.getElementById('top-loader');
+  if (loader) loader.style.display = show ? 'block' : 'none';
+}
+
+// Build session_id → agent name map (for project view labels)
+function buildSessionNameMap() {
+  var m = { 'main': 'Main' };
+  for (var i = 0; i < sessions.length; i++) {
+    if (sessions[i].session_id) m[sessions[i].session_id] = sessions[i].title || sessions[i].id;
+    var agents = sessions[i].agents || [];
+    for (var j = 0; j < agents.length; j++) {
+      if (agents[j].session_id) m[agents[j].session_id] = agents[j].name || 'Worker';
+    }
+  }
+  return m;
+}
+
+function getAgentLabelForSession(sid) {
+  if (currentView === 'home' || !sid) return '';
+  if (_agentFilter) return '';  // drilled in, back-button already shows who
+  var m = buildSessionNameMap();
+  return m[sid] || '';
+}
+
+// Scroll listener for pagination
+document.getElementById('timeline').addEventListener('scroll', function() {
+  if (this.scrollTop < 50 && !_loadingOlder && !_noMoreMessages) {
+    loadOlderMessages();
+  }
+});
+
 // ── Timeline Rendering ──
 
 function renderTimeline(forceFull) {
@@ -82,11 +127,18 @@ function renderTimeline(forceFull) {
         if (tcid) openIds.push(tcid);
       }
       lastEl.outerHTML = renderTurn(turns[turns.length - 1], turns.length - 1);
-      // Restore open state on matching tool-cards
+      // Restore open state on matching tool-cards (lazy render: re-render body too)
       var newLastEl = inner.children[domCount - 1];
       for (var oj = 0; oj < openIds.length; oj++) {
         var card = newLastEl.querySelector('.tool-card[data-tool-call-id="' + openIds[oj] + '"]');
-        if (card) card.classList.add('open');
+        if (card) {
+          card.classList.add('open');
+          var body = card.querySelector('.tool-card-body');
+          var item = findTimelineItemByToolCallId(openIds[oj]);
+          if (body && item && body.innerHTML === '') {
+            body.innerHTML = renderToolBody(item);
+          }
+        }
       }
     }
     _renderedTurnCount = turns.length;
@@ -263,15 +315,15 @@ function renderTurn(turn, idx) {
     var body = '';
     for (var i = 0; i < turn.items.length; i++) {
       var item = turn.items[i];
+      var agentLabel = getAgentLabelForSession(item.session_id);
       if (item.type === 'reply') {
-        // For streaming status, use raw markdown rendered; for done, use content as-is (already HTML from marked)
         var html = item.content || '';
         if (item.status === 'running') {
           try { html = marked.parse(item.content || ''); } catch(e) {}
         }
-        body += '<div class="md-body">' + html + '</div>';
+        body += '<div class="md-body">' + (agentLabel ? '<div class="agent-label">' + escapeHtml(agentLabel) + '</div>' : '') + html + '</div>';
       } else if (item.type === 'tool') {
-        body += renderToolCard(item);
+        body += renderToolCard(item, agentLabel);
       }
     }
     return '<div class="msg msg-ai" id="' + tid + '">' +
@@ -284,7 +336,6 @@ function renderTurn(turn, idx) {
     '</div>';
   }
   if (turn.type === 'thinking') {
-    // Active thinking shows the pulse bubble; old ones are invisible separators
     if (turn.item.status !== 'running') return '';
     return '<div class="msg msg-ai msg-thinking" id="' + tid + '">' +
       '<div class="msg-bubble">' + t('status.thinking') + '</div>' +
@@ -293,12 +344,32 @@ function renderTurn(turn, idx) {
   return '';
 }
 
-function renderToolCard(item) {
-  var isOpen = '';
+function renderToolCard(item, agentLabel) {
   var dotClass = item.status === 'running' ? 'running' : (item.error ? 'error' : 'done');
-  var content = item.content || '';
+  var tcidAttr = item.tool_call_id ? ' data-tool-call-id="' + item.tool_call_id + '"' : '';
+  var labelHtml = agentLabel ? '<span class="tool-agent-label">' + escapeHtml(agentLabel) + '</span>' : '';
 
-  // Render complete lines only; keep partial line buffered for streaming
+  // Lazy render: running items need body in DOM for streaming updates; done items render body only on expand
+  var bodyHtml = '';
+  if (item.status === 'running') {
+    bodyHtml = renderToolBody(item);
+  }
+  var onclickAttr = item.tool_call_id
+    ? 'onclick="toggleToolCard(\'' + escapeHtml(item.tool_call_id) + '\')"'
+    : 'onclick="this.parentElement.classList.toggle(\'open\')"';
+  return '<div class="tool-card"' + tcidAttr + '>' +
+    '<div class="tool-card-header" ' + onclickAttr + '>' +
+      '<span class="tool-dot ' + dotClass + '"></span>' +
+      '<span class="tool-name">' + escapeHtml(item.label || '') + '</span>' +
+      labelHtml +
+      '<span class="tool-chevron">▾</span>' +
+    '</div>' +
+    '<div class="tool-card-body">' + bodyHtml + '</div>' +
+  '</div>';
+}
+
+function renderToolBody(item) {
+  var content = item.content || '';
   var lastNewline = content.lastIndexOf('\n');
   var renderedContent = lastNewline >= 0 ? content.substring(0, lastNewline + 1) : '';
   var renderedLen = renderedContent.length;
@@ -314,7 +385,6 @@ function renderToolCard(item) {
     else contentHtml += escapeHtml(line) + '\n';
   }
   if (item.status === 'running') contentHtml += '<span class="stream-cursor"></span>';
-  // For done/fail, flush any remaining partial line
   if (item.status !== 'running' && renderedLen < content.length) {
     var tail = content.substring(renderedLen);
     if (/^\$ /.test(tail)) contentHtml += '<span style="color:var(--green)">' + escapeHtml(tail) + '</span>';
@@ -323,18 +393,29 @@ function renderToolCard(item) {
     renderedLen = content.length;
   }
 
-  var tcidAttr = item.tool_call_id ? ' data-tool-call-id="' + item.tool_call_id + '"' : '';
-  return '<div class="tool-card' + isOpen + '"' + tcidAttr + '>' +
-    '<div class="tool-card-header" onclick="this.parentElement.classList.toggle(\'open\')">' +
-      '<span class="tool-dot ' + dotClass + '"></span>' +
-      '<span class="tool-name">' + escapeHtml(item.label || '') + '</span>' +
-      '<span class="tool-chevron">▾</span>' +
-    '</div>' +
-    '<div class="tool-card-body">' +
-      (item.detail ? '<div class="tool-params"><strong>' + t('model.params_label') + '</strong><code>' + escapeHtml(item.detail) + '</code></div>' : '') +
-      '<div class="tool-result" data-rendered-len="' + renderedLen + '">' + contentHtml + '</div>' +
-    '</div>' +
-  '</div>';
+  return (item.detail ? '<div class="tool-params"><strong>' + t('model.params_label') + '</strong><code>' + escapeHtml(item.detail) + '</code></div>' : '') +
+    '<div class="tool-result" data-rendered-len="' + renderedLen + '">' + contentHtml + '</div>';
+}
+
+function toggleToolCard(toolCallId) {
+  var card = document.querySelector('.tool-card[data-tool-call-id="' + CSS.escape(toolCallId) + '"]');
+  if (!card) return;
+  var body = card.querySelector('.tool-card-body');
+  if (card.classList.contains('open')) {
+    body.innerHTML = '';
+    card.classList.remove('open');
+  } else {
+    var item = findTimelineItemByToolCallId(toolCallId);
+    if (item) body.innerHTML = renderToolBody(item);
+    card.classList.add('open');
+  }
+}
+
+function findTimelineItemByToolCallId(tcid) {
+  for (var i = 0; i < timelineItems.length; i++) {
+    if (timelineItems[i].tool_call_id === tcid) return timelineItems[i];
+  }
+  return null;
 }
 
 // ── Legacy (no-op in chat layout) ──
@@ -420,7 +501,17 @@ function renderAgentBar() {
     html += '</div>';
   }
 
+  // Group: coordinator / running workers / idle workers
+  var coordinator = null;
+  var running = [];
+  var idle = [];
   session.agents.forEach(function(a) {
+    if (a.role === 'coordinator') coordinator = a;
+    else if (a.status === 'running') running.push(a);
+    else idle.push(a);
+  });
+
+  function renderAgentItem(a) {
     var running = a.status === 'running';
     var dotCls = running ? 'running' : 'idle';
     var selected = _agentFilter === a.session_id;
@@ -430,13 +521,35 @@ function renderAgentBar() {
     } else if (!running) {
       activity = t('status.idle_activity');
     }
-    html += '<div class="agent-item' + (selected ? ' selected' : '') + '" onclick="setAgentFilter(\'' + a.session_id + '\')">';
+    var html = '<div class="agent-item' + (selected ? ' selected' : '') + '" onclick="setAgentFilter(\'' + a.session_id + '\')">';
     html += '<span class="agent-dot ' + dotCls + '"></span>';
     html += '<span class="agent-name">' + escapeHtml(a.name || 'Agent') + '</span>';
     if (activity) html += '<span class="agent-activity">' + escapeHtml(activity) + '</span>';
     html += '</div>';
-  });
+    return html;
+  }
+
+  if (coordinator) html += renderAgentItem(coordinator);
+  running.forEach(function(a) { html += renderAgentItem(a); });
+
+  if (idle.length > 0) {
+    if (_agentBarExpanded) {
+      idle.forEach(function(a) { html += renderAgentItem(a); });
+      html += '<div class="agent-item agent-collapse" onclick="toggleAgentBarExpanded()"><span class="agent-name">收起</span></div>';
+    } else {
+      html += '<div class="agent-item agent-collapse" onclick="toggleAgentBarExpanded()">' +
+              '<span class="agent-dot idle"></span>' +
+              '<span class="agent-name">' + idle.length + ' 个已完成</span>' +
+              '<span class="agent-activity">展开</span></div>';
+    }
+  }
+
   bar.innerHTML = html;
+}
+
+function toggleAgentBarExpanded() {
+  _agentBarExpanded = !_agentBarExpanded;
+  renderAgentBar();
 }
 
 function setAgentFilter(sid) {
@@ -634,6 +747,7 @@ function switchView(view) {
   if (voiceMode) stopVoiceAndDeactivate();
   currentView = view;
   _agentFilter = null;
+  _agentBarExpanded = false;
   document.querySelectorAll('.tab-item').forEach(function(t) {
     t.classList.toggle('active', t.dataset.view === view);
   });

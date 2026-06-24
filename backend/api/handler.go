@@ -830,34 +830,57 @@ func (h *Handler) handleUpdateSettings(c *gin.Context) {
 }
 
 func (h *Handler) handleGetMessages(c *gin.Context) {
-	limit := 30
-	if l, err := strconv.Atoi(c.DefaultQuery("limit", "30")); err == nil && l > 0 {
-		limit = l
+	turns := 10
+	if t, err := strconv.Atoi(c.DefaultQuery("turns", "10")); err == nil && t > 0 {
+		turns = t
 	}
 	sessionID := c.DefaultQuery("session_id", "main")
 
-	// If session_id looks like a project ref_id, resolve to coordinator session UUID
-	if sessionID != "main" && sessionID != "temp" {
-		if ref, refErr := h.DB.GetProject(sessionID); refErr == nil {
-			if sid := h.getCoordinatorSessionID(ref); sid != "" {
-				sessionID = sid
-			}
+	var beforeID int64 = 0
+	if beforeIDStr := c.Query("before_id"); beforeIDStr != "" {
+		var parseErr error
+		beforeID, parseErr = strconv.ParseInt(beforeIDStr, 10, 64)
+		if parseErr != nil {
+			c.JSON(400, gin.H{"error": "invalid before_id"})
+			return
 		}
 	}
 
 	var msgs []db.Message
 	var err error
-	beforeIDStr := c.Query("before_id")
-	if beforeIDStr != "" {
-		beforeID, parseErr := strconv.ParseInt(beforeIDStr, 10, 64)
-		if parseErr != nil {
-			c.JSON(400, gin.H{"error": "invalid before_id"})
-			return
+
+	// Project view: resolve ref_id to all project agents, merge sessions with bubble pagination
+	if sessionID != "main" && sessionID != "temp" {
+		if ref, refErr := h.DB.GetProject(sessionID); refErr == nil {
+			agents, _ := h.DB.GetProjectAgents(sessionID)
+			var coordSids, workerSids []string
+			for _, a := range agents {
+				if a.SessionID == "" {
+					continue
+				}
+				if a.Role == "coordinator" {
+					coordSids = append(coordSids, a.SessionID)
+				} else {
+					workerSids = append(workerSids, a.SessionID)
+				}
+			}
+			if len(coordSids) == 0 {
+				// fallback to coordinator session resolution
+				if sid := h.getCoordinatorSessionID(ref); sid != "" {
+					coordSids = []string{sid}
+				}
+			}
+			if len(coordSids) > 0 || len(workerSids) > 0 {
+				msgs, err = h.DB.GetMessagesProjectBubble(coordSids, workerSids, beforeID, turns)
+			}
 		}
-		msgs, err = h.DB.GetMessagesBefore(sessionID, beforeID, limit)
-	} else {
-		msgs, err = h.DB.GetRecentMessages(sessionID, limit)
 	}
+
+	// Home view or fallback: single session bubble pagination
+	if msgs == nil && err == nil {
+		msgs, err = h.DB.GetMessagesSessionBubble(sessionID, beforeID, turns)
+	}
+
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return

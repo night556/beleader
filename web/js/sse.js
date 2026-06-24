@@ -37,9 +37,12 @@ function loadSessionMessages(sessionId) {
   timelineItems = [];
   _itemSeq = 0;
   currentStage = null;
-  fetch(SERVER_URL + '/api/messages?session_id=' + encodeURIComponent(sessionId) + '&limit=50')
+  _noMoreMessages = false;
+  _loadingOlder = false;
+  fetch(SERVER_URL + '/api/messages?session_id=' + encodeURIComponent(sessionId) + '&turns=10')
     .then(function(r) { return r.json(); })
-    .then(function(msgs) {
+    .then(function(d) {
+      var msgs = (d && d.messages) ? d.messages : d;
       if (!Array.isArray(msgs) || msgs.length === 0) {
         if (sessionId === 'main') {
           showIdle();
@@ -49,76 +52,126 @@ function loadSessionMessages(sessionId) {
         }
         return;
       }
-      var toolNameMap = {};
-      for (var i = 0; i < msgs.length; i++) {
-        var m = msgs[i];
-        if (m.hidden) continue;
-        // Build tool_call_id → function name map from assistant messages
-        if (m.role === 'assistant' && m.tool_calls) {
-          try {
-            var tcs = JSON.parse(m.tool_calls);
-            if (Array.isArray(tcs)) {
-              for (var j = 0; j < tcs.length; j++) {
-                if (tcs[j].id && tcs[j].function && tcs[j].function.name) {
-                  var args = {};
-                  try { args = JSON.parse(tcs[j].function.arguments || '{}'); } catch(ea) {}
-                  toolNameMap[tcs[j].id] = {name: tcs[j].function.name, args: args};
-                }
-              }
-            }
-          } catch(e) {}
-        }
-      }
-      for (var i = 0; i < msgs.length; i++) {
-        var m = msgs[i];
-        if (m.hidden) continue;
-        var item = null;
-        if (m.role === 'user') {
-          item = { type: 'user', icon: '\u{1F464}', label: 'You', content: m.content, status: 'done', db_id: m.id, bookmarked: m.bookmarked };
-        } else if (m.role === 'assistant') {
-          var content = m.content || '';
-          var hasToolCalls = false;
-          try { var tc = JSON.parse(m.tool_calls || '[]'); hasToolCalls = Array.isArray(tc) && tc.length > 0; } catch(e) {}
-          if (!content && hasToolCalls) continue;
-          var html = content;
-          try { html = marked.parse(content); } catch(e) {}
-          item = { type: 'reply', icon: '✦', label: m.role_label || 'AI', content: html, status: 'done', db_id: m.id, bookmarked: m.bookmarked };
-        } else if (m.role === 'tool') {
-          var toolContent = m.content || '';
-          var toolLabel = t('status.tool');
-          var toolIcon = '⚙';
-          var toolDetail = '';
-          var hasError = false;
-          try {
-            var td = JSON.parse(m.content);
-            if (td.content) toolContent = td.content;
-            if (td.error) { toolContent = td.error; hasError = true; }
-          } catch(e) {}
-          var entry = toolNameMap[m.tool_call_id];
-          if (entry) {
-            var meta = getToolMeta(entry.name, entry.args);
-            toolIcon = meta.icon;
-            toolLabel = meta.label + (hasError ? t('status.tool_error_short') : '');
-            toolDetail = meta.detail;
-          } else {
-            toolLabel = hasError ? t('status.tool_error') : t('status.tool_result');
-            toolDetail = '';
-          }
-          item = { type: 'tool', icon: toolIcon, label: toolLabel, detail: toolDetail, content: toolContent, status: hasError ? 'fail' : 'done', error: hasError, db_id: m.id, bookmarked: m.bookmarked };
-        } else if (m.role === 'system') {
-          continue;
-        } else if (m.role === 'error') {
-          item = { type: 'error', icon: '⚠', label: t('status.error'), content: m.content || '', status: 'fail', db_id: m.id, bookmarked: m.bookmarked };
-        } else if (m.role === 'notice') {
-          item = { type: 'notice', icon: 'ℹ', label: '', content: m.content || '', status: 'done', db_id: m.id, bookmarked: m.bookmarked };
-        }
-        if (item) pushTimelineItem(item);
-      }
+      appendMessagesInternal(msgs, false);
       hideIdle();
       currentStage = null;
       renderAll(true);
     })
     .catch(function(err) { console.error('load history error:', err); });
+}
+
+// Convert DB messages → timelineItems and append (or prepend for pagination)
+function appendMessagesInternal(msgs, prepend) {
+  var toolNameMap = {};
+  for (var i = 0; i < msgs.length; i++) {
+    var m = msgs[i];
+    if (m.hidden) continue;
+    if (m.role === 'assistant' && m.tool_calls) {
+      try {
+        var tcs = JSON.parse(m.tool_calls);
+        if (Array.isArray(tcs)) {
+          for (var j = 0; j < tcs.length; j++) {
+            if (tcs[j].id && tcs[j].function && tcs[j].function.name) {
+              var args = {};
+              try { args = JSON.parse(tcs[j].function.arguments || '{}'); } catch(ea) {}
+              toolNameMap[tcs[j].id] = {name: tcs[j].function.name, args: args};
+            }
+          }
+        }
+      } catch(e) {}
+    }
+  }
+  var newItems = [];
+  for (var i = 0; i < msgs.length; i++) {
+    var m = msgs[i];
+    if (m.hidden) continue;
+    var item = convertMessageToItem(m, toolNameMap);
+    if (item) {
+      item.session_id = m.session_id || '';
+      newItems.push(item);
+    }
+  }
+  if (prepend) {
+    for (var k = newItems.length - 1; k >= 0; k--) {
+      timelineItems.unshift(newItems[k]);
+    }
+  } else {
+    for (var k = 0; k < newItems.length; k++) {
+      timelineItems.push(newItems[k]);
+    }
+  }
+}
+
+function convertMessageToItem(m, toolNameMap) {
+  if (m.role === 'user') {
+    return { type: 'user', icon: '\u{1F464}', label: 'You', content: m.content, status: 'done', db_id: m.id, bookmarked: m.bookmarked };
+  } else if (m.role === 'assistant') {
+    var content = m.content || '';
+    var hasToolCalls = false;
+    try { var tc = JSON.parse(m.tool_calls || '[]'); hasToolCalls = Array.isArray(tc) && tc.length > 0; } catch(e) {}
+    if (!content && hasToolCalls) return null;
+    var html = content;
+    try { html = marked.parse(content); } catch(e) {}
+    return { type: 'reply', icon: '✦', label: m.role_label || 'AI', content: html, status: 'done', db_id: m.id, bookmarked: m.bookmarked };
+  } else if (m.role === 'tool') {
+    var toolContent = m.content || '';
+    var toolLabel = t('status.tool');
+    var toolIcon = '⚙';
+    var toolDetail = '';
+    var hasError = false;
+    try {
+      var td = JSON.parse(m.content);
+      if (td.content) toolContent = td.content;
+      if (td.error) { toolContent = td.error; hasError = true; }
+    } catch(e) {}
+    var entry = toolNameMap[m.tool_call_id];
+    if (entry) {
+      var meta = getToolMeta(entry.name, entry.args);
+      toolIcon = meta.icon;
+      toolLabel = meta.label + (hasError ? t('status.tool_error_short') : '');
+      toolDetail = meta.detail;
+    } else {
+      toolLabel = hasError ? t('status.tool_error') : t('status.tool_result');
+      toolDetail = '';
+    }
+    return { type: 'tool', icon: toolIcon, label: toolLabel, detail: toolDetail, content: toolContent, status: hasError ? 'fail' : 'done', error: hasError, tool_call_id: m.tool_call_id, db_id: m.id, bookmarked: m.bookmarked };
+  } else if (m.role === 'system') {
+    return null;
+  } else if (m.role === 'error') {
+    return { type: 'error', icon: '⚠', label: t('status.error'), content: m.content || '', status: 'fail', db_id: m.id, bookmarked: m.bookmarked };
+  } else if (m.role === 'notice') {
+    return { type: 'notice', icon: 'ℹ', label: '', content: m.content || '', status: 'done', db_id: m.id, bookmarked: m.bookmarked };
+  }
+  return null;
+}
+
+// Pagination: load older messages (scroll to top)
+function loadOlderMessages() {
+  if (_loadingOlder || _noMoreMessages) return;
+  var oldestId = null;
+  for (var i = 0; i < timelineItems.length; i++) {
+    var tid = timelineItems[i].db_id;
+    if (tid && (oldestId === null || tid < oldestId)) oldestId = tid;
+  }
+  if (oldestId === null) return;
+  _loadingOlder = true;
+  showTopLoader(true);
+  var sid = currentView === 'home' ? 'main' : currentView;
+  fetch(SERVER_URL + '/api/messages?session_id=' + encodeURIComponent(sid) + '&before_id=' + oldestId + '&turns=10')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var msgs = (d && d.messages) ? d.messages : d;
+      if (!Array.isArray(msgs) || msgs.length === 0) {
+        _noMoreMessages = true;
+      } else {
+        prependMessages(msgs);
+      }
+    })
+    .catch(function(e) { console.error('load older error:', e); })
+    .finally(function() {
+      _loadingOlder = false;
+      showTopLoader(false);
+    });
 }
 
 // Load main session history on startup
