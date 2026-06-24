@@ -98,15 +98,24 @@ body {
 
 /* ═══ Connection banner ═══ */
 .conn-banner {
-  display:flex; align-items:center; justify-content:center; gap:8px;
+  display:flex; align-items:center; justify-content:center; gap:10px;
   height:32px; width:100%; background:#dc2626; color:#fff;
   font-size:12px; font-weight:500; position:sticky; top:0; z-index:100;
   box-shadow:0 1px 4px rgba(0,0,0,0.2);
+  transition:background 0.3s;
 }
+.conn-banner.connected { background:#10b981; }
 .conn-banner-dot {
   width:6px; height:6px; border-radius:50%; background:#fff;
   animation:conn-pulse 1.2s ease-in-out infinite;
 }
+.conn-banner.connected .conn-banner-dot { animation:none; opacity:1; }
+.conn-banner-reconnect {
+  margin-left:8px; padding:2px 12px; border:1px solid rgba(255,255,255,0.6);
+  background:transparent; color:#fff; border-radius:4px; cursor:pointer;
+  font-size:11px; font-family:inherit;
+}
+.conn-banner-reconnect:hover { background:rgba(255,255,255,0.2); }
 @keyframes conn-pulse {
   0%, 100% { opacity:0.4; }
   50% { opacity:1; }

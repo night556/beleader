@@ -32,6 +32,9 @@ var _contextPcts = {};
 // Per-session total token usage tracking
 var _sessionTokens = {};
 
+// Per-project total token usage (coordinator + all workers summed by backend)
+var _projectTokens = {};
+
 // Cached agent list for agents panel
 var _agentsCache = [];
 

@@ -474,7 +474,10 @@ function updateViewContextBar() {
     }
   }
   updateContextBar(_contextPcts[viewSid] || 0);
-  updateContextTokens(_sessionTokens[viewSid] || 0);
+  var displayTokens = currentView === 'home'
+    ? (_sessionTokens['main'] || 0)
+    : (_projectTokens[currentView] || 0);
+  updateContextTokens(displayTokens);
   loadSessionTokens(viewSid);
 }
 
@@ -595,8 +598,12 @@ function loadSessionTokens(sid) {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       _sessionTokens[sid] = d.session_total || 0;
+      if (d.project_id) {
+        _projectTokens[d.project_id] = d.project_total || 0;
+      }
       if (isCurrentViewSession(sid)) {
-        updateContextTokens(d.session_total || 0);
+        var display = (currentView !== 'home' && d.project_total) ? d.project_total : (d.session_total || 0);
+        updateContextTokens(display);
       }
     })
     .catch(function(err) { console.error('load tokens error:', err); });

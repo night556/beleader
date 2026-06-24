@@ -546,10 +546,7 @@ func (m *Manager) RunLoop(ctx context.Context, sessionID string, sysPrompt strin
 					"session_id": sessionID,
 					"pct":        pct,
 				})
-				progress("token_total", map[string]any{
-					"session_id":    sessionID,
-					"session_total": currentTotalTokens,
-				})
+				progress("token_total", buildTokenPayload(sessionID, currentTotalTokens, m.DB))
 			}
 
 		if rounds >= 30 {
@@ -684,5 +681,27 @@ func estimateTokensForRound(msgs []openai.ChatCompletionMessage, completion open
 		total += len(tc.Function.Arguments)
 	}
 	return total / 2
+}
+
+// buildTokenPayload constructs the token_total SSE event payload.
+// For project sessions (coordinator or worker), includes project_id and
+// project_total so the frontend can display the project-wide sum (including
+// all workers) rather than just the current session's tokens.
+func buildTokenPayload(sessionID string, sessionTotal int, database *db.DB) map[string]any {
+	payload := map[string]any{
+		"session_id":    sessionID,
+		"session_total": sessionTotal,
+	}
+	if sessionID == "main" {
+		return payload
+	}
+	pa, err := database.GetProjectAgent(sessionID)
+	if err != nil || pa == nil {
+		return payload
+	}
+	pt, _ := database.GetProjectTotalTokens(pa.ProjectID)
+	payload["project_id"] = pa.ProjectID
+	payload["project_total"] = pt
+	return payload
 }
 

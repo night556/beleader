@@ -125,29 +125,95 @@ function loadSessionMessages(sessionId) {
 loadSessionMessages('main');
 
 // SSE Event Stream
-var evtSource = new EventSource(SERVER_URL + '/api/sse');
-evtSource.onmessage = function(e) {
-  try {
-    var d = JSON.parse(e.data);
-    window.updateState(d.type, d.payload);
-  } catch(err) {
-    console.error('[SSE] parse error:', err);
+var evtSource = null;
+var _sseRetryCount = 0;
+var _sseRetryTimer = null;
+
+function initSSE() {
+  if (evtSource) {
+    try { evtSource.close(); } catch(e) {}
   }
-};
-evtSource.onopen = function() {
+  evtSource = new EventSource(SERVER_URL + '/api/sse');
+
+  evtSource.onmessage = function(e) {
+    try {
+      var d = JSON.parse(e.data);
+      window.updateState(d.type, d.payload);
+    } catch(err) {
+      console.error('[SSE] parse error:', err);
+    }
+  };
+
+  evtSource.onopen = function() {
+    _sseRetryCount = 0;
+    showConnBanner('connected');
+    var bar = document.getElementById('status-bar');
+    if (bar) {
+      var label = bar.querySelector('.status-text');
+      if (label && label.textContent === '连接断开') updateStatus(t('status.ready'), 'idle');
+    }
+    setTimeout(function() {
+      if (evtSource && evtSource.readyState === EventSource.OPEN) {
+        hideConnBanner();
+      }
+    }, 1500);
+  };
+
+  evtSource.onerror = function() {
+    var state = evtSource ? evtSource.readyState : EventSource.CLOSED;
+    if (state === EventSource.CLOSED) {
+      // EventSource gave up — won't auto-reconnect. Show manual reconnect button.
+      showConnBanner('failed');
+    } else {
+      // CONNECTING — browser will retry. Show attempt count.
+      _sseRetryCount++;
+      showConnBanner('retrying');
+      // Safety net: if browser backoff grows too large, force reconnect ourselves
+      if (_sseRetryTimer) clearTimeout(_sseRetryTimer);
+      _sseRetryTimer = setTimeout(function() {
+        if (evtSource && evtSource.readyState !== EventSource.OPEN) {
+          console.log('[SSE] forcing reconnect after backoff timeout');
+          initSSE();
+        }
+      }, 10000);
+    }
+    updateStatus('连接断开', 'error');
+  };
+}
+
+function reconnectSSE() {
+  if (_sseRetryTimer) { clearTimeout(_sseRetryTimer); _sseRetryTimer = null; }
+  _sseRetryCount = 0;
+  showConnBanner('retrying');
+  initSSE();
+}
+
+function showConnBanner(state) {
+  var banner = document.getElementById('conn-banner');
+  if (!banner) return;
+  banner.style.display = 'flex';
+  banner.classList.remove('connected', 'failed');
+  var text = banner.querySelector('.conn-banner-text');
+  var btn = banner.querySelector('.conn-banner-reconnect');
+  if (state === 'connected') {
+    banner.classList.add('connected');
+    if (text) text.textContent = '已连接';
+    if (btn) btn.style.display = 'none';
+  } else if (state === 'failed') {
+    if (text) text.textContent = '连接已断开';
+    if (btn) btn.style.display = '';
+  } else {
+    if (text) text.textContent = '正在重连…（第 ' + _sseRetryCount + ' 次）';
+    if (btn) btn.style.display = '';
+  }
+}
+
+function hideConnBanner() {
   var banner = document.getElementById('conn-banner');
   if (banner) banner.style.display = 'none';
-  var bar = document.getElementById('status-bar');
-  if (bar) {
-    var label = bar.querySelector('.status-text');
-    if (label && label.textContent === '连接断开') updateStatus(t('status.ready'), 'idle');
-  }
-};
-evtSource.onerror = function() {
-  var banner = document.getElementById('conn-banner');
-  if (banner) banner.style.display = 'flex';
-  updateStatus('连接断开', 'error');
-};
+}
+
+initSSE();
 
 // Check if a session_id belongs to the current view
 function isCurrentViewSession(sid) {
@@ -571,7 +637,14 @@ window.updateState = function(name, data) {
 
     case 'token_total':
       _sessionTokens[sid || 'main'] = data.session_total || 0;
-      if (isCurrentViewSession(sid)) updateContextTokens(data.session_total || 0);
+      if (data.project_id) {
+        _projectTokens[data.project_id] = data.project_total || 0;
+        if (currentView === data.project_id) {
+          updateContextTokens(data.project_total || 0);
+        }
+      } else if (isCurrentViewSession(sid)) {
+        updateContextTokens(data.session_total || 0);
+      }
       break;
 
     case 'session_focused':
