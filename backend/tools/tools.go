@@ -42,11 +42,11 @@ var searchKnowledgeTool = openai.Tool{
 	Type: "function",
 	Function: &openai.FunctionDefinition{
 		Name:        "search_knowledge",
-		Description: "Search the cross-project knowledge base by title. Returns full content when results ≤ 10, title-only list when 11-100 (refine your query to get full content), and an error when > 100 (add more keywords).",
+		Description: "Search the cross-project knowledge base by TITLE only. Query uses FTS5 MATCH syntax. Prefer OR for broad coverage: '鸿蒙 OR HarmonyOS' hits either term; space-separated keywords are AND (all required) — use AND only to narrow when too many results. Exclude with '-': '鸿蒙 -测试'. Returns full content when results ≤ 10, title-only list when 11-100 (refine query to get full content), error when > 100 (add more keywords).",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "Search query matching knowledge titles"},
+				"query": map[string]any{"type": "string", "description": "FTS5 MATCH query."},
 				"limit": map[string]any{"type": "integer", "description": "Max results to return. Default 5, max 20."},
 			},
 			"required": []string{"query"},
