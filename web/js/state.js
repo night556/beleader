@@ -29,6 +29,12 @@ var _agentActivities = {};
 // Per-session context usage tracking
 var _contextPcts = {};
 
+// Per-session total token usage tracking
+var _sessionTokens = {};
+
+// Cached agent list for agents panel
+var _agentsCache = [];
+
 // Agent drill-down filter (worker session_id, or null)
 var _agentFilter = null;
 

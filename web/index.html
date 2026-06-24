@@ -25,16 +25,30 @@
     </div>
   </div>
   <div class="top-right">
-    <button class="icon-btn" data-i18n-title="bookmark.button_title" title="收藏" onclick="toggleBookmarks()">☆</button>
-    <button class="icon-btn" data-i18n-title="knowledge.button_title" title="Knowledge" onclick="toggleKnowledge()">📚</button>
-    <button class="icon-btn" data-i18n-title="settings.button_title" title="设置" onclick="toggleSettings()">⚙</button>
+    <button class="icon-btn" data-i18n-title="bookmark.button_title" title="收藏" onclick="toggleBookmarks()"><span class="icon-btn-icon">☆</span><span class="icon-btn-text" data-i18n="topbar.bookmarks">收藏</span></button>
+    <button class="icon-btn" data-i18n-title="agents.button_title" title="Agents" onclick="toggleAgents()"><span class="icon-btn-icon">🤖</span><span class="icon-btn-text" data-i18n="topbar.agents">Agents</span></button>
+    <button class="icon-btn" data-i18n-title="knowledge.button_title" title="Knowledge" onclick="toggleKnowledge()"><span class="icon-btn-icon">📚</span><span class="icon-btn-text" data-i18n="topbar.knowledge">知识库</span></button>
+    <button class="icon-btn" data-i18n-title="settings.button_title" title="设置" onclick="toggleSettings()"><span class="icon-btn-icon">⚙</span><span class="icon-btn-text" data-i18n="topbar.settings">设置</span></button>
   </div>
 </header>
 
+<!-- Connection banner (shown when SSE disconnected) -->
+<div class="conn-banner" id="conn-banner" style="display:none">
+  <span class="conn-banner-dot"></span>
+  <span class="conn-banner-text">连接已断开，正在重连…</span>
+</div>
+
 <!-- Context bar -->
 <div class="ctx-bar" id="ctx-bar">
-  <div class="ctx-track" id="ctx-track"></div>
-  <span class="ctx-label" id="ctx-label">0%</span>
+  <div class="ctx-model" id="ctx-model" title="当前模型">
+    <span class="ctx-model-dot" id="ctx-model-dot"></span>
+    <span class="ctx-model-name" id="ctx-model-name">—</span>
+  </div>
+  <div class="ctx-progress-wrap">
+    <div class="ctx-progress"><div class="ctx-progress-fill" id="ctx-progress-fill"></div></div>
+    <span class="ctx-label" id="ctx-label">0%</span>
+  </div>
+  <div class="ctx-tokens" id="ctx-tokens" title="累计 token 使用量">⚡ 0</div>
   <span class="ctx-clear" id="ctx-clear" onclick="clearContext()" data-i18n="ctx.clear">清空</span>
 </div>
 
@@ -137,10 +151,6 @@
       <button class="btn-add" onclick="addModel()" data-i18n="settings.add_model" style="margin-bottom:10px">+ 添加模型</button>
       <div id="model-list"></div>
     </div>
-    <div class="set-section">
-      <h4>Agents</h4>
-      <div id="agent-list"></div>
-    </div>
     <button class="btn-save" onclick="saveSettings()" data-i18n="settings.save">保存设置</button>
   </div>
 </div>
@@ -159,6 +169,35 @@
       <div id="knowledge-list"></div>
       <div id="knowledge-pagination"></div>
     </div>
+  </div>
+</div>
+
+<!-- Agents panel -->
+<div class="settings-panel" id="agents-panel">
+  <div class="panel-head">
+    <h3 data-i18n="agents.title">Agents</h3>
+    <button class="panel-close" onclick="toggleAgents()">✕</button>
+  </div>
+  <div class="panel-body" id="agents-body">
+    <div class="set-section">
+      <div class="set-row" style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="agents-search" data-i18n-placeholder="agents.search_placeholder" placeholder="搜索 Agent..." oninput="renderAgentListFiltered()" style="flex:1">
+        <button class="btn-add" onclick="openAgentEditor(null)" data-i18n="agents.new">+ 新建</button>
+      </div>
+      <div id="agents-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal component (shared by createProject, clearContext confirm, agent editor) -->
+<div class="modal-backdrop" id="modal-backdrop" style="display:none">
+  <div class="modal-dialog" id="modal-dialog">
+    <div class="modal-head">
+      <h3 id="modal-title">标题</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-foot" id="modal-foot"></div>
   </div>
 </div>
 

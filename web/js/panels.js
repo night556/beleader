@@ -6,8 +6,10 @@ function toggleSettings() {
   else {
     var bp = document.getElementById('bookmarks-panel');
     var kp = document.getElementById('knowledge-panel');
+    var ap = document.getElementById('agents-panel');
     if (bp) bp.classList.remove('open');
     if (kp) kp.classList.remove('open');
+    if (ap) ap.classList.remove('open');
     openPanel('settings-panel');
     loadSettings();
   }
@@ -19,10 +21,27 @@ function toggleBookmarks() {
   else {
     var sp = document.getElementById('settings-panel');
     var kp = document.getElementById('knowledge-panel');
+    var ap = document.getElementById('agents-panel');
     if (sp) sp.classList.remove('open');
     if (kp) kp.classList.remove('open');
+    if (ap) ap.classList.remove('open');
     openPanel('bookmarks-panel');
     loadBookmarks();
+  }
+}
+
+function toggleAgents() {
+  var panel = document.getElementById('agents-panel');
+  if (panel.classList.contains('open')) { closePanels(); }
+  else {
+    var sp = document.getElementById('settings-panel');
+    var bp = document.getElementById('bookmarks-panel');
+    var kp = document.getElementById('knowledge-panel');
+    if (sp) sp.classList.remove('open');
+    if (bp) bp.classList.remove('open');
+    if (kp) kp.classList.remove('open');
+    openPanel('agents-panel');
+    loadAgents();
   }
 }
 
@@ -35,11 +54,65 @@ function closePanels() {
   document.getElementById('settings-panel').classList.remove('open');
   document.getElementById('bookmarks-panel').classList.remove('open');
   document.getElementById('knowledge-panel').classList.remove('open');
+  var ap = document.getElementById('agents-panel');
+  if (ap) ap.classList.remove('open');
   document.getElementById('backdrop').classList.remove('open');
 }
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') closePanels();
+  if (e.key === 'Escape') {
+    var mb = document.getElementById('modal-backdrop');
+    if (mb && mb.style.display !== 'none') {
+      closeModal();
+    } else {
+      closePanels();
+    }
+  }
+});
+
+// ── Modal component (shared) ──
+
+var _modalOnConfirm = null;
+
+function openModal(opts) {
+  var backdrop = document.getElementById('modal-backdrop');
+  var dialog = document.getElementById('modal-dialog');
+  document.getElementById('modal-title').textContent = opts.title || '';
+  document.getElementById('modal-body').innerHTML = opts.body || '';
+  dialog.classList.toggle('wide', !!opts.wide);
+
+  var foot = document.getElementById('modal-foot');
+  var html = '';
+  html += '<button class="modal-btn" onclick="closeModal()">' + (opts.cancelText || t('modal.cancel')) + '</button>';
+  html += '<button class="modal-btn ' + (opts.danger ? 'danger' : 'primary') + '" id="modal-confirm-btn">' + (opts.confirmText || 'OK') + '</button>';
+  foot.innerHTML = html;
+
+  _modalOnConfirm = opts.onConfirm || null;
+  var confirmBtn = document.getElementById('modal-confirm-btn');
+  confirmBtn.onclick = function() {
+    if (_modalOnConfirm) {
+      var result = _modalOnConfirm();
+      if (result !== false) closeModal();
+    } else {
+      closeModal();
+    }
+  };
+
+  backdrop.style.display = 'flex';
+  setTimeout(function() { backdrop.classList.add('open'); }, 10);
+
+  if (opts.onOpen) setTimeout(opts.onOpen, 50);
+}
+
+function closeModal() {
+  var backdrop = document.getElementById('modal-backdrop');
+  backdrop.classList.remove('open');
+  setTimeout(function() { backdrop.style.display = 'none'; }, 200);
+  _modalOnConfirm = null;
+}
+
+document.getElementById('modal-backdrop').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
 });
 
 // ── Settings ──
@@ -115,6 +188,7 @@ function loadSettings() {
       if (cfg.llm) {
         var models = cfg.llm.models || [];
         activeModelId = cfg.llm.active || (models.length > 0 ? models[0].id : '');
+        updateContextModel(activeModelId);
         if (models.length === 0) {
           document.getElementById('model-list').innerHTML = '<div class="model-empty"><div class="model-empty-icon">⚡</div><div class="model-empty-text">' + t('timeline.no_models_setup_title') + '</div><div class="model-empty-hint">' + t('timeline.no_models_setup_hint') + '</div><button class="btn-add" onclick="addModel()" style="margin-top:8px">' + t('timeline.no_models_setup_btn') + '</button></div>';
         } else {
@@ -123,11 +197,6 @@ function loadSettings() {
       }
     })
     .catch(function(e) { console.error('loadSettings error:', e); });
-
-  fetch(SERVER_URL + '/api/agents')
-    .then(function(r) { return r.json(); })
-    .then(function(agents) { renderAgentList(agents || []); })
-    .catch(function(e) { console.error('loadAgents error:', e); });
 }
 
 var modelCounter = 0;
@@ -184,12 +253,17 @@ function setActiveModel(id) {
   activeModelId = id;
   var models = collectModels();
   renderModelList(models, id);
+  updateContextModel(id);
 }
 
 function addModel() {
   var container = document.getElementById('model-list');
+  var empty = container.querySelector('.model-empty');
+  if (empty) container.innerHTML = '';
   var idx = modelCounter++;
-  container.insertAdjacentHTML('beforeend', modelRowHTML({id: '', base_url: '', api_key: '', model: '', vision: false, context_limit: 128000}, idx, false));
+  container.insertAdjacentHTML('afterbegin', modelRowHTML({id: '', base_url: '', api_key: '', model: '', vision: false, context_limit: 128000}, idx, false));
+  var firstInput = container.querySelector('.model-card input[data-field="id"]');
+  if (firstInput) firstInput.focus();
 }
 
 function deleteModel(idx) {
@@ -257,16 +331,136 @@ function saveSettings() {
     .catch(function(e) { console.error('saveSettings error:', e); });
 }
 
-function renderAgentList(agents) {
-  var container = document.getElementById('agent-list');
-  var html = '';
-  for (var i = 0; i < agents.length; i++) {
-    var a = agents[i];
-    html += '<div class="form-row"><label>' + escapeHtml(a.name || a.id) + '</label><span style="font-size:10px;color:var(--text-dim)">' + escapeHtml((a.description || '').substring(0, 40)) + '</span></div>';
+// ── Agents panel CRUD ──
+
+function loadAgents() {
+  fetch(SERVER_URL + '/api/agents')
+    .then(function(r) { return r.json(); })
+    .then(function(agents) {
+      _agentsCache = agents || [];
+      renderAgentListFiltered();
+    })
+    .catch(function(e) { console.error('loadAgents error:', e); });
+}
+
+function renderAgentListFiltered() {
+  var container = document.getElementById('agents-list');
+  if (!container) return;
+  var searchInput = document.getElementById('agents-search');
+  var q = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  var filtered = _agentsCache.filter(function(a) {
+    if (!q) return true;
+    return (a.name || '').toLowerCase().indexOf(q) >= 0 || (a.desc || '').toLowerCase().indexOf(q) >= 0;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="agents-empty">' + t('agents.empty') + '</div>';
+    return;
   }
-  if (!agents.length) html = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0;">No agents configured</div>';
+
+  var html = '';
+  for (var i = 0; i < filtered.length; i++) {
+    var a = filtered[i];
+    var preview = (a.content || '').substring(0, 200);
+    html += '<div class="agent-card" data-agent-id="' + a.id + '">';
+    html += '<div class="agent-card-head">';
+    html += '<span class="agent-card-name">' + escapeHtml(a.name || '') + '</span>';
+    html += '<span class="agent-card-desc">' + escapeHtml(a.desc || '') + '</span>';
+    html += '<span class="agent-card-actions">';
+    html += '<button class="agent-card-btn" onclick="openAgentEditor(' + a.id + ')" title="' + t('agents.edit') + '">✎</button>';
+    html += '<button class="agent-card-btn delete" onclick="deleteAgent(' + a.id + ',\'' + escapeHtml(a.name || '') + '\')" title="' + t('agents.delete') + '">✕</button>';
+    html += '</span>';
+    html += '</div>';
+    html += '<div class="agent-card-preview">' + escapeHtml(preview) + '</div>';
+    html += '</div>';
+  }
   container.innerHTML = html;
 }
+
+function openAgentEditor(id) {
+  var agent = null;
+  if (id != null) {
+    for (var i = 0; i < _agentsCache.length; i++) {
+      if (_agentsCache[i].id === id) { agent = _agentsCache[i]; break; }
+    }
+  }
+
+  var title = agent ? t('agents.edit_title') : t('agents.new_title');
+  var body =
+    '<div class="modal-field"><label>' + t('agents.name') + '</label>' +
+    '<input type="text" id="agent-name-input" class="modal-input" value="' + escapeHtml(agent ? agent.name : '') + '"></div>' +
+    '<div class="modal-field"><label>' + t('agents.desc') + '</label>' +
+    '<input type="text" id="agent-desc-input" class="modal-input" value="' + escapeHtml(agent ? agent.desc : '') + '"></div>' +
+    '<div class="modal-field"><label>' + t('agents.content') + '</label>' +
+    '<textarea id="agent-content-input" class="modal-textarea">' + escapeHtml(agent ? agent.content : '') + '</textarea></div>';
+
+  openModal({
+    title: title,
+    body: body,
+    wide: true,
+    confirmText: t('agents.save'),
+    onOpen: function() {
+      var ta = document.getElementById('agent-content-input');
+      if (ta) {
+        ta.addEventListener('keydown', function(e) {
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            var start = ta.selectionStart, end = ta.selectionEnd;
+            ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
+            ta.selectionStart = ta.selectionEnd = start + 2;
+          }
+        });
+      }
+    },
+    onConfirm: function() {
+      var name = document.getElementById('agent-name-input').value.trim();
+      var desc = document.getElementById('agent-desc-input').value.trim();
+      var content = document.getElementById('agent-content-input').value;
+      if (!name || !content) {
+        toast(name ? t('agents.content') + ' required' : t('agents.name') + ' required');
+        return false;
+      }
+      var payload = {name: name, desc: desc, content: content};
+      if (agent) {
+        fetch(SERVER_URL + '/api/agents/' + agent.id, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        }).then(function(r) { return r.json(); })
+          .then(function() { loadAgents(); toast(t('agents.edit') + ' ✓'); })
+          .catch(function(e) { console.error('update agent error:', e); toast('Error: ' + e.message); });
+      } else {
+        fetch(SERVER_URL + '/api/agents', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        }).then(function(r) { return r.json(); })
+          .then(function() { loadAgents(); toast(t('agents.new') + ' ✓'); })
+          .catch(function(e) { console.error('create agent error:', e); toast('Error: ' + e.message); });
+      }
+      return true;
+    }
+  });
+}
+
+function deleteAgent(id, name) {
+  openModal({
+    title: t('agents.delete'),
+    body: '<div class="modal-confirm-text"><p>' + t('agents.delete_confirm').replace('$1', escapeHtml(name)) + '</p></div>',
+    confirmText: t('agents.delete_btn'),
+    danger: true,
+    onConfirm: function() {
+      fetch(SERVER_URL + '/api/agents/' + id, {method: 'DELETE'})
+        .then(function(r) { return r.json(); })
+        .then(function() { loadAgents(); toast(t('agents.delete') + ' ✓'); })
+        .catch(function(e) { console.error('delete agent error:', e); toast('Error: ' + e.message); });
+      return true;
+    }
+  });
+}
+
+// Legacy stub for backward compat — no longer renders into settings
+function renderAgentList(agents) { _agentsCache = agents || []; }
 
 // ── Port Maps ──
 

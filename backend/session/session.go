@@ -343,6 +343,7 @@ func (m *Manager) BuildMessages(sessionID string, afterID int64, sysPrompt strin
 func (m *Manager) RunLoop(ctx context.Context, sessionID string, sysPrompt string, userContent string, toolList []openai.Tool, llmClient *llm.Client, modelContextLimit int, visionEnabled bool, pauseCh <-chan struct{}, interveneCh <-chan InterveneMsg, progress ProgressCallback) (*LoopResult, error) {
 	rounds := 0
 	lastPromptTokens := 0
+	currentTotalTokens, _ := m.DB.GetSessionTokens(sessionID)
 
 	afterID := int64(0)
 	if s, err := m.DB.GetSession(sessionID); err == nil {
@@ -400,6 +401,7 @@ func (m *Manager) RunLoop(ctx context.Context, sessionID string, sysPrompt strin
 				if lastErr == nil {
 					_, _, compErr := m.Compress(ctx, sessionID, afterID, llmClient)
 					if compErr == nil {
+						currentTotalTokens, _ = m.DB.GetSessionTokens(sessionID)
 						m.DB.UpdateSessionContextStart(sessionID, lastID)
 						afterID = lastID
 						msgs, _ = m.BuildMessages(sessionID, afterID, sysPrompt, "", toolList, visionEnabled)
@@ -525,6 +527,11 @@ func (m *Manager) RunLoop(ctx context.Context, sessionID string, sysPrompt strin
 		if resp.Usage.PromptTokens > 0 {
 			lastPromptTokens = resp.Usage.PromptTokens
 		}
+		if resp.Usage.TotalTokens > 0 {
+			currentTotalTokens += int(resp.Usage.TotalTokens)
+		} else {
+			currentTotalTokens += estimateTokensForRound(msgs, assistantMsg)
+		}
 		pct := 0
 		if modelContextLimit > 0 {
 			if lastPromptTokens > 0 {
@@ -533,11 +540,15 @@ func (m *Manager) RunLoop(ctx context.Context, sessionID string, sysPrompt strin
 				pct = estimateContextPct(msgs, modelContextLimit)
 			}
 		}
-		m.DB.UpdateSessionRounds(sessionID, rounds, pct)
+		m.DB.UpdateSessionRounds(sessionID, rounds, pct, currentTotalTokens)
 			if progress != nil {
 				progress("context_pct", map[string]any{
 					"session_id": sessionID,
 					"pct":        pct,
+				})
+				progress("token_total", map[string]any{
+					"session_id":    sessionID,
+					"session_total": currentTotalTokens,
 				})
 			}
 
@@ -568,6 +579,10 @@ func (m *Manager) Compress(ctx context.Context, sessionID string, afterID int64,
 
 	if len(resp.Choices) == 0 {
 		return "", 0, fmt.Errorf("no response from LLM")
+	}
+
+	if resp.Usage.TotalTokens > 0 {
+		_ = m.DB.IncrementSessionTokens(sessionID, int(resp.Usage.TotalTokens))
 	}
 
 	summary := resp.Choices[0].Message.Content
@@ -654,5 +669,20 @@ func estimateContextPct(msgs []openai.ChatCompletionMessage, limit int) int {
 		pct = 100
 	}
 	return pct
+}
+
+func estimateTokensForRound(msgs []openai.ChatCompletionMessage, completion openai.ChatCompletionMessage) int {
+	total := 0
+	for _, m := range msgs {
+		total += len(m.Content)
+		for _, tc := range m.ToolCalls {
+			total += len(tc.Function.Arguments)
+		}
+	}
+	total += len(completion.Content)
+	for _, tc := range completion.ToolCalls {
+		total += len(tc.Function.Arguments)
+	}
+	return total / 2
 }
 

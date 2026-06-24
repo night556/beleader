@@ -134,7 +134,20 @@ evtSource.onmessage = function(e) {
     console.error('[SSE] parse error:', err);
   }
 };
-evtSource.onerror = function() { console.error('[SSE] connection error'); };
+evtSource.onopen = function() {
+  var banner = document.getElementById('conn-banner');
+  if (banner) banner.style.display = 'none';
+  var bar = document.getElementById('status-bar');
+  if (bar) {
+    var label = bar.querySelector('.status-text');
+    if (label && label.textContent === '连接断开') updateStatus(t('status.ready'), 'idle');
+  }
+};
+evtSource.onerror = function() {
+  var banner = document.getElementById('conn-banner');
+  if (banner) banner.style.display = 'flex';
+  updateStatus('连接断开', 'error');
+};
 
 // Check if a session_id belongs to the current view
 function isCurrentViewSession(sid) {
@@ -556,6 +569,11 @@ window.updateState = function(name, data) {
       if (isCurrentViewSession(sid)) updateContextBar(data.pct || 0);
       break;
 
+    case 'token_total':
+      _sessionTokens[sid || 'main'] = data.session_total || 0;
+      if (isCurrentViewSession(sid)) updateContextTokens(data.session_total || 0);
+      break;
+
     case 'session_focused':
       var focusRef = data.session_id || data.ref_id || '';
       if (focusRef === 'main') focusRef = 'home';
@@ -641,17 +659,46 @@ function updateAgentBar() {
   renderAgentBar();
 }
 
-// Create project
+// Create project — opens modal instead of native prompt()
 function createProject() {
-  var title = prompt(t('project.name_prompt'));
-  if (!title) return;
-  fetch(SERVER_URL + '/api/projects', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({title: title, prompt: ''})
-  }).then(function(r) { return r.json(); })
-    .then(function(p) {
-      if (p.id) switchView(p.id);
-    })
-    .catch(function(e) { console.error('create project error:', e); });
+  openModal({
+    title: t('project.new_title'),
+    body: '<div class="modal-field"><label>' + t('project.name_placeholder') + '</label>' +
+          '<input type="text" id="project-name-input" class="modal-input" placeholder="' + t('project.name_placeholder') + '" autofocus></div>',
+    confirmText: t('project.create'),
+    onConfirm: function() {
+      var input = document.getElementById('project-name-input');
+      var title = input ? input.value.trim() : '';
+      if (!title) return false;
+      fetch(SERVER_URL + '/api/projects', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: title, prompt: ''})
+      }).then(function(r) { return r.json(); })
+        .then(function(p) {
+          if (p.id) switchView(p.id);
+        })
+        .catch(function(e) { console.error('create project error:', e); });
+      return true;
+    }
+  });
+  setTimeout(function() {
+    var input = document.getElementById('project-name-input');
+    if (input) {
+      input.focus();
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          var confirmBtn = document.querySelector('#modal-foot .modal-btn.primary');
+          if (confirmBtn) confirmBtn.click();
+        }
+      });
+      input.addEventListener('input', function() {
+        var confirmBtn = document.querySelector('#modal-foot .modal-btn.primary');
+        if (confirmBtn) confirmBtn.disabled = input.value.trim() === '';
+      });
+      var confirmBtn = document.querySelector('#modal-foot .modal-btn.primary');
+      if (confirmBtn) confirmBtn.disabled = true;
+    }
+  }, 50);
 }

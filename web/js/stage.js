@@ -474,6 +474,8 @@ function updateViewContextBar() {
     }
   }
   updateContextBar(_contextPcts[viewSid] || 0);
+  updateContextTokens(_sessionTokens[viewSid] || 0);
+  loadSessionTokens(viewSid);
 }
 
 function hideAgentBar() {
@@ -550,15 +552,54 @@ function removeImage(idx) {
 // ── Context bar ──
 
 function updateContextBar(usedPct) {
-  var track = document.getElementById('ctx-track');
-  var total = 10;
-  var used = Math.round(usedPct / 100 * total);
-  var html = '';
-  for (var i = 0; i < total; i++) {
-    html += '<div class="ctx-dot' + (i < used ? ' used' : '') + '"></div>';
+  var fill = document.getElementById('ctx-progress-fill');
+  var label = document.getElementById('ctx-label');
+  if (!fill || !label) return;
+  var pct = Math.max(0, Math.min(100, usedPct));
+  fill.style.width = pct + '%';
+  fill.classList.remove('warn', 'danger');
+  if (pct >= 85) fill.classList.add('danger');
+  else if (pct >= 60) fill.classList.add('warn');
+  label.textContent = Math.round(pct) + '%';
+}
+
+function updateContextModel(modelName) {
+  var nameEl = document.getElementById('ctx-model-name');
+  var dotEl = document.getElementById('ctx-model-dot');
+  if (!nameEl || !dotEl) return;
+  if (!modelName) {
+    nameEl.textContent = '—';
+    dotEl.classList.add('no-model');
+  } else {
+    nameEl.textContent = modelName;
+    dotEl.classList.remove('no-model');
   }
-  track.innerHTML = html;
-  document.getElementById('ctx-label').textContent = Math.round(usedPct) + '%';
+}
+
+function updateContextTokens(total) {
+  var el = document.getElementById('ctx-tokens');
+  if (!el) return;
+  el.textContent = '⚡ ' + formatTokens(total);
+  el.title = '累计 token：' + total;
+}
+
+function formatTokens(n) {
+  if (!n || n < 0) n = 0;
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return String(n);
+}
+
+function loadSessionTokens(sid) {
+  fetch(SERVER_URL + '/api/sessions/' + encodeURIComponent(sid) + '/tokens')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      _sessionTokens[sid] = d.session_total || 0;
+      if (isCurrentViewSession(sid)) {
+        updateContextTokens(d.session_total || 0);
+      }
+    })
+    .catch(function(err) { console.error('load tokens error:', err); });
 }
 
 // ── Utils ──

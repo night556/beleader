@@ -97,6 +97,7 @@ type Session struct {
 	Rounds          int       `gorm:"default:0" json:"rounds"`
 	ContextUsagePct int       `gorm:"column:context_usage_pct;default:0" json:"context_usage_pct"`
 	ContextStartID  int64     `gorm:"column:context_start_id;default:0" json:"context_start_id"`
+	TotalTokens     int       `gorm:"column:total_tokens;default:0" json:"total_tokens"`
 	CreatedAt       time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
 
@@ -191,11 +192,36 @@ func (db *DB) ResetAllSessionStatuses() error {
 	return db.GORM.Model(&Session{}).Where("status = ? AND id != ?", "running", "main").Update("status", "idle").Error
 }
 
-func (db *DB) UpdateSessionRounds(id string, rounds, contextPct int) error {
+func (db *DB) UpdateSessionRounds(id string, rounds, contextPct, totalTokens int) error {
 	return db.GORM.Model(&Session{}).Where("id = ?", id).Updates(map[string]any{
 		"rounds":            rounds,
 		"context_usage_pct": contextPct,
+		"total_tokens":      totalTokens,
 	}).Error
+}
+
+func (db *DB) GetSessionTokens(id string) (int, error) {
+	var s Session
+	err := db.GORM.Select("total_tokens").Where("id = ?", id).First(&s).Error
+	if err != nil {
+		return 0, err
+	}
+	return s.TotalTokens, nil
+}
+
+func (db *DB) GetProjectTotalTokens(projectID string) (int, error) {
+	var total int
+	err := db.GORM.Model(&Session{}).
+		Joins("JOIN project_agents ON project_agents.session_id = sessions.id").
+		Where("project_agents.project_id = ?", projectID).
+		Select("COALESCE(SUM(sessions.total_tokens), 0)").
+		Scan(&total).Error
+	return total, err
+}
+
+func (db *DB) IncrementSessionTokens(id string, delta int) error {
+	return db.GORM.Model(&Session{}).Where("id = ?", id).
+		UpdateColumn("total_tokens", gorm.Expr("total_tokens + ?", delta)).Error
 }
 
 func (db *DB) UpdateSessionModel(id, modelID string) error {
@@ -436,6 +462,29 @@ func (db *DB) GetAgentByName(name string) (*Agent, error) {
 		return nil, err
 	}
 	return &a, nil
+}
+
+func (db *DB) GetAgentByID(id int64) (*Agent, error) {
+	var a Agent
+	if err := db.GORM.First(&a, id).Error; err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (db *DB) UpdateAgentByID(id int64, name, content string) error {
+	return db.GORM.Model(&Agent{}).Where("id = ?", id).Updates(map[string]any{
+		"name":    name,
+		"content": content,
+	}).Error
+}
+
+func (db *DB) UpdateAgentDescByID(id int64, desc string) error {
+	return db.GORM.Model(&Agent{}).Where("id = ?", id).Update("desc", desc).Error
+}
+
+func (db *DB) DeleteAgentByID(id int64) error {
+	return db.GORM.Where("id = ?", id).Delete(&Agent{}).Error
 }
 
 // ── Knowledge methods ──

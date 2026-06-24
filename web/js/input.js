@@ -131,17 +131,29 @@ function toast(msg) {
 }
 
 function clearContext() {
-  var sess = null;
-  for (var i = 0; i < sessions.length; i++) {
-    if (sessions[i].id === currentView || sessions[i].ref_id === currentView) { sess = sessions[i]; break; }
-  }
-  var sid = sess ? (sess.session_id || sess.id) : 'main';
-  fetch(SERVER_URL + '/api/sessions/' + sid + '/clear', { method: 'POST' })
-    .then(function(r) { return r.json(); })
-    .then(function() {
-      toast(t('toast.context_cleared'));
-    })
-    .catch(function(e) { toast(t('toast.clear_failed') + e.message); });
+  openModal({
+    title: t('ctx.clear_title'),
+    body: '<div class="modal-confirm-text">' +
+          '<p>' + t('ctx.clear_body') + '</p>' +
+          '<p style="color:var(--text-dim);font-size:12px">' + t('ctx.clear_body_hint') + '</p>' +
+          '</div>',
+    confirmText: t('ctx.clear_confirm'),
+    danger: true,
+    onConfirm: function() {
+      var sess = null;
+      for (var i = 0; i < sessions.length; i++) {
+        if (sessions[i].id === currentView || sessions[i].ref_id === currentView) { sess = sessions[i]; break; }
+      }
+      var sid = sess ? (sess.session_id || sess.id) : 'main';
+      fetch(SERVER_URL + '/api/sessions/' + sid + '/clear', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function() {
+          toast(t('toast.context_cleared'));
+        })
+        .catch(function(e) { toast(t('toast.clear_failed') + e.message); });
+      return true;
+    }
+  });
 }
 
 function stopSession() {

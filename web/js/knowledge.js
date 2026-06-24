@@ -11,8 +11,10 @@ function toggleKnowledge() {
   } else {
     var sp = document.getElementById('settings-panel');
     var bp = document.getElementById('bookmarks-panel');
+    var ap = document.getElementById('agents-panel');
     if (sp) sp.classList.remove('open');
     if (bp) bp.classList.remove('open');
+    if (ap) ap.classList.remove('open');
     panel.classList.add('open');
     knowledgePage = 0;
     loadKnowledge();

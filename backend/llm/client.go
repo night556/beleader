@@ -90,6 +90,9 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 		Messages: messages,
 		Tools:    tools,
 		Stream:   true,
+		StreamOptions: &openai.StreamOptions{
+			IncludeUsage: true,
+		},
 	})
 	if err != nil {
 		fmt.Fprintf(LogWriter, "[LLM ERR] %s | elapsed=%v | %v\n", time.Now().Format("15:04:05"), time.Since(start), err)
@@ -101,6 +104,7 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 	var fullContent string
 	var reasoningContent string
 	tcAcc := make(map[int]*openai.ToolCall) // accumulate tool calls by index
+	var usage openai.Usage
 
 	for {
 		resp, recvErr := stream.Recv()
@@ -111,6 +115,10 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 			fmt.Fprintf(LogWriter, "[LLM ERR] %s | elapsed=%v | recv: %v\n", time.Now().Format("15:04:05"), time.Since(start), recvErr)
 			fmt.Fprintf(LogWriter, "%s\n\n", strings.Repeat("━", 60))
 			return nil, fmt.Errorf("chat completion stream recv: %w", recvErr)
+		}
+
+		if resp.Usage != nil && resp.Usage.TotalTokens > 0 {
+			usage = *resp.Usage
 		}
 
 		if len(resp.Choices) == 0 {
@@ -169,12 +177,16 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 			fmt.Fprintf(LogWriter, "  tool_call: %s(%s)\n", tc.Function.Name, truncate(tc.Function.Arguments, 150))
 		}
 	}
+	if usage.TotalTokens > 0 {
+		fmt.Fprintf(LogWriter, "  tokens: %d (p:%d c:%d)\n", usage.TotalTokens, usage.PromptTokens, usage.CompletionTokens)
+	}
 	fmt.Fprintf(LogWriter, "%s\n", strings.Repeat("━", 60))
 
 	return &openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
 			{Message: openai.ChatCompletionMessage{Content: fullContent, ReasoningContent: reasoningContent, ToolCalls: toolCalls}},
 		},
+		Usage: usage,
 	}, nil
 }
 

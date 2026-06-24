@@ -55,8 +55,44 @@ var _lang = 'en';
     // Settings panel
     'settings.button_title':      { en: 'Settings', zh: '设置' },
     'knowledge.button_title':     { en: 'Knowledge', zh: '知识库' },
+    'agents.button_title':        { en: 'Agents', zh: 'Agents' },
     'knowledge.title':            { en: 'Knowledge', zh: '知识库' },
     'knowledge.search_placeholder': { en: 'Search knowledge...', zh: '搜索知识...' },
+
+    // Top bar button labels
+    'topbar.bookmarks':           { en: 'Bookmarks', zh: '收藏' },
+    'topbar.agents':              { en: 'Agents', zh: 'Agents' },
+    'topbar.knowledge':           { en: 'Knowledge', zh: '知识库' },
+    'topbar.settings':            { en: 'Settings', zh: '设置' },
+
+    // Agents panel
+    'agents.title':               { en: 'Agents', zh: 'Agents' },
+    'agents.new':                 { en: '+ New', zh: '+ 新建' },
+    'agents.search_placeholder':  { en: 'Search agents...', zh: '搜索 Agent...' },
+    'agents.name':                { en: 'Name', zh: '名称' },
+    'agents.desc':                { en: 'Description', zh: '描述' },
+    'agents.content':             { en: 'System Prompt', zh: '系统提示词' },
+    'agents.edit':                { en: 'Edit', zh: '编辑' },
+    'agents.delete':              { en: 'Delete', zh: '删除' },
+    'agents.delete_confirm':      { en: 'Delete agent "$1"? This cannot be undone.', zh: '删除 Agent「$1」？此操作不可撤销。' },
+    'agents.empty':               { en: 'No agents yet. Click + New to create one.', zh: '暂无 Agent，点击 + 新建 创建。' },
+    'agents.new_title':           { en: 'New Agent', zh: '新建 Agent' },
+    'agents.edit_title':          { en: 'Edit Agent', zh: '编辑 Agent' },
+    'agents.save':                { en: 'Save', zh: '保存' },
+    'agents.cancel':              { en: 'Cancel', zh: '取消' },
+    'agents.delete_btn':          { en: 'Delete', zh: '删除' },
+
+    // Modal / clear context
+    'modal.cancel':               { en: 'Cancel', zh: '取消' },
+    'ctx.clear_title':            { en: 'Clear Context?', zh: '清空当前会话上下文？' },
+    'ctx.clear_body':             { en: 'This will erase the conversation history of the current session. This cannot be undone.', zh: '此操作会清除当前会话的对话历史，不可撤销。' },
+    'ctx.clear_body_hint':        { en: 'Use this when the LLM returns malformed messages or the context feels polluted. After clearing, the Coordinator can still recover project state from STATUS.md; worker history is not recoverable.', zh: '适用于 LLM 返回错误消息、上下文被污染等异常情况。清空后 Coordinator 仍可从 STATUS.md 恢复项目状态，Worker 历史不可恢复。' },
+    'ctx.clear_confirm':          { en: 'Clear', zh: '清空' },
+
+    // createProject modal
+    'project.new_title':          { en: 'New Project', zh: '新建项目' },
+    'project.name_placeholder':   { en: 'Project name', zh: '项目名称' },
+    'project.create':             { en: 'Create', zh: '创建' },
     'settings.title':             { en: 'Settings', zh: '设置' },
     'settings.general':           { en: 'General', zh: '通用' },
     'settings.max_hc':            { en: 'Max Concurrency (HC)', zh: '最大并发 (HC)' },

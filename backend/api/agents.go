@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"beleader/backend/db"
@@ -35,6 +36,91 @@ func (h *Handler) handleUpdateAgentDesc(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func (h *Handler) handleCreateAgent(c *gin.Context) {
+	var req struct {
+		Name    string `json:"name"`
+		Desc    string `json:"desc"`
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Name == "" || req.Content == "" {
+		c.JSON(400, gin.H{"error": "name and content required"})
+		return
+	}
+	if err := h.DB.CreateAgent(req.Name, req.Content); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Desc != "" {
+		_ = h.DB.UpdateAgentDesc(req.Name, req.Desc)
+	}
+	a, _ := h.DB.GetAgentByName(req.Name)
+	c.JSON(200, a)
+}
+
+func (h *Handler) handleUpdateAgent(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	var req struct {
+		Name    string `json:"name"`
+		Desc    string `json:"desc"`
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Name == "" || req.Content == "" {
+		c.JSON(400, gin.H{"error": "name and content required"})
+		return
+	}
+	if err := h.DB.UpdateAgentByID(id, req.Name, req.Content); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Desc != "" {
+		_ = h.DB.UpdateAgentDescByID(id, req.Desc)
+	}
+	a, _ := h.DB.GetAgentByID(id)
+	c.JSON(200, a)
+}
+
+func (h *Handler) handleDeleteAgent(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.DB.DeleteAgentByID(id); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func (h *Handler) handleGetSessionTokens(c *gin.Context) {
+	sid := c.Param("id")
+	total, err := h.DB.GetSessionTokens(sid)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	projectTotal := 0
+	if sid != "main" {
+		if pa, perr := h.DB.GetProjectAgent(sid); perr == nil && pa != nil {
+			pt, _ := h.DB.GetProjectTotalTokens(pa.ProjectID)
+			projectTotal = pt
+		}
+	}
+	c.JSON(200, gin.H{"session_total": total, "project_total": projectTotal})
 }
 
 func (h *Handler) RegisterAgentTools() {
