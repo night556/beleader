@@ -24,6 +24,7 @@ fetch(SERVER_URL + '/api/projects')
 fetch(SERVER_URL + '/api/settings')
   .then(function(r) { return r.json(); })
   .then(function(cfg) {
+    _workDir = cfg.work_dir || '';
     var models = (cfg.llm && cfg.llm.models) || [];
     if (models.length === 0) {
       hasModels = false;
@@ -197,11 +198,7 @@ function _onSSEMessage(e) {
 function _onSSEOpen() {
   _sseRetryCount = 0;
   showConnBanner('connected');
-  var bar = document.getElementById('status-bar');
-  if (bar) {
-    var label = bar.querySelector('.status-text');
-    if (label && label.textContent === '连接断开') updateStatus(t('status.ready'), 'idle');
-  }
+  updateStatus(t('status.ready'), 'idle');
   setTimeout(function () {
     if (evtSource && evtSource.readyState === EventSource.OPEN) hideConnBanner();
   }, 1500);
@@ -246,7 +243,7 @@ function _onSSEError() {
       }
     }, 10000);
   }
-  updateStatus('连接断开', 'error');
+  updateStatus(t('conn.lost'), 'error');
 }
 
 function initSSE() {
@@ -282,13 +279,13 @@ function showConnBanner(state) {
   var btn = banner.querySelector('.conn-banner-reconnect');
   if (state === 'connected') {
     banner.classList.add('connected');
-    if (text) text.textContent = '已连接';
+    if (text) text.textContent = t('conn.connected');
     if (btn) btn.style.display = 'none';
   } else if (state === 'failed') {
-    if (text) text.textContent = '连接已断开';
+    if (text) text.textContent = t('conn.lost');
     if (btn) btn.style.display = '';
   } else {
-    if (text) text.textContent = '正在重连…（第 ' + _sseRetryCount + ' 次）';
+    if (text) text.textContent = t('conn.retrying', { $1: _sseRetryCount });
     if (btn) btn.style.display = '';
   }
 }
@@ -784,32 +781,91 @@ window.updateState = function(name, data) {
   }
 };
 
-// Update project tabs in the top bar
+// Render sidebar project items
 function updateProjectTabs() {
-  var tabRow = document.getElementById('tab-row');
-  var children = tabRow.children;
+  var nav = document.getElementById('sidebar-nav');
+  // Remove old project items (keep the home item)
+  var children = nav.children;
   for (var i = children.length - 1; i >= 0; i--) {
-    if (children[i].classList.contains('project-tab') || children[i].classList.contains('tab-item') && !children[i].classList.contains('home-tab')) {
+    if (children[i].classList.contains('sidebar-project')) {
       children[i].remove();
     }
   }
-  var addBtn = document.getElementById('tab-add');
 
   sessions.forEach(function(s) {
     if (s.id === 'main') return;
-    var btn = document.createElement('button');
-    btn.className = 'tab-item project-tab';
-    if (s.ref_id === currentView || s.id === currentView) btn.classList.add('active');
-    btn.dataset.view = s.ref_id || s.id;
-    btn.textContent = s.title || s.id;
+    var wrap = document.createElement('div');
+    wrap.className = 'sidebar-item sidebar-project';
+    if (s.ref_id === currentView || s.id === currentView) wrap.classList.add('active');
+    wrap.dataset.view = s.ref_id || s.id;
+
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'sidebar-project-name';
+    nameSpan.textContent = s.title || s.id;
+    nameSpan.onclick = function() { switchView(s.ref_id || s.id); };
+    wrap.appendChild(nameSpan);
+
     if (s.status === 'running') {
-      var badge = document.createElement('span');
-      badge.className = 'badge';
-      btn.appendChild(badge);
+      var dot = document.createElement('span');
+      dot.className = 'side-dot';
+      nameSpan.appendChild(dot);
     }
-    btn.onclick = function() { switchView(s.ref_id || s.id); };
-    tabRow.insertBefore(btn, addBtn);
+
+    var delBtn = document.createElement('button');
+    delBtn.className = 'sidebar-project-del';
+    delBtn.textContent = '×';
+    delBtn.title = t('project.del_tooltip');
+    delBtn.onclick = function(e) {
+      e.stopPropagation();
+      deleteProject(s.ref_id || s.id, s.title || s.id);
+    };
+    wrap.appendChild(delBtn);
+
+    nav.appendChild(wrap);
   });
+}
+
+function deleteProject(refId, title) {
+  var projectDir = _workDir ? _workDir.replace(/\\/g, '/') + '/' + refId : refId;
+  openModal({
+    title: t('project.delete_title'),
+    body: '<div class="modal-confirm-text">' +
+      '<p style="font-size:13px;color:var(--text);margin-bottom:8px">' + t('project.delete_confirm', { $1: '<strong>' + escapeHtml(title) + '</strong>' }) + '</p>' +
+      '<p style="font-size:12px;color:#c4554d;margin-bottom:12px;padding:8px 12px;background:rgba(196,85,77,0.06);border:1px solid rgba(196,85,77,0.15);border-radius:6px">' + t('project.delete_warning') + '</p>' +
+      '<p style="font-size:11px;color:var(--text-dim);word-break:break-all">' + t('project.delete_dir_label') + ' <code style="background:rgba(0,0,0,0.04);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11px">' + escapeHtml(projectDir) + '</code></p>' +
+      '</div>',
+    confirmText: t('project.delete_confirm_btn'),
+    cancelText: t('modal.cancel'),
+    danger: true,
+    onConfirm: function() {
+      fetch(SERVER_URL + '/api/projects/' + encodeURIComponent(refId), {
+        method: 'DELETE'
+      }).then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.error) { console.error('delete project error:', d.error); }
+        })
+        .catch(function(e) { console.error('delete project error:', e); });
+      return true;
+    }
+  });
+}
+
+// Toggle sidebar (desktop + mobile)
+function toggleSidebar() {
+  var closed = document.body.classList.toggle('sb-closed');
+  // On mobile, sidebar overlays — sync backdrop
+  if (window.innerWidth <= 860) {
+    if (closed) {
+      document.getElementById('backdrop').classList.remove('open');
+    } else {
+      document.getElementById('backdrop').classList.add('open');
+    }
+  }
+}
+
+// On mobile, start with sidebar closed
+if (window.innerWidth <= 860) {
+  document.body.classList.add('sb-closed');
 }
 
 // Agent bar

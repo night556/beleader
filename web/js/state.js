@@ -48,6 +48,9 @@ var _agentsCache = [];
 // Agent drill-down filter (worker session_id, or null)
 var _agentFilter = null;
 
+// Workspace directory (loaded from settings)
+var _workDir = '';
+
 function getAgentBySession(sid) {
   for (var i = 0; i < sessions.length; i++) {
     if (sessions[i].session_id === sid) return { session: sessions[i], agent: null };

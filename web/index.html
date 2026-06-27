@@ -15,33 +15,38 @@
 <!-- Backdrop -->
 <div class="backdrop" id="backdrop" onclick="closePanels()"></div>
 
-<!-- Top bar -->
-<header class="top-bar">
-  <div class="top-left">
-    <div class="tab-row" id="tab-row">
-      <button class="tab-item home-tab active" data-view="home" onclick="switchView('home')">✦ <span data-i18n="app.title">BeLeader</span></button>
-      <span class="tab-divider"></span>
-      <button class="tab-add" id="tab-add" data-i18n-title="tab.new_project" title="New Project" onclick="createProject()">+</button>
-    </div>
+<!-- Hamburger (fixed, always visible) -->
+<button class="hamburger" id="hamburger-btn" onclick="toggleSidebar()" data-i18n-title="sidebar.toggle" title="菜单">☰</button>
+
+<!-- Sidebar -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-head">
+    <span class="sidebar-logo">✦</span>
+    <span class="sidebar-title" data-i18n="app.title">BeLeader</span>
   </div>
-  <div class="top-right">
-    <button class="icon-btn" data-i18n-title="bookmark.button_title" title="收藏" onclick="toggleBookmarks()"><span class="icon-btn-icon">☆</span><span class="icon-btn-text" data-i18n="topbar.bookmarks">收藏</span></button>
-    <button class="icon-btn" data-i18n-title="agents.button_title" title="Agents" onclick="toggleAgents()"><span class="icon-btn-icon">🤖</span><span class="icon-btn-text" data-i18n="topbar.agents">Agents</span></button>
-    <button class="icon-btn" data-i18n-title="knowledge.button_title" title="Knowledge" onclick="toggleKnowledge()"><span class="icon-btn-icon">📚</span><span class="icon-btn-text" data-i18n="topbar.knowledge">知识库</span></button>
-    <button class="icon-btn" data-i18n-title="settings.button_title" title="设置" onclick="toggleSettings()"><span class="icon-btn-icon">⚙</span><span class="icon-btn-text" data-i18n="topbar.settings">设置</span></button>
+  <div class="sidebar-nav" id="sidebar-nav">
+    <button class="sidebar-item active" data-view="home" onclick="switchView('home')" data-i18n="sidebar.home">首页</button>
   </div>
-</header>
+  <div class="sidebar-foot">
+    <button class="sidebar-new-btn" onclick="createProject()" data-i18n-title="tab.new_project" title="New Project">+ <span data-i18n="sidebar.new_project">新建项目</span></button>
+  </div>
+  <div class="sidebar-actions">
+    <button class="sidebar-action" onclick="toggleAgents()" data-i18n="topbar.agents">Agents</button>
+    <button class="sidebar-action" onclick="toggleKnowledge()" data-i18n="topbar.knowledge">知识库</button>
+    <button class="sidebar-action" onclick="toggleSettings()" data-i18n="topbar.settings">设置</button>
+  </div>
+</nav>
 
 <!-- Connection banner (shown when SSE disconnected) -->
 <div class="conn-banner" id="conn-banner" style="display:none">
   <span class="conn-banner-dot"></span>
-  <span class="conn-banner-text">连接已断开，正在重连…</span>
-  <button class="conn-banner-reconnect" onclick="reconnectSSE()">立即重连</button>
+  <span class="conn-banner-text" data-i18n="conn.disconnected_banner">连接已断开，正在重连…</span>
+  <button class="conn-banner-reconnect" onclick="reconnectSSE()" data-i18n="conn.reconnect">立即重连</button>
 </div>
 
 <!-- Context bar -->
 <div class="ctx-bar" id="ctx-bar">
-  <div class="ctx-model" id="ctx-model" title="当前模型">
+  <div class="ctx-model" id="ctx-model" data-i18n-title="ctx.model_title" title="当前模型">
     <span class="ctx-model-dot" id="ctx-model-dot"></span>
     <span class="ctx-model-name" id="ctx-model-name">—</span>
   </div>
@@ -49,8 +54,9 @@
     <div class="ctx-progress"><div class="ctx-progress-fill" id="ctx-progress-fill"></div></div>
     <span class="ctx-label" id="ctx-label">0%</span>
   </div>
-  <div class="ctx-tokens" id="ctx-tokens" title="累计 token 使用量">⚡ 0</div>
+  <div class="ctx-tokens" id="ctx-tokens" data-i18n-title="ctx.tokens_title" title="累计 token 使用量">⚡ 0</div>
   <span class="ctx-clear" id="ctx-clear" onclick="clearContext()" data-i18n="ctx.clear">清空</span>
+  <span class="ctx-bookmarks" id="ctx-bookmarks" onclick="toggleBookmarks()" data-i18n-title="bookmark.button_title" title="收藏">☆</span>
 </div>
 
 <!-- Main stage -->
@@ -68,7 +74,7 @@
 
   <!-- Content area: timeline -->
   <div class="content-area hidden" id="content-area">
-    <div class="top-loader" id="top-loader" style="display:none">加载中…</div>
+    <div class="top-loader" id="top-loader" style="display:none" data-i18n="timeline.loading">加载中…</div>
     <div class="timeline" id="timeline"></div>
   </div>
 
@@ -108,11 +114,11 @@
 <!-- Bookmarks panel (slide from right) -->
 <div class="bookmarks-panel" id="bookmarks-panel">
   <div class="panel-head">
-    <h3>★ 收藏消息</h3>
+    <h3 data-i18n="bookmark.title">★ 收藏消息</h3>
     <button class="panel-close" onclick="toggleBookmarks()">✕</button>
   </div>
   <div class="panel-body" id="bookmarks-body">
-    <div class="bookmarks-empty">暂无收藏</div>
+    <div class="bookmarks-empty" data-i18n="bookmark.empty">暂无收藏</div>
   </div>
 </div>
 
@@ -143,9 +149,9 @@
       <div class="set-row set-row-check"><label data-i18n="settings.speak_enabled">语音输出</label><input type="checkbox" id="set-speak-enabled" checked></div>
     </div>
     <div class="set-section">
-      <h4>Port Maps</h4>
-      <p style="font-size:11px;color:var(--text-dim);margin:4px 0 8px">Map local ports for preview via /api/proxy/{name}/</p>
-      <button class="btn-add" onclick="addPortMap()" style="margin-bottom:10px">+ Add Port</button>
+      <h4 data-i18n="settings.port_maps">Port Maps</h4>
+      <p style="font-size:11px;color:var(--text-dim);margin:4px 0 8px" data-i18n="settings.port_maps_desc">Map local ports for preview via /api/proxy/{name}/</p>
+      <button class="btn-add" onclick="addPortMap()" style="margin-bottom:10px" data-i18n="settings.add_port">+ Add Port</button>
       <div id="port-map-list"></div>
     </div>
     <div class="set-section">

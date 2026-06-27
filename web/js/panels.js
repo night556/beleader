@@ -56,6 +56,7 @@ function closePanels() {
   document.getElementById('knowledge-panel').classList.remove('open');
   var ap = document.getElementById('agents-panel');
   if (ap) ap.classList.remove('open');
+  if (window.innerWidth <= 860) document.body.classList.add('sb-closed');
   document.getElementById('backdrop').classList.remove('open');
 }
 
@@ -83,8 +84,10 @@ function openModal(opts) {
 
   var foot = document.getElementById('modal-foot');
   var html = '';
-  html += '<button class="modal-btn" onclick="closeModal()">' + (opts.cancelText || t('modal.cancel')) + '</button>';
-  html += '<button class="modal-btn ' + (opts.danger ? 'danger' : 'primary') + '" id="modal-confirm-btn">' + (opts.confirmText || 'OK') + '</button>';
+  var confirmBtn = '<button class="modal-btn ' + (opts.danger ? 'danger' : 'primary') + '" id="modal-confirm-btn">' + (opts.confirmText || 'OK') + '</button>';
+  var cancelBtn = '<button class="modal-btn" onclick="closeModal()">' + (opts.cancelText || t('modal.cancel')) + '</button>';
+  // Danger modals: confirm on left so user reads it first
+  html += opts.danger ? confirmBtn + cancelBtn : cancelBtn + confirmBtn;
   foot.innerHTML = html;
 
   _modalOnConfirm = opts.onConfirm || null;
@@ -230,9 +233,9 @@ function modelRowHTML(m, idx, isActive) {
   h += '  <div class="model-card-body">';
   h += '    <div class="model-field"><label>' + t('model.id_label') + '</label><input value="' + escapeHtml(m.id || '') + '" data-model="' + idx + '" data-field="id" placeholder="' + t('model.id_placeholder') + '"></div>';
   h += '    <div class="model-field"><label>Provider</label><div class="provider-row"><select class="provider-select" onchange="onProviderChange(this,' + idx + ')"><option value="">Custom</option><option value="openai">OpenAI</option><option value="google">Google Gemini</option><option value="deepseek">DeepSeek</option><option value="groq">Groq</option><option value="ollama">Ollama</option></select></div></div>';
-  h += '    <div class="model-field"><label>Base URL</label><input value="' + escapeHtml(m.base_url || '') + '" data-model="' + idx + '" data-field="base_url" placeholder="https://api.openai.com/v1"></div>';
-  h += '    <div class="model-field"><label>API Key</label><input type="password" value="' + escapeHtml(m.api_key || '') + '" data-model="' + idx + '" data-field="api_key" placeholder="sk-..."></div>';
-  h += '    <div class="model-field"><label>Model</label><div class="model-select-row"><select class="model-preset-select" onchange="onModelPresetChange(this,' + idx + ')"><option value="">Custom</option></select><input value="' + escapeHtml(m.model || '') + '" data-model="' + idx + '" data-field="model" placeholder="Enter model name..."></div></div>';
+  h += '    <div class="model-field"><label>' + t('model.base_url') + '</label><input value="' + escapeHtml(m.base_url || '') + '" data-model="' + idx + '" data-field="base_url" placeholder="' + t('model.base_url_placeholder') + '"></div>';
+  h += '    <div class="model-field"><label>' + t('model.api_key') + '</label><input type="password" value="' + escapeHtml(m.api_key || '') + '" data-model="' + idx + '" data-field="api_key" placeholder="sk-..."></div>';
+  h += '    <div class="model-field"><label>' + t('model.model_select') + '</label><div class="model-select-row"><select class="model-preset-select" onchange="onModelPresetChange(this,' + idx + ')"><option value="">Custom</option></select><input value="' + escapeHtml(m.model || '') + '" data-model="' + idx + '" data-field="model" placeholder="' + t('model.model_placeholder') + '"></div></div>';
   h += '    <div class="model-field model-field-inline">';
   h += '      <label>Context Limit</label>';
   h += '      <input type="number" value="' + (m.context_limit || 128000) + '" data-model="' + idx + '" data-field="context_limit" min="4096" step="1024">';
@@ -480,10 +483,10 @@ function renderPortMapList(portMaps) {
     var name = pm.name || '';
     var directUrl = 'http://127.0.0.1:' + port;
     html += '<div class="form-row" style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
-    html += '<input placeholder="Name" value="' + escapeHtml(name) + '" data-pm="' + i + '" data-field="pm-name" style="flex:1;min-width:0">';
+    html += '<input placeholder="' + t('port_map.name') + '" value="' + escapeHtml(name) + '" data-pm="' + i + '" data-field="pm-name" style="flex:1;min-width:0">';
     html += '<span style="color:var(--text-dim)">:</span>';
-    html += '<input type="number" placeholder="Port" value="' + port + '" data-pm="' + i + '" data-field="pm-port" min="1" max="65535" style="width:80px;min-width:0">';
-    html += '<a href="' + directUrl + '" target="_blank" title="Open in browser" style="color:var(--primary);text-decoration:none;font-size:13px">↗</a>';
+    html += '<input type="number" placeholder="' + t('port_map.port') + '" value="' + port + '" data-pm="' + i + '" data-field="pm-port" min="1" max="65535" style="width:80px;min-width:0">';
+    html += '<a href="' + directUrl + '" target="_blank" title="' + t('port_map.open_browser') + '" style="color:var(--primary);text-decoration:none;font-size:13px">↗</a>';
     html += '<span class="model-badge model-badge-delete" onclick="this.closest(\'.form-row\').remove()">&times;</span>';
     html += '</div>';
   }
@@ -494,9 +497,9 @@ function addPortMap() {
   var container = document.getElementById('port-map-list');
   var idx = _portMapCounter++;
   var html = '<div class="form-row" style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
-  html += '<input placeholder="Name" data-pm="' + idx + '" data-field="pm-name" style="flex:1;min-width:0">';
+  html += '<input placeholder="' + t('port_map.name') + '" data-pm="' + idx + '" data-field="pm-name" style="flex:1;min-width:0">';
   html += '<span style="color:var(--text-dim)">:</span>';
-  html += '<input type="number" placeholder="Port" data-pm="' + idx + '" data-field="pm-port" min="1" max="65535" style="width:80px;min-width:0">';
+  html += '<input type="number" placeholder="' + t('port_map.port') + '" data-pm="' + idx + '" data-field="pm-port" min="1" max="65535" style="width:80px;min-width:0">';
   html += '<span class="model-badge model-badge-delete" onclick="this.closest(\'.form-row\').remove()">&times;</span>';
   html += '</div>';
   container.insertAdjacentHTML('beforeend', html);
@@ -520,7 +523,7 @@ function collectPortMaps() {
 function loadBookmarks() {
   var projectId = currentView === 'home' ? null : currentView;
   if (!projectId) {
-    document.getElementById('bookmarks-body').innerHTML = '<div class="bookmarks-empty">请在项目中收藏消息</div>';
+    document.getElementById('bookmarks-body').innerHTML = '<div class="bookmarks-empty">' + t('bookmark.home_hint') + '</div>';
     return;
   }
   fetch(SERVER_URL + '/api/messages/bookmarked?project_id=' + encodeURIComponent(projectId))
@@ -528,7 +531,7 @@ function loadBookmarks() {
     .then(function(msgs) {
       var body = document.getElementById('bookmarks-body');
       if (!Array.isArray(msgs) || msgs.length === 0) {
-        body.innerHTML = '<div class="bookmarks-empty">暂无收藏</div>';
+        body.innerHTML = '<div class="bookmarks-empty">' + t('bookmark.empty') + '</div>';
         return;
       }
       var roleLabels = { user: 'You', assistant: 'AI', tool: 'Tool' };
@@ -544,7 +547,7 @@ function loadBookmarks() {
             '<div class="bkm-role">' + (roleLabels[m.role] || m.role) + ' · ' + time + '</div>' +
             '<div class="bkm-text">' + preview + '</div>' +
           '</div>' +
-          '<button class="bkm-unstar" onclick="event.stopPropagation();toggleMessageBookmark(' + m.id + ', false)" title="取消收藏">✕</button>' +
+          '<button class="bkm-unstar" onclick="event.stopPropagation();toggleMessageBookmark(' + m.id + ', false)" title="' + t('bookmark.unstar_tip') + '">✕</button>' +
         '</div>';
       }
       body.innerHTML = html;

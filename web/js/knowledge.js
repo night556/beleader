@@ -67,8 +67,8 @@ function renderKnowledgeList(items, total) {
       '<div class="k-content">' + escapeHtml(k.content) + '</div>' +
       '<div class="k-meta">' + source + ' <span class="k-date">' + date + '</span></div>' +
       '<div class="k-actions">' +
-        '<button class="k-edit" onclick="startEditKnowledge(' + k.id + ')" title="Edit">Edit</button>' +
-        '<button class="k-delete" onclick="deleteKnowledge(' + k.id + ')" title="Delete">Del</button>' +
+        '<button class="k-edit" onclick="startEditKnowledge(' + k.id + ')" title="' + t('knowledge.edit') + '">' + t('knowledge.edit') + '</button>' +
+        '<button class="k-delete" onclick="deleteKnowledge(' + k.id + ')" title="' + t('knowledge.delete') + '">' + t('knowledge.delete') + '</button>' +
       '</div>' +
       '</div>';
   }

@@ -139,6 +139,70 @@ var _lang = 'en';
 
     // Project
     'project.name_prompt':        { en: 'Project Name:', zh: '项目名称:' },
+    'project.delete_title':       { en: 'Delete Project', zh: '删除项目' },
+    'project.delete_confirm':     { en: 'Delete project "$1"?', zh: '确定删除项目「$1」吗？' },
+    'project.delete_warning':     { en: 'This will permanently delete all project data, including all files in the working directory. Please back up any important content before proceeding.', zh: '此操作将永久删除项目的所有数据，包括工作目录下的所有文件。如果需要保存的内容，请先备份到其他位置。' },
+    'project.delete_dir_label':   { en: 'Working directory:', zh: '工作目录：' },
+    'project.delete_confirm_btn': { en: 'I Confirm', zh: '我已确认' },
+    'project.del_tooltip':        { en: 'Delete project', zh: '删除项目' },
+
+    // Connection banner
+    'conn.connected':             { en: 'Connected', zh: '已连接' },
+    'conn.lost':                  { en: 'Connection lost', zh: '连接已断开' },
+    'conn.retrying':              { en: 'Reconnecting… (attempt $1)', zh: '正在重连…（第 $1 次）' },
+    'conn.reconnect':             { en: 'Reconnect Now', zh: '立即重连' },
+    'conn.disconnected_banner':   { en: 'Connection lost, reconnecting…', zh: '连接已断开，正在重连…' },
+
+    // Sidebar
+    'sidebar.toggle':             { en: 'Toggle Sidebar', zh: '菜单' },
+    'sidebar.home':               { en: 'Home', zh: '首页' },
+    'sidebar.new_project':        { en: 'New Project', zh: '新建项目' },
+
+    // Context bar
+    'ctx.model_title':            { en: 'Current model', zh: '当前模型' },
+    'ctx.tokens_title':           { en: 'Total token usage', zh: '累计 token 使用量' },
+
+    // Bookmarks
+    'bookmark.button_title':      { en: 'Bookmarks', zh: '收藏' },
+    'bookmark.title':             { en: '★ Bookmarks', zh: '★ 收藏消息' },
+    'bookmark.empty':             { en: 'No bookmarks yet', zh: '暂无收藏' },
+    'bookmark.home_hint':         { en: 'Open a project to bookmark messages', zh: '请在项目中收藏消息' },
+    'bookmark.star_tip':          { en: 'Bookmark', zh: '收藏' },
+    'bookmark.unstar_tip':        { en: 'Unbookmark', zh: '取消收藏' },
+
+    // Timeline & agent bar
+    'timeline.loading':           { en: 'Loading…', zh: '加载中…' },
+    'agent.collapse':             { en: 'Collapse', zh: '收起' },
+    'agent.idle_count':           { en: '$1 completed', zh: '$1 个已完成' },
+    'agent.expand':               { en: 'Expand', zh: '展开' },
+
+    // Port maps
+    'settings.port_maps':         { en: 'Port Maps', zh: '端口映射' },
+    'settings.port_maps_desc':    { en: 'Map local ports for preview via /api/proxy/{name}/', zh: '映射本地端口，通过 /api/proxy/{name}/ 预览' },
+    'settings.add_port':          { en: '+ Add Port', zh: '+ 添加端口' },
+
+    // Model form
+    'model.base_url':             { en: 'Base URL', zh: 'Base URL' },
+    'model.api_key':              { en: 'API Key', zh: 'API Key' },
+    'model.model_select':         { en: 'Model', zh: 'Model' },
+    'model.base_url_placeholder': { en: 'https://api.openai.com/v1', zh: 'https://api.openai.com/v1' },
+    'model.model_placeholder':    { en: 'Enter model name...', zh: '输入模型名称...' },
+
+    // Port maps
+    'port_map.name':              { en: 'Name', zh: '名称' },
+    'port_map.port':              { en: 'Port', zh: '端口' },
+    'port_map.open_browser':      { en: 'Open in browser', zh: '在浏览器中打开' },
+
+    // Knowledge
+    'knowledge.edit':             { en: 'Edit', zh: '编辑' },
+    'knowledge.delete':           { en: 'Delete', zh: '删除' },
+
+    // Content cards
+    'card.rendered':              { en: 'Rendered', zh: '渲染' },
+    'card.source':                { en: 'Source', zh: '源码' },
+    'card.refresh':               { en: 'Refresh', zh: '刷新' },
+    'card.screenshot':            { en: 'Screenshot', zh: '截图' },
+    'card.open_local':            { en: 'Local', zh: '本地' },
   };
 
   // Detect language
@@ -159,7 +223,8 @@ function t(key, vars) {
   if (vars) {
     for (var vk in vars) {
       if (vars.hasOwnProperty(vk)) {
-        s = s.replace('{' + vk + '}', vars[vk]);
+        s = s.split('{' + vk + '}').join(vars[vk]);
+        s = s.split(vk).join(vars[vk]);
       }
     }
   }

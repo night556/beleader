@@ -41,8 +41,8 @@ function renderAll(forceFull) {
   var tl = document.getElementById('timeline');
   var wasAtBottom = tl.scrollTop + tl.clientHeight >= tl.scrollHeight - 50;
   renderTimeline(forceFull);
-  // Only auto-scroll if user was already at the bottom
-  if ((!currentStage || currentStage.live) && wasAtBottom) {
+  // Auto-scroll on fresh loads; on live updates only if user was at bottom
+  if (forceFull || ((!currentStage || currentStage.live) && wasAtBottom)) {
     tl.scrollTop = tl.scrollHeight;
   }
 }
@@ -297,7 +297,7 @@ function starBtn(dbId, bookmarked) {
   if (!dbId) return '';
   var cls = bookmarked ? ' msg-star bookmarked' : ' msg-star';
   var sym = bookmarked ? '★' : '☆';
-  return '<button class="' + cls + '" data-msg-id="' + dbId + '" onclick="event.stopPropagation();var b=!this.classList.contains(\'bookmarked\');toggleMessageBookmark(' + dbId + ',b)" title="' + (bookmarked ? '取消收藏' : '收藏') + '">' + sym + '</button>';
+  return '<button class="' + cls + '" data-msg-id="' + dbId + '" onclick="event.stopPropagation();var b=!this.classList.contains(\'bookmarked\');toggleMessageBookmark(' + dbId + ',b)" title="' + (bookmarked ? t('bookmark.unstar_tip') : t('bookmark.star_tip')) + '">' + sym + '</button>';
 }
 
 function renderTurn(turn, idx) {
@@ -535,12 +535,12 @@ function renderAgentBar() {
   if (idle.length > 0) {
     if (_agentBarExpanded) {
       idle.forEach(function(a) { html += renderAgentItem(a); });
-      html += '<div class="agent-item agent-collapse" onclick="toggleAgentBarExpanded()"><span class="agent-name">收起</span></div>';
+      html += '<div class="agent-item agent-collapse" onclick="toggleAgentBarExpanded()"><span class="agent-name">' + t('agent.collapse') + '</span></div>';
     } else {
       html += '<div class="agent-item agent-collapse" onclick="toggleAgentBarExpanded()">' +
               '<span class="agent-dot idle"></span>' +
-              '<span class="agent-name">' + idle.length + ' 个已完成</span>' +
-              '<span class="agent-activity">展开</span></div>';
+              '<span class="agent-name">' + t('agent.idle_count', { $1: idle.length }) + '</span>' +
+              '<span class="agent-activity">' + t('agent.expand') + '</span></div>';
     }
   }
 
@@ -696,7 +696,7 @@ function updateContextTokens(total) {
   var el = document.getElementById('ctx-tokens');
   if (!el) return;
   el.textContent = '⚡ ' + formatTokens(total);
-  el.title = '累计 token：' + total;
+  el.title = t('ctx.tokens_title') + '：' + total;
 }
 
 function formatTokens(n) {
@@ -748,9 +748,14 @@ function switchView(view) {
   currentView = view;
   _agentFilter = null;
   _agentBarExpanded = false;
-  document.querySelectorAll('.tab-item').forEach(function(t) {
+  document.querySelectorAll('.sidebar-item').forEach(function(t) {
     t.classList.toggle('active', t.dataset.view === view);
   });
+  // Auto-close sidebar on mobile after navigation
+  if (window.innerWidth <= 860) {
+    document.body.classList.add('sb-closed');
+    document.getElementById('backdrop').classList.remove('open');
+  }
 
   updateViewContextBar();
 
@@ -897,19 +902,19 @@ function renderCardTabs() {
   right.className = 'card-tabs-right';
   var entry = _contentCards[_cardActive];
   var localBtn = entry && entry.filePath
-    ? '<span class="card-action-btn" onclick="openFileLocal(\'' + _cardActive + '\')">本地</span>'
+    ? '<span class="card-action-btn" onclick="openFileLocal(\'' + _cardActive + '\')">' + t('card.open_local') + '</span>'
     : '';
   if (entry && entry.htmlSource) {
     right.innerHTML = '<span class="card-action-btn' + (entry.showingSource ? ' on' : '') +
       '" onclick="toggleCardSource(\'' + _cardActive + '\')">' +
-      (entry.showingSource ? '渲染' : '源码') + '</span>' + localBtn +
-      '<span class="card-action-btn" onclick="refreshCard(\'' + _cardActive + '\')">刷新</span>' +
-      '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">截图</span>' +
+      (entry.showingSource ? t('card.rendered') : t('card.source')) + '</span>' + localBtn +
+      '<span class="card-action-btn" onclick="refreshCard(\'' + _cardActive + '\')">' + t('card.refresh') + '</span>' +
+      '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">' + t('card.screenshot') + '</span>' +
       '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
   } else {
     right.innerHTML = localBtn +
-      '<span class="card-action-btn" onclick="refreshCard(\'' + _cardActive + '\')">刷新</span>' +
-      '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">截图</span>' +
+      '<span class="card-action-btn" onclick="refreshCard(\'' + _cardActive + '\')">' + t('card.refresh') + '</span>' +
+      '<span class="card-action-btn" onclick="screenshotCard(\'' + _cardActive + '\')">' + t('card.screenshot') + '</span>' +
       '<span class="card-action-btn card-close-btn" onclick="removeContentCard(\'' + _cardActive + '\')">✕</span>';
   }
 }
