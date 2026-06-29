@@ -91,6 +91,7 @@ var _lang = 'en';
 
     // createProject modal
     'project.new_title':          { en: 'New Project', zh: '新建项目' },
+	    'project.agent_label':        { en: 'Agent Template', zh: 'Agent 模板' },
     'project.name_placeholder':   { en: 'Project name', zh: '项目名称' },
     'project.create':             { en: 'Create', zh: '创建' },
     'settings.title':             { en: 'Settings', zh: '设置' },

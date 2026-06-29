@@ -737,6 +737,93 @@ func validateRequired(args string, required []string) *session.ToolResult {
 	return nil
 }
 
+// ReadFileToolDef returns the read_file tool definition.
+func ReadFileToolDef() openai.Tool { return readFileTool }
+
+// WriteFileToolDef returns the write_file tool definition.
+func WriteFileToolDef() openai.Tool { return writeFileTool }
+
+// readFileHandler is the shared read_file handler used by RegisterFileTools and RegisterReadFile.
+func readFileHandler(ctx context.Context, args string) *session.ToolResult {
+	var p struct{ Path string; Offset int; Limit int }
+	json.Unmarshal([]byte(args), &p)
+	if p.Path == "" {
+		return &session.ToolResult{Error: "path is required"}
+	}
+	data, err := os.ReadFile(p.Path)
+	if err != nil {
+		return &session.ToolResult{Error: err.Error()}
+	}
+
+	mime := detectImageMIME(data, filepath.Ext(p.Path))
+	vision, _ := ctx.Value(session.CtxKeyVisionEnabled).(bool)
+	if vision && mime != "" {
+		data = compressImage(data, 1920, 75)
+		b64 := base64.StdEncoding.EncodeToString(data)
+		uri := fmt.Sprintf("data:%s;base64,%s", mime, b64)
+		dims := ""
+		if cfg, _, err := image.DecodeConfig(strings.NewReader(string(data))); err == nil {
+			dims = fmt.Sprintf(", %dx%d", cfg.Width, cfg.Height)
+		}
+		fname := filepath.Base(p.Path)
+		return &session.ToolResult{
+			Content: fmt.Sprintf("Image: %s (%s%s)", fname, formatSizeForImage(len(data)), dims),
+			Images:  []string{uri},
+		}
+	}
+
+	if p.Offset > 0 || p.Limit > 0 {
+		lines := strings.Split(string(data), "\n")
+		start := p.Offset - 1
+		if start < 0 {
+			start = 0
+		}
+		if start >= len(lines) {
+			start = len(lines) - 1
+		}
+		end := len(lines)
+		if p.Limit > 0 {
+			end = start + p.Limit
+			if end > len(lines) {
+				end = len(lines)
+			}
+		}
+		data = []byte(strings.Join(lines[start:end], "\n"))
+	}
+
+	return &session.ToolResult{Content: string(data)}
+}
+
+// writeFileHandler is the shared write_file handler used by RegisterFileTools and RegisterWriteFile.
+func writeFileHandler(ctx context.Context, args string) *session.ToolResult {
+	var p struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	json.Unmarshal([]byte(args), &p)
+	if p.Path == "" {
+		return &session.ToolResult{Error: "path is required"}
+	}
+	dir := filepath.Dir(p.Path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return &session.ToolResult{Error: err.Error()}
+	}
+	if err := os.WriteFile(p.Path, []byte(p.Content), 0644); err != nil {
+		return &session.ToolResult{Error: err.Error()}
+	}
+	return &session.ToolResult{Content: fmt.Sprintf("File written: %s (%d bytes)", p.Path, len(p.Content))}
+}
+
+// RegisterReadFile registers only the read_file tool handler.
+func RegisterReadFile(mgr *session.Manager) {
+	mgr.RegisterTool("read_file", readFileHandler)
+}
+
+// RegisterWriteFile registers only the write_file tool handler.
+func RegisterWriteFile(mgr *session.Manager) {
+	mgr.RegisterTool("write_file", writeFileHandler)
+}
+
 func RegisterFileTools(mgr *session.Manager, workDir string) {
 	mgr.RegisterTool("read_file", func(ctx context.Context, args string) *session.ToolResult {
 		var p struct{ Path string; Offset int; Limit int }

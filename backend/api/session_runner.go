@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 	"context"
@@ -16,9 +16,9 @@ import (
 
 // RunSessionOpts controls how runSession builds prompts and selects tools.
 type RunSessionOpts struct {
-	AgentType     string // "main", "coordinator", or "worker"
+	AgentType     string // "main", "coordinator", "worker", or "simple"
 	RoleLabel     string // label for messages in the UI
-	CustomPrompt  string // Worker: custom role definition (from agents table or Coordinator)
+	CustomPrompt  string // Worker/Simple: custom role definition (from agents table or Coordinator)
 	EnableBrowser bool   // Worker: enable browser automation tools
 	EnableDesktop bool   // Worker: enable desktop automation tools
 }
@@ -68,6 +68,10 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		if opts.EnableBrowser {
 			sysPrompt += "\n\n" + session.BrowserRules
 		}
+	case "simple":
+		if opts.CustomPrompt != "" {
+			sysPrompt += "\n\n" + opts.CustomPrompt
+		}
 	}
 
 	h.Notify(SessionEvent{Type: "thinking", SessionID: sessionID})
@@ -108,7 +112,9 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		)
 		toolList = tools.MainTools(model.Vision)
 	case "coordinator":
-		tools.RegisterAll(sessionMgr, workDir, h.CreateProject)
+		tools.RegisterAll(sessionMgr, workDir, func(title, prompt string) (string, string, error) {
+			return h.CreateProject(title, prompt, "")
+		})
 		tools.RegisterCoordinatorTools(
 			sessionMgr,
 			func(name, prompt, task string, enableBrowser, enableDesktop bool) (string, error) {
@@ -171,6 +177,11 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		if opts.EnableDesktop {
 			toolList = append(toolList, tools.DesktopTools()...)
 		}
+	case "simple":
+		tools.RegisterReadFile(sessionMgr)
+		tools.RegisterWriteFile(sessionMgr)
+		toolList = append(toolList, tools.ReadFileToolDef())
+		toolList = append(toolList, tools.WriteFileToolDef())
 	}
 
 	result, err := sessionMgr.RunLoop(ctx, sessionID, sysPrompt, userMessage, toolList, llmClient, model.ContextLimit, model.Vision, pauseCh, interveneCh,
@@ -269,6 +280,11 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 					}
 				}
 			}
+
+		case "simple":
+			h.DB.UpdateSessionStatus(sessionID, "idle")
+			h.releaseHC(sessionID)
+			h.DB.UpdateProjectAgentStatus("", sessionID, "idle")
 		}
 
 		h.Notify(SessionEvent{Type: "idle", SessionID: sessionID, Data: gin.H{"status": "idle", "session_id": sessionID}})

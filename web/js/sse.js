@@ -802,7 +802,7 @@ function updateProjectTabs() {
     var nameSpan = document.createElement('span');
     nameSpan.className = 'sidebar-project-name';
     nameSpan.textContent = s.title || s.id;
-    nameSpan.onclick = function() { switchView(s.ref_id || s.id); };
+    wrap.onclick = function() { switchView(s.ref_id || s.id); };
     wrap.appendChild(nameSpan);
 
     if (s.status === 'running') {
@@ -875,19 +875,25 @@ function updateAgentBar() {
 
 // Create project — opens modal instead of native prompt()
 function createProject() {
+  var agentOptions = '<option value="">' + '\u{1f916} Coordinator' + '</option>';
   openModal({
     title: t('project.new_title'),
-    body: '<div class="modal-field"><label>' + t('project.name_placeholder') + '</label>' +
+    body: '<div class="modal-field"><label for="project-agent-select">' + t('project.agent_label') + '</label>' +
+          '<select id="project-agent-select" class="modal-input" style="margin-bottom:12px">' +
+          agentOptions + '</select>' +
+          '<label for="project-name-input">' + t('project.name_placeholder') + '</label>' +
           '<input type="text" id="project-name-input" class="modal-input" placeholder="' + t('project.name_placeholder') + '" autofocus></div>',
     confirmText: t('project.create'),
     onConfirm: function() {
       var input = document.getElementById('project-name-input');
       var title = input ? input.value.trim() : '';
       if (!title) return false;
+      var sel = document.getElementById('project-agent-select');
+      var agentName = sel ? sel.value : '';
       fetch(SERVER_URL + '/api/projects', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({title: title, prompt: ''})
+        body: JSON.stringify({title: title, prompt: '', agent_name: agentName})
       }).then(function(r) { return r.json(); })
         .then(function(p) {
           if (p.id) switchView(p.id);
@@ -896,6 +902,24 @@ function createProject() {
       return true;
     }
   });
+
+  // Load agent list asynchronously
+  fetch(SERVER_URL + '/api/agents')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var agents = data.agents || [];
+      var sel = document.getElementById('project-agent-select');
+      if (!sel) return;
+      for (var i = 0; i < agents.length; i++) {
+        var a = agents[i];
+        var opt = document.createElement('option');
+        opt.value = a.name;
+        opt.textContent = a.name;
+        sel.appendChild(opt);
+      }
+    })
+    .catch(function(e) { /* ignore — dropdown stays with Coordinator option only */ });
+
   setTimeout(function() {
     var input = document.getElementById('project-name-input');
     if (input) {

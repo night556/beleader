@@ -172,7 +172,9 @@ func (h *Handler) handleChat(c *gin.Context) {
 	tools.BrowserHeadless = h.Config.Browser.Headless
 	tools.BrowserProfileDir = h.Config.BrowserProfileDir()
 	tools.SpeakEnabled = h.Config.SpeakEnabled
-	tools.RegisterAll(h.SessionMgr, h.Config.WorkDir, h.CreateProject)
+	tools.RegisterAll(h.SessionMgr, h.Config.WorkDir, func(title, prompt string) (string, string, error) {
+		return h.CreateProject(title, prompt, "")
+	})
 	tools.RegisterProjectManagementTools(
 		h.SessionMgr,
 		h.listProjectsForLLM,
