@@ -216,6 +216,7 @@ const (
 	CtxKeyProgress      ctxKey = "progress"
 	CtxKeyToolCallID    ctxKey = "tool_call_id"
 	CtxKeySessionID     ctxKey = "session_id"
+	CtxKeyWorkDir       ctxKey = "work_dir"
 )
 
 // SendProgress sends a tool_progress event if a progress callback is in the context.

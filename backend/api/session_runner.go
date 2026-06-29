@@ -16,11 +16,12 @@ import (
 
 // RunSessionOpts controls how runSession builds prompts and selects tools.
 type RunSessionOpts struct {
-	AgentType     string // "main", "coordinator", "worker", or "simple"
-	RoleLabel     string // label for messages in the UI
-	CustomPrompt  string // Worker/Simple: custom role definition (from agents table or Coordinator)
-	EnableBrowser bool   // Worker: enable browser automation tools
-	EnableDesktop bool   // Worker: enable desktop automation tools
+	AgentType     string   // "main", "coordinator", "worker", "tool_agent", "skill_agent", or "simple"
+	RoleLabel     string   // label for messages in the UI
+	CustomPrompt  string   // Worker/Simple/Tool/Skill: custom role definition (from agents table or Coordinator)
+	EnableBrowser bool     // Worker (legacy): enable browser automation tools
+	EnableDesktop bool     // Worker (legacy): enable desktop automation tools
+	ToolNames     []string // Tool/Skill: tool names to register from global Registry
 }
 
 // runSession is the unified session runner.
@@ -28,6 +29,9 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 	ctx, cancel := context.WithCancel(context.Background())
 	if opts.RoleLabel != "" {
 		ctx = context.WithValue(ctx, session.CtxKeyRoleLabel, opts.RoleLabel)
+	}
+	if workDir != "" {
+		ctx = context.WithValue(ctx, session.CtxKeyWorkDir, workDir)
 	}
 	pauseCh := make(chan struct{})
 	interveneCh := make(chan session.InterveneMsg, 1)
@@ -69,6 +73,15 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 			sysPrompt += "\n\n" + session.BrowserRules
 		}
 	case "simple":
+		if opts.CustomPrompt != "" {
+			sysPrompt += "\n\n" + opts.CustomPrompt
+		}
+	case "tool_agent":
+		sysPrompt += "\n\n" + session.WorkerBasePrompt
+		if opts.CustomPrompt != "" {
+			sysPrompt += "\n\n## Capability\n" + opts.CustomPrompt
+		}
+	case "skill_agent":
 		if opts.CustomPrompt != "" {
 			sysPrompt += "\n\n" + opts.CustomPrompt
 		}
@@ -182,6 +195,12 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		tools.RegisterWriteFile(sessionMgr)
 		toolList = append(toolList, tools.ReadFileToolDef())
 		toolList = append(toolList, tools.WriteFileToolDef())
+	case "tool_agent":
+		tools.Global.RegisterTo(sessionMgr, opts.ToolNames)
+		toolList = tools.Global.BuildToolList(opts.ToolNames)
+	case "skill_agent":
+		tools.Global.RegisterTo(sessionMgr, opts.ToolNames)
+		toolList = tools.Global.BuildToolList(opts.ToolNames)
 	}
 
 	result, err := sessionMgr.RunLoop(ctx, sessionID, sysPrompt, userMessage, toolList, llmClient, model.ContextLimit, model.Vision, pauseCh, interveneCh,
@@ -244,7 +263,7 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 			h.DB.UpdateProjectStatus(refID, "completed")
 			h.Notify(SessionEvent{Type: "project_completed", SessionID: sessionID, Data: gin.H{"ref_id": refID, "status": "completed"}})
 
-		case "worker":
+		case "worker", "tool_agent", "skill_agent":
 			h.DB.UpdateSessionStatus(sessionID, "idle")
 			h.releaseHC(sessionID)
 			h.DB.UpdateProjectAgentStatus("", sessionID, "idle")
@@ -256,7 +275,7 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 				if err == nil {
 					coordSid := h.getCoordinatorSessionID(ref)
 					if coordSid != "" {
-						workerMsg := fmt.Sprintf("[Worker '%s'] 已完成\n\n%s\n\n---\nRemember: update STATUS.md with this Worker's results using edit_file.", agent.Name, result.Content)
+						workerMsg := fmt.Sprintf("[%s] 已完成\n\n%s\n\n---\nRemember: update STATUS.md with the results using edit_file.", agent.Name, result.Content)
 						h.DB.InsertMessage(&db.Message{SessionID: coordSid, Role: "user", Content: workerMsg})
 
 						// Notify Coordinator

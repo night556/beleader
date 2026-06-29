@@ -61,6 +61,7 @@ var _lang = 'en';
 
     // Top bar button labels
     'topbar.bookmarks':           { en: 'Bookmarks', zh: '收藏' },
+    'topbar.tools':               { en: 'Tools', zh: '工具' },
     'topbar.agents':              { en: 'Agents', zh: 'Agents' },
     'topbar.knowledge':           { en: 'Knowledge', zh: '知识库' },
     'topbar.settings':            { en: 'Settings', zh: '设置' },
@@ -81,6 +82,17 @@ var _lang = 'en';
     'agents.save':                { en: 'Save', zh: '保存' },
     'agents.cancel':              { en: 'Cancel', zh: '取消' },
     'agents.delete_btn':          { en: 'Delete', zh: '删除' },
+    'agents.default_agent':       { en: 'Default Agent', zh: '默认 Agent' },
+    'agents.type':                { en: 'Type', zh: '类型' },
+    'agents.type_general':        { en: 'General', zh: '通用' },
+    'agents.type_tool_agent':     { en: 'Tool Agent', zh: '工具 Agent' },
+    'agents.type_skill_agent':    { en: 'Skill Agent', zh: 'Skill Agent' },
+    'agents.tools':               { en: 'Tools', zh: '工具' },
+    'agents.tool_agents':         { en: 'Tool Agents', zh: '工具 Agent' },
+    'agents.tools_search':        { en: 'Search tools...', zh: '搜索工具...' },
+    'agents.toolagents_search':   { en: 'Search tool agents...', zh: '搜索工具 Agent...' },
+    'agents.no_tools':            { en: 'No tools selected. Search below to add.', zh: '未选择工具，在下方搜索添加。' },
+    'agents.no_tool_agents':      { en: 'No tool agents selected.', zh: '未选择工具 Agent。' },
 
     // Modal / clear context
     'modal.cancel':               { en: 'Cancel', zh: '取消' },
@@ -197,6 +209,9 @@ var _lang = 'en';
     // Knowledge
     'knowledge.edit':             { en: 'Edit', zh: '编辑' },
     'knowledge.delete':           { en: 'Delete', zh: '删除' },
+
+    // Tools
+    'tools.title':                { en: 'Tools', zh: '工具列表' },
 
     // Content cards
     'card.rendered':              { en: 'Rendered', zh: '渲染' },

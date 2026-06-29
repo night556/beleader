@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -16,13 +16,14 @@
 <div class="backdrop" id="backdrop" onclick="closePanels()"></div>
 
 <!-- Hamburger (fixed, always visible) -->
-<button class="hamburger" id="hamburger-btn" onclick="toggleSidebar()" data-i18n-title="sidebar.toggle" title="菜单">☰</button>
+<button class="hamburger" id="hamburger-btn" data-i18n-title="sidebar.toggle" title="菜单">☰</button>
 
 <!-- Sidebar -->
 <nav class="sidebar" id="sidebar">
   <div class="sidebar-head">
     <span class="sidebar-logo">✦</span>
     <span class="sidebar-title" data-i18n="app.title">BeLeader</span>
+    <button class="sidebar-close-btn" title="收起">✕</button>
   </div>
   <div class="sidebar-nav" id="sidebar-nav">
     <button class="sidebar-item active" data-view="home" onclick="switchView('home')" data-i18n="sidebar.home">首页</button>
@@ -31,7 +32,8 @@
     <button class="sidebar-new-btn" onclick="createProject()" data-i18n-title="tab.new_project" title="New Project">+ <span data-i18n="sidebar.new_project">新建项目</span></button>
   </div>
   <div class="sidebar-actions">
-    <button class="sidebar-action" onclick="toggleAgents()" data-i18n="topbar.agents">Agents</button>
+    <button class="sidebar-action" onclick="toggleTools()" data-i18n="topbar.tools">Tools</button>
+	    <button class="sidebar-action" onclick="toggleAgents()" data-i18n="topbar.agents">Agents</button>
     <button class="sidebar-action" onclick="toggleKnowledge()" data-i18n="topbar.knowledge">知识库</button>
     <button class="sidebar-action" onclick="toggleSettings()" data-i18n="topbar.settings">设置</button>
   </div>
@@ -111,6 +113,9 @@
   </div>
 </footer>
 
+<!-- Panel container — wraps all sliding panels, clipped by overflow:hidden -->
+<div class="panel-container" id="panel-container">
+
 <!-- Bookmarks panel (slide from right) -->
 <div class="bookmarks-panel" id="bookmarks-panel">
   <div class="panel-head">
@@ -180,6 +185,17 @@
   </div>
 </div>
 
+<!-- Tools panel -->
+<div class="settings-panel" id="tools-panel">
+  <div class="panel-head">
+    <h3 data-i18n="tools.title">Tools</h3>
+    <button class="panel-close" onclick="toggleTools()">✕</button>
+  </div>
+  <div class="panel-body" id="tools-body">
+    <div id="tools-list"><span class="modal-loading">Loading...</span></div>
+  </div>
+</div>
+
 <!-- Agents panel -->
 <div class="settings-panel" id="agents-panel">
   <div class="panel-head">
@@ -188,7 +204,8 @@
   </div>
   <div class="panel-body" id="agents-body">
     <div class="set-section">
-      <div class="set-row" style="display:flex;gap:8px;align-items:center">
+      <div class="set-row"><label data-i18n="agents.default_agent">默认 Agent</label><select id="set-default-agent" onchange="onDefaultAgentChange()"><option value="coordinator">coordinator</option></select></div>
+      <div class="set-row" style="display:flex;gap:8px;align-items:center;margin-top:12px">
         <input type="text" id="agents-search" data-i18n-placeholder="agents.search_placeholder" placeholder="搜索 Agent..." oninput="renderAgentListFiltered()" style="flex:1">
         <button class="btn-add" onclick="openAgentEditor(null)" data-i18n="agents.new">+ 新建</button>
       </div>
@@ -196,6 +213,8 @@
     </div>
   </div>
 </div>
+
+</div><!-- end panel-container -->
 
 <!-- Modal component (shared by createProject, clearContext confirm, agent editor) -->
 <div class="modal-backdrop" id="modal-backdrop" style="display:none">

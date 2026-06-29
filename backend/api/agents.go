@@ -9,9 +9,14 @@ import (
 
 	"beleader/backend/db"
 	"beleader/backend/session"
+	"beleader/backend/tools"
 
 	"github.com/gin-gonic/gin"
 )
+
+func (h *Handler) handleListTools(c *gin.Context) {
+	c.JSON(200, tools.Global.ListExposed())
+}
 
 func (h *Handler) handleListAgents(c *gin.Context) {
 	agents, err := h.DB.ListAgents()
@@ -40,9 +45,12 @@ func (h *Handler) handleUpdateAgentDesc(c *gin.Context) {
 
 func (h *Handler) handleCreateAgent(c *gin.Context) {
 	var req struct {
-		Name    string `json:"name"`
-		Desc    string `json:"desc"`
-		Content string `json:"content"`
+		Name       string `json:"name"`
+		Desc       string `json:"desc"`
+		Content    string `json:"content"`
+		Type       string `json:"type"`
+		Tools      string `json:"tools"`
+		ToolAgents string `json:"tool_agents"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -56,11 +64,34 @@ func (h *Handler) handleCreateAgent(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
+	updates := map[string]any{}
 	if req.Desc != "" {
-		_ = h.DB.UpdateAgentDesc(req.Name, req.Desc)
+		updates["desc"] = req.Desc
+	}
+	if req.Type != "" {
+		updates["type"] = req.Type
+	}
+	if req.Tools != "" {
+		updates["tools"] = req.Tools
+	}
+	if req.ToolAgents != "" {
+		updates["tool_agents"] = req.ToolAgents
+	}
+	if len(updates) > 0 {
+		a, _ := h.DB.GetAgentByName(req.Name)
+		if a != nil {
+			h.DB.UpdateAgentByIDFull(a.ID, a.Name, valOr(updates, "desc", a.Desc), a.Content, valOr(updates, "type", a.Type), valOr(updates, "tools", a.Tools), valOr(updates, "tool_agents", a.ToolAgents))
+		}
 	}
 	a, _ := h.DB.GetAgentByName(req.Name)
 	c.JSON(200, a)
+}
+
+func valOr(m map[string]any, key, fallback string) string {
+	if v, ok := m[key]; ok {
+		return v.(string)
+	}
+	return fallback
 }
 
 func (h *Handler) handleUpdateAgent(c *gin.Context) {
@@ -70,9 +101,12 @@ func (h *Handler) handleUpdateAgent(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name    string `json:"name"`
-		Desc    string `json:"desc"`
-		Content string `json:"content"`
+		Name       string `json:"name"`
+		Desc       string `json:"desc"`
+		Content    string `json:"content"`
+		Type       string `json:"type"`
+		Tools      string `json:"tools"`
+		ToolAgents string `json:"tool_agents"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -82,13 +116,16 @@ func (h *Handler) handleUpdateAgent(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "name and content required"})
 		return
 	}
-	if err := h.DB.UpdateAgentByID(id, req.Name, req.Content); err != nil {
+	existing, err := h.DB.GetAgentByID(id)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "agent not found"})
+		return
+	}
+	if err := h.DB.UpdateAgentByIDFull(id, req.Name, req.Desc, req.Content, req.Type, req.Tools, req.ToolAgents); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Desc != "" {
-		_ = h.DB.UpdateAgentDescByID(id, req.Desc)
-	}
+	_ = existing
 	a, _ := h.DB.GetAgentByID(id)
 	c.JSON(200, a)
 }

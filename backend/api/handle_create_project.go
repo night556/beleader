@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -36,40 +37,58 @@ func (h *Handler) CreateProject(title, prompt, agentName string) (string, string
 
 	h.DB.CreateProject(refID, title, workDir)
 
-	// Determine agent type based on template selection
-	agentType := "coordinator"
-	roleLabel := "coordinator"
-	projectAgentName := "coordinator"
-	var customPrompt string
-
-	if agentName != "" && agentName != "coordinator" {
-		if agent, err := h.DB.GetAgentByName(agentName); err == nil {
-			agentType = "simple"
-			roleLabel = agent.Name
-			projectAgentName = agent.Name
-			customPrompt = agent.Content
+		// Resolve effective agent: use config default when none specified
+		effectiveAgent := agentName
+		if effectiveAgent == "" {
+			effectiveAgent = h.Config.DefaultAgent
 		}
-	}
+		if effectiveAgent == "" {
+			effectiveAgent = "coordinator"
+		}
 
-	h.acquireHC(coordinatorSessionID)
-	h.DB.CreateSession(coordinatorSessionID, "running")
-	h.DB.AddProjectAgent(refID, projectAgentName, coordinatorSessionID, agentType, customPrompt, false, false)
+		agentType := "coordinator"
+		roleLabel := "coordinator"
+		projectAgentName := "coordinator"
+		var customPrompt string
+		var toolNames []string
 
-	h.Notify(SessionEvent{
-		Type: "project_created",
-		Data: gin.H{
-			"ref_id":     refID,
-			"session_id": coordinatorSessionID,
-			"title":      title,
-			"status":     "running",
-		},
-	})
+		if effectiveAgent != "coordinator" {
+			if agent, err := h.DB.GetAgentByName(effectiveAgent); err == nil {
+				roleLabel = agent.Name
+				projectAgentName = agent.Name
+				customPrompt = agent.Content
+				if agent.Type == "tool_agent" {
+					agentType = "tool_agent"
+					json.Unmarshal([]byte(agent.Tools), &toolNames)
+				} else if agent.Type == "skill_agent" {
+					agentType = "skill_agent"
+					json.Unmarshal([]byte(agent.Tools), &toolNames)
+				} else {
+					agentType = "simple"
+				}
+			}
+		}
 
-	go h.runSession(coordinatorSessionID, refID, workDir, firstMessage, RunSessionOpts{
-		AgentType:    agentType,
-		RoleLabel:    roleLabel,
-		CustomPrompt: customPrompt,
-	})
+		h.acquireHC(coordinatorSessionID)
+		h.DB.CreateSession(coordinatorSessionID, "running")
+		h.DB.AddProjectAgent(refID, projectAgentName, coordinatorSessionID, agentType, customPrompt, false, false)
+
+		h.Notify(SessionEvent{
+			Type: "project_created",
+			Data: gin.H{
+				"ref_id":     refID,
+				"session_id": coordinatorSessionID,
+				"title":      title,
+				"status":     "running",
+			},
+		})
+
+		go h.runSession(coordinatorSessionID, refID, workDir, firstMessage, RunSessionOpts{
+			AgentType:    agentType,
+			RoleLabel:    roleLabel,
+			CustomPrompt: customPrompt,
+			ToolNames:    toolNames,
+		})
 
 	return refID, coordinatorSessionID, nil
 }

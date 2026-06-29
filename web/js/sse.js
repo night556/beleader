@@ -868,6 +868,11 @@ if (window.innerWidth <= 860) {
   document.body.classList.add('sb-closed');
 }
 
+// Wire sidebar toggle buttons
+document.getElementById('hamburger-btn').addEventListener('click', toggleSidebar);
+var closeBtn = document.querySelector('.sidebar-close-btn');
+if (closeBtn) closeBtn.addEventListener('click', toggleSidebar);
+
 // Agent bar
 function updateAgentBar() {
   renderAgentBar();

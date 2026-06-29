@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 	"context"
@@ -135,6 +135,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.POST("/sessions/:id/stop", h.handleStop)
 		api.POST("/sessions/:id/model", h.handleSwitchModel)
 		api.GET("/sessions/:id/model", h.handleGetSessionModel)
+		api.GET("/tools", h.handleListTools)
 		api.GET("/agents", h.handleListAgents)
 		api.POST("/agents", h.handleCreateAgent)
 		api.PUT("/agents/desc", h.handleUpdateAgentDesc)
@@ -265,11 +266,20 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, prompt, task st
 		return "", fmt.Errorf("Worker '%s' already exists and is idle. Options: (1) Use intervene_worker to give it a new task (it keeps its context). (2) If you need a fresh worker, use delete_worker first then spawn again. (3) Spawn with a different name for a separate role.", name)
 	}
 
-	var customPrompt string
+		var customPrompt string
+	agentType := "worker"
+	var toolNames []string
 
 	// name doubles as template lookup key
 	if agent, err := h.DB.GetAgentByName(name); err == nil {
 		customPrompt = agent.Content
+		if agent.Type == "tool_agent" {
+			agentType = "tool_agent"
+			json.Unmarshal([]byte(agent.Tools), &toolNames)
+		} else if agent.Type == "skill_agent" {
+			agentType = "skill_agent"
+			json.Unmarshal([]byte(agent.Tools), &toolNames)
+		}
 	}
 
 	// prompt always overrides template
@@ -278,7 +288,7 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, prompt, task st
 	}
 
 	if customPrompt == "" {
-		return "", fmt.Errorf("no agent template named '%s' and no prompt provided 闁?check list_agents or provide a prompt", name)
+		return "", fmt.Errorf("no agent template named '%s' and no prompt provided — check list_agents or provide a prompt", name)
 	}
 
 	workerSessionID := uuid.New().String()
@@ -286,7 +296,7 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, prompt, task st
 
 	h.DB.CreateSession(workerSessionID, "running")
 	h.acquireHC(workerSessionID)
-	h.DB.AddProjectAgent(refID, name, workerSessionID, "worker", customPrompt, enableBrowser, enableDesktop)
+	h.DB.AddProjectAgent(refID, name, workerSessionID, agentType, customPrompt, enableBrowser, enableDesktop)
 
 	h.Notify(SessionEvent{
 		Type: "worker_spawned",
@@ -294,17 +304,18 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, prompt, task st
 			"ref_id":     refID,
 			"session_id": workerSessionID,
 			"name":       name,
-			"role":       "worker",
+			"role":       agentType,
 			"status":     "running",
 		},
 	})
 
 	go h.runSession(workerSessionID, refID, workDir, task, RunSessionOpts{
-		AgentType:     "worker",
+		AgentType:     agentType,
 		RoleLabel:     name,
 		CustomPrompt:  customPrompt,
 		EnableBrowser: enableBrowser,
 		EnableDesktop: enableDesktop,
+		ToolNames:     toolNames,
 	})
 
 	return fmt.Sprintf("Worker '%s' spawned. session_id=%s", name, workerSessionID), nil
@@ -386,12 +397,13 @@ func (h *Handler) interveneWorker(refID, workerName, message string) (string, er
 
 	workDir := h.Config.ProjectDir(refID)
 	go h.runSession(sid, refID, workDir, "", RunSessionOpts{
-		AgentType:     "worker",
-		RoleLabel:     workerName,
-		CustomPrompt:  agent.Prompt,
-		EnableBrowser: agent.EnableBrowser,
-		EnableDesktop: agent.EnableDesktop,
-	})
+			AgentType:     agent.Role,
+			RoleLabel:     workerName,
+			CustomPrompt:  agent.Prompt,
+			EnableBrowser: agent.EnableBrowser,
+			EnableDesktop: agent.EnableDesktop,
+			ToolNames:     h.resolveToolNames(workerName, agent.Role),
+		})
 
 	h.Notify(SessionEvent{
 		Type: "worker_intervened",
@@ -811,6 +823,7 @@ func (h *Handler) handleGetSettings(c *gin.Context) {
 		"browser":       cfg.Browser,
 		"speak_enabled": cfg.SpeakEnabled,
 		"port_maps":     cfg.PortMaps,
+		"default_agent": cfg.DefaultAgent,
 		"work_dir":      cfg.WorkDir,
 	})
 }
@@ -1285,3 +1298,19 @@ func buildTextAndImageMultiContent(text string, images []string) []openai.ChatMe
 	}
 	return parts
 }
+
+// resolveToolNames looks up the agent template and returns its tool names.
+// Returns nil for legacy agent types (worker/simple use EnableBrowser/EnableDesktop flags).
+func (h *Handler) resolveToolNames(agentName, agentRole string) []string {
+	if agentRole != "tool_agent" && agentRole != "skill_agent" {
+		return nil
+	}
+	agent, err := h.DB.GetAgentByName(agentName)
+	if err != nil {
+		return nil
+	}
+	var toolNames []string
+	json.Unmarshal([]byte(agent.Tools), &toolNames)
+	return toolNames
+}
+

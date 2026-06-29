@@ -85,6 +85,16 @@ func (db *DB) autoMigrate() error {
 		db.GORM.Exec("PRAGMA user_version = 1")
 	}
 
+	if schemaVersion < 2 {
+		db.GORM.Exec("ALTER TABLE agents ADD COLUMN type TEXT DEFAULT ''")
+		db.GORM.Exec("ALTER TABLE agents ADD COLUMN tools TEXT DEFAULT '[]'")
+		db.GORM.Exec("ALTER TABLE agents ADD COLUMN tool_agents TEXT DEFAULT '[]'")
+		db.GORM.Exec("PRAGMA user_version = 2")
+	}
+
+	// Seed system tool agents
+	db.seedToolAgents()
+
 	return nil
 }
 
@@ -154,11 +164,14 @@ func (Message) TableName() string { return "messages" }
 // ── Agent ──
 
 type Agent struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name      string    `gorm:"size:128;uniqueIndex" json:"name"`
-	Desc      string    `gorm:"size:512;default:''" json:"desc"`
-	Content   string    `gorm:"default:''" json:"content"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID         int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name       string    `gorm:"size:128;uniqueIndex" json:"name"`
+	Desc       string    `gorm:"size:512;default:''" json:"desc"`
+	Type       string    `gorm:"size:32;default:''" json:"type"`               // "" | "tool_agent" | "skill_agent"
+	Tools      string    `gorm:"type:text;default:'[]'" json:"tools"`          // JSON array of tool names
+	ToolAgents string    `gorm:"type:text;default:'[]'" json:"tool_agents"`    // JSON array of tool agent names
+	Content    string    `gorm:"default:''" json:"content"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func (Agent) TableName() string { return "agents" }
@@ -555,6 +568,82 @@ func (db *DB) UpdateAgentDescByID(id int64, desc string) error {
 
 func (db *DB) DeleteAgentByID(id int64) error {
 	return db.GORM.Where("id = ?", id).Delete(&Agent{}).Error
+}
+
+func (db *DB) UpdateAgentByIDFull(id int64, name, desc, content, agentType, tools, toolAgents string) error {
+	return db.GORM.Model(&Agent{}).Where("id = ?", id).Updates(map[string]any{
+		"name":        name,
+		"desc":        desc,
+		"content":     content,
+		"type":        agentType,
+		"tools":       tools,
+		"tool_agents": toolAgents,
+	}).Error
+}
+
+func (db *DB) ListToolAgents() ([]Agent, error) {
+	var agents []Agent
+	err := db.GORM.Where("type = 'tool_agent'").Order("name ASC").Find(&agents).Error
+	return agents, err
+}
+
+func (db *DB) seedToolAgents() {
+	var count int64
+	coordinatorTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","read_status","write_status","run_command","run_http_request","web_search","web_fetch","spawn_worker","terminate_worker","delete_worker","intervene_worker","list_workers","list_agents","create_agent","edit_agent","delete_agent","show_html","close_html","list_htmls","focus_session","show_file","search_knowledge","save_knowledge","delete_knowledge","create_project"]`
+	if db.GORM.Model(&Agent{}).Where("name = 'coordinator'").Count(&count); count == 0 {
+		db.GORM.Create(&Agent{
+			Name:    "coordinator",
+			Desc:    "Project orchestrator — plan, delegate, manage workers and project state",
+			Type:    "coordinator",
+			Content: `You are the Coordinator of this project. You manage, plan, and orchestrate — you do not execute. Your value is in understanding what needs to be done, making good decisions, and delegating to the right Worker.
+
+## STATUS.md maintenance
+STATUS.md is the project's status entry point. It records current progress, completed and pending items, key decisions, and serves as a navigation hub pointing to the project's various documents and artifacts (requirements, design docs, technical specs, API designs, etc. — whatever the project needs, not a fixed checklist).
+
+When to update: after every Worker completes, when the user gives new requirements, or when project state changes.
+
+How to update:
+1. If STATUS.md content is still fresh in context from a recent read or write, update from memory — don't waste tokens re-reading
+2. If unsure of the current content, call read_status first
+3. Use write_status to write the complete updated content
+4. Organize naturally based on the actual project — a small project may be a brief progress list, a large project needs sections referencing various documents
+
+Do NOT turn it into a log or journal. Do NOT repeat the same information. Do NOT discard important past records while updating.
+
+## How to respond
+First, judge the situation:
+- **Casual chat / discussion** — the user just wants to talk. Be a conversational partner, reply naturally. Don't spawn Workers.
+- **Question / advice** — the user wants to understand something. Answer directly. Use web_search or web_fetch if helpful.
+- **Research** — the user needs information gathered before deciding. Either answer from your own knowledge or spawn a researcher Worker.
+- **Development** — the user wants something built. Spawn a Worker.
+
+If the task evolves (e.g. conversation turns into development), adapt accordingly.
+
+## Development workflow
+Spawn Workers one at a time or in small batches. Wait for each Worker to finish and report back. Do NOT call intervene_worker immediately after spawning — the Worker will respond when done or blocked.
+
+A Worker that has finished still holds its conversation context. If a follow-up task is closely related to what that Worker already did, use intervene_worker to give it the new task instead of spawning a fresh Worker that would need to re-learn the context.`,
+			Tools: coordinatorTools,
+		})
+	}
+	if db.GORM.Model(&Agent{}).Where("type = 'tool_agent' AND name = 'browser'").Count(&count); count == 0 {
+		db.GORM.Create(&Agent{
+			Name:    "browser",
+			Desc:    "Browser automation — navigate pages, click, type, scroll, screenshot",
+			Type:    "tool_agent",
+			Content: "You are a browser automation agent. You control a web browser to navigate pages, interact with UI elements, extract data, and take screenshots.\n\n## Before Acting\n- Inspect page state (browser_content) before any interaction.\n\n## After Each Action\n- Verify the result — compare browser_content before/after.\n- If page didn't change as expected, try a different approach.\n\n## Interaction\n- Prefer ref numbers from the latest snapshot. CSS selectors only as fallback.\n- After typing into a search box, press Enter with browser_keys.\n- For dropdowns, use browser_select to see options before choosing.\n\n## Extraction\n- Use browser_content for text. Only screenshot as last resort.\n- Use browser_evaluate for targeted data extraction.\n\n## Cleanup\n- Close open tabs you no longer need with browser_close.\n- If the result should be displayed to the user, keep that tab open.\n\nWhen done, summarize what you accomplished and any key findings.",
+			Tools: `["browser_open","browser_close","browser_list","browser_switch","browser_click","browser_input","browser_scroll","browser_content","browser_evaluate","browser_screenshot","browser_sleep","browser_keys","browser_back","browser_select"]`,
+		})
+	}
+	if db.GORM.Model(&Agent{}).Where("type = 'tool_agent' AND name = 'desktop'").Count(&count); count == 0 {
+		db.GORM.Create(&Agent{
+			Name:    "desktop",
+			Desc:    "Desktop automation — screenshot, click, type, window management",
+			Type:    "tool_agent",
+			Content: "You are a desktop automation agent. You control the desktop through a screenshot-analyze-act loop.\n\n## Coordinate System\nAll coordinates use a normalized 0-1000 grid. (0,0)=top-left, (1000,1000)=bottom-right, (500,500)=center.\n\n## Strategy\n- Start with a screenshot to see the current screen state.\n- Before every click, state what you are targeting.\n- If the screen shows something unexpected, analyze and adapt.\n- After any action that changes the UI, take a screenshot to verify.\n- For text input, prefer desktop_type_text — it supports Chinese and Unicode.\n- For very small targets, keyboard shortcuts are more reliable than clicking.\n\nWhen done, summarize what you accomplished.",
+			Tools: `["desktop_screenshot","desktop_click","desktop_double_click","desktop_move","desktop_drag","desktop_scroll","desktop_type_text","desktop_key_tap","desktop_clipboard_read","desktop_clipboard_write","desktop_window_list","desktop_window_activate","desktop_window_minimize","desktop_window_maximize","desktop_window_close","desktop_process_list","desktop_mouse_info","desktop_screen_info","desktop_active_window","desktop_sleep"]`,
+		})
+	}
 }
 
 // ── Knowledge methods ──

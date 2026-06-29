@@ -14,6 +14,7 @@ type Config struct {
 	Browser      BrowserConfig   `yaml:"browser" json:"browser"`
 	SpeakEnabled bool            `yaml:"speak_enabled" json:"speak_enabled"`
 	PortMaps     []PortMapEntry  `yaml:"port_maps" json:"port_maps"`
+	DefaultAgent string          `yaml:"default_agent" json:"default_agent"`
 	WorkDir      string          `yaml:"work_dir" json:"work_dir"`
 
 	path string `yaml:"-" json:"-"`
@@ -68,6 +69,7 @@ func DefaultConfig() *Config {
 		},
 		SpeakEnabled: true,
 		PortMaps:     []PortMapEntry{},
+		DefaultAgent: "coordinator",
 		WorkDir: filepath.Join(home, ".beleader", "projects"),
 	}
 }

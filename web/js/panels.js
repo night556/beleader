@@ -1,4 +1,4 @@
-// panels.js — History and Settings panels
+﻿// panels.js — History and Settings panels
 
 function toggleSettings() {
   var panel = document.getElementById('settings-panel');
@@ -7,9 +7,11 @@ function toggleSettings() {
     var bp = document.getElementById('bookmarks-panel');
     var kp = document.getElementById('knowledge-panel');
     var ap = document.getElementById('agents-panel');
+    var tp = document.getElementById('tools-panel');
     if (bp) bp.classList.remove('open');
     if (kp) kp.classList.remove('open');
     if (ap) ap.classList.remove('open');
+    if (tp) tp.classList.remove('open');
     openPanel('settings-panel');
     loadSettings();
   }
@@ -22,9 +24,11 @@ function toggleBookmarks() {
     var sp = document.getElementById('settings-panel');
     var kp = document.getElementById('knowledge-panel');
     var ap = document.getElementById('agents-panel');
+    var tp = document.getElementById('tools-panel');
     if (sp) sp.classList.remove('open');
     if (kp) kp.classList.remove('open');
     if (ap) ap.classList.remove('open');
+    if (tp) tp.classList.remove('open');
     openPanel('bookmarks-panel');
     loadBookmarks();
   }
@@ -37,12 +41,74 @@ function toggleAgents() {
     var sp = document.getElementById('settings-panel');
     var bp = document.getElementById('bookmarks-panel');
     var kp = document.getElementById('knowledge-panel');
+    var tp = document.getElementById('tools-panel');
     if (sp) sp.classList.remove('open');
     if (bp) bp.classList.remove('open');
     if (kp) kp.classList.remove('open');
+    if (tp) tp.classList.remove('open');
     openPanel('agents-panel');
     loadAgents();
   }
+}
+
+function toggleTools() {
+  var panel = document.getElementById('tools-panel');
+  if (panel.classList.contains('open')) { closePanels(); }
+  else {
+    var sp = document.getElementById('settings-panel');
+    var bp = document.getElementById('bookmarks-panel');
+    var kp = document.getElementById('knowledge-panel');
+    var ap = document.getElementById('agents-panel');
+    if (sp) sp.classList.remove('open');
+    if (bp) bp.classList.remove('open');
+    if (kp) kp.classList.remove('open');
+    if (ap) ap.classList.remove('open');
+    openPanel('tools-panel');
+    loadTools();
+  }
+}
+
+function loadTools() {
+  fetch(SERVER_URL + '/api/tools')
+    .then(function(r) { return r.json(); })
+    .then(function(tools) {
+      var container = document.getElementById('tools-list');
+      if (!container) return;
+      if (!tools || tools.length === 0) {
+        container.innerHTML = '<div class="agents-empty">No tools registered</div>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < tools.length; i++) {
+        var t = tools[i];
+        var hasParams = t.parameters && t.parameters.properties && Object.keys(t.parameters.properties).length > 0;
+        var reqProps = (t.parameters && t.parameters.required) || [];
+        html += '<div class="tool-card">' +
+          '<div class="tool-card-header" onclick="this.parentElement.classList.toggle(\'open\')">' +
+            '<div class="tool-card-top">' +
+              '<span class="tool-card-chevron">▶</span>' +
+              '<span class="tool-card-name">' + escapeHtml(t.name) + '</span>' +
+              (hasParams ? '<span class="tool-card-params-hint">' + Object.keys(t.parameters.properties).length + ' params</span>' : '') +
+            '</div>' +
+            '<span class="tool-card-desc">' + escapeHtml(t.description || '') + '</span>' +
+          '</div>';
+        if (hasParams) {
+          html += '<div class="tool-card-body"><table class="tool-params-table"><thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody>';
+          var props = t.parameters.properties;
+          var keys = Object.keys(props);
+          for (var j = 0; j < keys.length; j++) {
+            var p = props[keys[j]];
+            var ptype = p.type || '';
+            if (p.enum) ptype += ' (' + p.enum.join('|') + ')';
+            html += '<tr><td><code>' + escapeHtml(keys[j]) + '</code></td><td>' + escapeHtml(ptype) + '</td><td>' + (reqProps.indexOf(keys[j]) >= 0 ? '✓' : '') + '</td><td>' + escapeHtml(p.description || '') + '</td></tr>';
+          }
+          html += '</tbody></table></div>';
+        }
+        html += '</div>';
+      }
+      container.innerHTML = html;
+    })
+    .catch(function(e) { console.error('loadTools error:', e); });
 }
 
 function openPanel(panelId) {
@@ -56,6 +122,8 @@ function closePanels() {
   document.getElementById('knowledge-panel').classList.remove('open');
   var ap = document.getElementById('agents-panel');
   if (ap) ap.classList.remove('open');
+  var tp = document.getElementById('tools-panel');
+  if (tp) tp.classList.remove('open');
   if (window.innerWidth <= 860) document.body.classList.add('sb-closed');
   document.getElementById('backdrop').classList.remove('open');
 }
@@ -336,14 +404,51 @@ function saveSettings() {
 
 // ── Agents panel CRUD ──
 
+var _toolsCache = [];
+
 function loadAgents() {
-  fetch(SERVER_URL + '/api/agents')
+  Promise.all([
+    fetch(SERVER_URL + '/api/agents').then(function(r) { return r.json(); }),
+    fetch(SERVER_URL + '/api/tools').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    _agentsCache = results[0] || [];
+    _toolsCache = results[1] || [];
+    renderAgentListFiltered();
+    renderDefaultAgentSelect();
+  }).catch(function(e) { console.error('loadAgents error:', e); });
+}
+
+function renderDefaultAgentSelect() {
+  var sel = document.getElementById('set-default-agent');
+  if (!sel) return;
+  fetch(SERVER_URL + '/api/settings')
     .then(function(r) { return r.json(); })
-    .then(function(agents) {
-      _agentsCache = agents || [];
-      renderAgentListFiltered();
+    .then(function(cfg) {
+      var current = cfg.default_agent || 'coordinator';
+      sel.innerHTML = '';
+      for (var i = 0; i < _agentsCache.length; i++) {
+        var name = _agentsCache[i].name;
+        sel.innerHTML += '<option value="' + escapeHtml(name) + '"' + (name === current ? ' selected' : '') + '>' + escapeHtml(name) + '</option>';
+      }
     })
-    .catch(function(e) { console.error('loadAgents error:', e); });
+    .catch(function() {});
+}
+
+function onDefaultAgentChange() {
+  var sel = document.getElementById('set-default-agent');
+  if (!sel) return;
+  var newVal = sel.value;
+  fetch(SERVER_URL + '/api/settings')
+    .then(function(r) { return r.json(); })
+    .then(function(cfg) {
+      cfg.default_agent = newVal;
+      return fetch(SERVER_URL + '/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg)
+      });
+    })
+    .catch(function() {});
 }
 
 function renderAgentListFiltered() {
@@ -361,20 +466,46 @@ function renderAgentListFiltered() {
     return;
   }
 
+  var typeLabels = {
+    'coordinator': 'Coordinator',
+    'tool_agent': t('agents.type_tool_agent'),
+    'skill_agent': t('agents.type_skill_agent')
+  };
+
   var html = '';
   for (var i = 0; i < filtered.length; i++) {
     var a = filtered[i];
-    var preview = (a.content || '').substring(0, 200);
+    var atype = a.type || '';
+    var typeLabel = typeLabels[atype] || t('agents.type_general');
+    var typeClass = atype ? 'agent-type-badge agent-type-' + atype : 'agent-type-badge';
+
+    // Parse tools
+    var toolNames = [];
+    try { if (a.tools) toolNames = JSON.parse(a.tools); } catch(e) {}
+
+    // Build tool chips with descriptions
+    var toolsHtml = '';
+    for (var j = 0; j < toolNames.length; j++) {
+      var desc = '';
+      for (var k = 0; k < _toolsCache.length; k++) {
+        if (_toolsCache[k].name === toolNames[j]) { desc = _toolsCache[k].description || ''; break; }
+      }
+      toolsHtml += '<span class="agent-tool-chip" title="' + escapeHtml(desc) + '">' + escapeHtml(toolNames[j]) + '</span>';
+    }
+
     html += '<div class="agent-card" data-agent-id="' + a.id + '">';
     html += '<div class="agent-card-head">';
     html += '<span class="agent-card-name">' + escapeHtml(a.name || '') + '</span>';
+    html += '<span class="' + typeClass + '">' + escapeHtml(typeLabel) + '</span>';
     html += '<span class="agent-card-desc">' + escapeHtml(a.desc || '') + '</span>';
     html += '<span class="agent-card-actions">';
     html += '<button class="agent-card-btn" onclick="openAgentEditor(' + a.id + ')" title="' + t('agents.edit') + '">✎</button>';
     html += '<button class="agent-card-btn delete" onclick="deleteAgent(' + a.id + ',\'' + escapeHtml(a.name || '') + '\')" title="' + t('agents.delete') + '">✕</button>';
     html += '</span>';
     html += '</div>';
-    html += '<div class="agent-card-preview">' + escapeHtml(preview) + '</div>';
+    if (toolsHtml) {
+      html += '<div class="agent-card-tools">' + toolsHtml + '</div>';
+    }
     html += '</div>';
   }
   container.innerHTML = html;
@@ -389,13 +520,41 @@ function openAgentEditor(id) {
   }
 
   var title = agent ? t('agents.edit_title') : t('agents.new_title');
+  var currentType = agent ? (agent.type || '') : '';
+  var currentTools = [];
+  var currentToolAgents = [];
+  try { if (agent && agent.tools) currentTools = JSON.parse(agent.tools); } catch(e) {}
+  try { if (agent && agent.tool_agents) currentToolAgents = JSON.parse(agent.tool_agents); } catch(e) {}
+
+  var showTools = currentType === 'tool_agent' || currentType === 'skill_agent';
+  var showToolAgents = currentType === 'skill_agent';
+
   var body =
     '<div class="modal-field"><label>' + t('agents.name') + '</label>' +
     '<input type="text" id="agent-name-input" class="modal-input" value="' + escapeHtml(agent ? agent.name : '') + '"></div>' +
     '<div class="modal-field"><label>' + t('agents.desc') + '</label>' +
     '<input type="text" id="agent-desc-input" class="modal-input" value="' + escapeHtml(agent ? agent.desc : '') + '"></div>' +
+    '<div class="modal-field"><label>' + t('agents.type') + '</label>' +
+    '<select id="agent-type-select" class="modal-select">' +
+    '<option value="">' + t('agents.type_general') + '</option>' +
+    '<option value="tool_agent"' + (currentType === 'tool_agent' ? ' selected' : '') + '>' + t('agents.type_tool_agent') + '</option>' +
+    '<option value="skill_agent"' + (currentType === 'skill_agent' ? ' selected' : '') + '>' + t('agents.type_skill_agent') + '</option>' +
+    '</select></div>' +
     '<div class="modal-field"><label>' + t('agents.content') + '</label>' +
-    '<textarea id="agent-content-input" class="modal-textarea">' + escapeHtml(agent ? agent.content : '') + '</textarea></div>';
+    '<textarea id="agent-content-input" class="modal-textarea">' + escapeHtml(agent ? agent.content : '') + '</textarea></div>' +
+    '<div id="agent-tools-section" style="display:' + (showTools ? '' : 'none') + '">' +
+    '<div class="modal-field"><label>' + t('agents.tools') + '</label>' +
+    '<div id="agent-tools-chips" class="tools-chips"></div>' +
+    '<input type="text" id="agent-tools-search" class="modal-input" placeholder="' + t('agents.tools_search') + '" style="margin-bottom:6px">' +
+    '<div id="agent-tools-picker" class="tools-picker"><span class="modal-loading">Loading...</span></div></div>' +
+    '</div>' +
+    '<div id="agent-toolagents-section" style="display:' + (showToolAgents ? '' : 'none') + '">' +
+    '<div class="modal-field"><label>' + t('agents.tool_agents') + '</label>' +
+    '<div id="agent-toolagents-chips" class="tools-chips"></div>' +
+    '<input type="text" id="agent-toolagents-search" class="modal-input" placeholder="' + t('agents.toolagents_search') + '" style="margin-bottom:6px">' +
+    '<div id="agent-toolagents-picker" class="tools-picker"><span class="modal-loading">Loading...</span></div></div>' +
+    '</div>';
+
 
   openModal({
     title: title,
@@ -403,6 +562,120 @@ function openAgentEditor(id) {
     wide: true,
     confirmText: t('agents.save'),
     onOpen: function() {
+      // Shared selected sets for the modal (exposed on window for inline onclick access)
+      window._modalSelectedTools = currentTools.slice();
+      window._modalSelectedToolAgents = currentToolAgents.slice();
+      var allTools = [];
+      var allToolAgents = [];
+
+      window._renderToolChips = function() {
+        var container = document.getElementById('agent-tools-chips');
+        if (!container) return;
+        var sel = window._modalSelectedTools;
+        if (sel.length === 0) {
+          container.innerHTML = '<span class="modal-hint">' + t('agents.no_tools') + '</span>';
+          return;
+        }
+        var html = '';
+        for (var i = 0; i < sel.length; i++) {
+          html += '<span class="tool-chip">' + escapeHtml(sel[i]) + '<button class="tool-chip-remove" onclick="window._removeTool(\'' + escapeHtml(sel[i]) + '\')">×</button></span>';
+        }
+        container.innerHTML = html;
+      };
+
+      window._renderToolAgentsChips = function() {
+        var container = document.getElementById('agent-toolagents-chips');
+        if (!container) return;
+        var sel = window._modalSelectedToolAgents;
+        if (sel.length === 0) {
+          container.innerHTML = '<span class="modal-hint">' + t('agents.no_tool_agents') + '</span>';
+          return;
+        }
+        var html = '';
+        for (var i = 0; i < sel.length; i++) {
+          html += '<span class="tool-chip">' + escapeHtml(sel[i]) + '<button class="tool-chip-remove" onclick="window._removeToolAgent(\'' + escapeHtml(sel[i]) + '\')">×</button></span>';
+        }
+        container.innerHTML = html;
+      };
+
+      window._addTool = function(name) {
+        if (window._modalSelectedTools.indexOf(name) < 0) {
+          window._modalSelectedTools.push(name);
+          window._renderToolChips();
+          window._refreshToolPicker();
+        }
+      };
+
+      window._removeTool = function(name) {
+        var idx = window._modalSelectedTools.indexOf(name);
+        if (idx >= 0) window._modalSelectedTools.splice(idx, 1);
+        window._renderToolChips();
+        window._refreshToolPicker();
+      };
+
+      window._addToolAgent = function(name) {
+        if (window._modalSelectedToolAgents.indexOf(name) < 0) {
+          window._modalSelectedToolAgents.push(name);
+          window._renderToolAgentsChips();
+          window._refreshToolAgentsPicker();
+        }
+      };
+
+      window._removeToolAgent = function(name) {
+        var idx = window._modalSelectedToolAgents.indexOf(name);
+        if (idx >= 0) window._modalSelectedToolAgents.splice(idx, 1);
+        window._renderToolAgentsChips();
+        window._refreshToolAgentsPicker();
+      };
+
+      window._refreshToolPicker = function() {
+        var container = document.getElementById('agent-tools-picker');
+        var query = (document.getElementById('agent-tools-search').value || '').toLowerCase();
+        if (!container) return;
+        var html = '';
+        for (var i = 0; i < allTools.length; i++) {
+          var t = allTools[i];
+          if (query && t.name.toLowerCase().indexOf(query) < 0 && (t.description || '').toLowerCase().indexOf(query) < 0) continue;
+          var sel = window._modalSelectedTools.indexOf(t.name) >= 0;
+          html += '<div class="tool-pick-item' + (sel ? ' selected' : '') + '" onclick="' + (sel ? 'window._removeTool' : 'window._addTool') + '(\'' + escapeHtml(t.name) + '\')"><span class="tool-pick-name">' + escapeHtml(t.name) + (sel ? ' ✓' : '') + '</span><span class="tool-pick-desc">' + escapeHtml(t.description || '') + '</span></div>';
+        }
+        container.innerHTML = html || '<span class="modal-hint">No matching tools</span>';
+      };
+
+      window._refreshToolAgentsPicker = function() {
+        var container = document.getElementById('agent-toolagents-picker');
+        var query = (document.getElementById('agent-toolagents-search').value || '').toLowerCase();
+        if (!container) return;
+        var html = '';
+        for (var i = 0; i < allToolAgents.length; i++) {
+          var a = allToolAgents[i];
+          if (query && a.name.toLowerCase().indexOf(query) < 0 && (a.desc || '').toLowerCase().indexOf(query) < 0) continue;
+          var sel = window._modalSelectedToolAgents.indexOf(a.name) >= 0;
+          html += '<div class="tool-pick-item' + (sel ? ' selected' : '') + '" onclick="' + (sel ? 'window._removeToolAgent' : 'window._addToolAgent') + '(\'' + escapeHtml(a.name) + '\')"><span class="tool-pick-name">' + escapeHtml(a.name) + (sel ? ' ✓' : '') + '</span><span class="tool-pick-desc">' + escapeHtml(a.desc || '') + '</span></div>';
+        }
+        container.innerHTML = html || '<span class="modal-hint">No matching tool agents</span>';
+      };
+
+      fetch(SERVER_URL + '/api/tools')
+        .then(function(r) { return r.json(); })
+        .then(function(tools) {
+          allTools = tools || [];
+          window._renderToolChips();
+          window._refreshToolPicker();
+          var ts = document.getElementById('agent-tools-search');
+          if (ts) ts.addEventListener('input', window._refreshToolPicker);
+        }).catch(function() { var tp = document.getElementById('agent-tools-picker'); if (tp) tp.innerHTML = '<span class="modal-hint">Failed to load tools</span>'; });
+
+      fetch(SERVER_URL + '/api/agents')
+        .then(function(r) { return r.json(); })
+        .then(function(agents) {
+          allToolAgents = (agents || []).filter(function(a) { return a.type === 'tool_agent'; });
+          window._renderToolAgentsChips();
+          window._refreshToolAgentsPicker();
+          var tas = document.getElementById('agent-toolagents-search');
+          if (tas) tas.addEventListener('input', window._refreshToolAgentsPicker);
+        }).catch(function() { var tap = document.getElementById('agent-toolagents-picker'); if (tap) tap.innerHTML = '<span class="modal-hint">Failed to load</span>'; });
+
       var ta = document.getElementById('agent-content-input');
       if (ta) {
         ta.addEventListener('keydown', function(e) {
@@ -414,16 +687,28 @@ function openAgentEditor(id) {
           }
         });
       }
+
+      var typeSel = document.getElementById('agent-type-select');
+      if (typeSel) {
+        typeSel.addEventListener('change', function() {
+          var v = typeSel.value;
+          document.getElementById('agent-tools-section').style.display = (v === 'tool_agent' || v === 'skill_agent') ? '' : 'none';
+          document.getElementById('agent-toolagents-section').style.display = (v === 'skill_agent') ? '' : 'none';
+        });
+      }
     },
     onConfirm: function() {
       var name = document.getElementById('agent-name-input').value.trim();
       var desc = document.getElementById('agent-desc-input').value.trim();
       var content = document.getElementById('agent-content-input').value;
+      var type = document.getElementById('agent-type-select').value;
       if (!name || !content) {
         toast(name ? t('agents.content') + ' required' : t('agents.name') + ' required');
         return false;
       }
-      var payload = {name: name, desc: desc, content: content};
+      var tools = window._modalSelectedTools || [];
+      var toolAgents = window._modalSelectedToolAgents || [];
+      var payload = {name: name, desc: desc, content: content, type: type, tools: JSON.stringify(tools), tool_agents: JSON.stringify(toolAgents)};
       if (agent) {
         fetch(SERVER_URL + '/api/agents/' + agent.id, {
           method: 'PUT',
@@ -546,7 +831,7 @@ function loadBookmarks() {
           '<div class="bkm-body">' +
             '<div class="bkm-role">' + (roleLabels[m.role] || m.role) + ' · ' + time + '</div>' +
             '<div class="bkm-text">' + preview + '</div>' +
-          '</div>' +
+          '</div>' ;
           '<button class="bkm-unstar" onclick="event.stopPropagation();toggleMessageBookmark(' + m.id + ', false)" title="' + t('bookmark.unstar_tip') + '">✕</button>' +
         '</div>';
       }
