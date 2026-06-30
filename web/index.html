@@ -34,6 +34,7 @@
   <div class="sidebar-actions">
     <button class="sidebar-action" onclick="toggleTools()" data-i18n="topbar.tools">Tools</button>
 	    <button class="sidebar-action" onclick="toggleAgents()" data-i18n="topbar.agents">Agents</button>
+    <button class="sidebar-action" onclick="toggleMCP()" data-i18n="topbar.mcp">MCP</button>
     <button class="sidebar-action" onclick="toggleKnowledge()" data-i18n="topbar.knowledge">知识库</button>
     <button class="sidebar-action" onclick="toggleSettings()" data-i18n="topbar.settings">设置</button>
   </div>
@@ -206,10 +207,27 @@
     <div class="set-section">
       <div class="set-row"><label data-i18n="agents.default_agent">默认 Agent</label><select id="set-default-agent" onchange="onDefaultAgentChange()"><option value="coordinator">coordinator</option></select></div>
       <div class="set-row" style="display:flex;gap:8px;align-items:center;margin-top:12px">
-        <input type="text" id="agents-search" data-i18n-placeholder="agents.search_placeholder" placeholder="搜索 Agent..." oninput="renderAgentListFiltered()" style="flex:1">
+        <input type="text" id="agents-search" data-i18n-placeholder="agents.search_placeholder" placeholder="搜索 Agent..." oninput="renderAgentListFiltered()">
         <button class="btn-add" onclick="openAgentEditor(null)" data-i18n="agents.new">+ 新建</button>
       </div>
       <div id="agents-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MCP panel -->
+<div class="settings-panel" id="mcp-panel">
+  <div class="panel-head">
+    <h3 data-i18n="mcp.title">MCP Servers</h3>
+    <button class="panel-close" onclick="toggleMCP()">✕</button>
+  </div>
+  <div class="panel-body" id="mcp-body">
+    <div class="set-section">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <input type="text" id="mcp-search" data-i18n-placeholder="mcp.search_placeholder" placeholder="搜索 MCP..." oninput="renderMCPListFiltered()">
+        <button class="btn-add" onclick="openMCPEditor(null)" data-i18n="mcp.new">+ 新建</button>
+      </div>
+      <div id="mcp-list"></div>
     </div>
   </div>
 </div>

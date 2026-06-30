@@ -14,6 +14,7 @@ import (
 	"beleader/backend/config"
 	"beleader/backend/db"
 	"beleader/backend/llm"
+	"beleader/backend/mcp"
 	"beleader/backend/tools"
 
 	"github.com/gin-gonic/gin"
@@ -77,6 +78,10 @@ func runServer(cfg *config.Config, database *db.DB, llmClient *llm.Client, port 
 
 	h := api.NewHandler(database, llmClient, cfg)
 
+	mcpMgr := mcp.NewManager(database)
+	mcpMgr.Start()
+	h.MCPMgr = mcpMgr
+
 	if OnHandlerCreated != nil {
 		OnHandlerCreated(h)
 	}
@@ -111,6 +116,7 @@ func runServer(cfg *config.Config, database *db.DB, llmClient *llm.Client, port 
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 		fmt.Println("\nShutting down...")
+		mcpMgr.Stop()
 		tools.Cleanup()
 	}
 }

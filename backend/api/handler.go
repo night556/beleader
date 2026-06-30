@@ -17,6 +17,7 @@ import (
 	"beleader/backend/config"
 	"beleader/backend/db"
 	"beleader/backend/llm"
+	"beleader/backend/mcp"
 	"beleader/backend/session"
 	"beleader/backend/tools"
 
@@ -34,6 +35,7 @@ type Handler struct {
 	SessionMgr      *session.Manager
 	Config          *config.Config
 	SSE             *SSEBroker
+	MCPMgr          *mcp.Manager
 	hcSlots         chan struct{}
 	hcSessions      sync.Map
 	pauseChs        map[string]chan struct{}
@@ -146,6 +148,14 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/knowledge/search", h.handleSearchKnowledge)
 		api.PUT("/knowledge/:id", h.handleUpdateKnowledge)
 		api.DELETE("/knowledge/:id", h.handleDeleteKnowledge)
+
+		api.GET("/mcp/servers", h.handleListMCPServers)
+		api.POST("/mcp/servers", h.handleCreateMCPServer)
+		api.PUT("/mcp/servers/:id", h.handleUpdateMCPServer)
+		api.DELETE("/mcp/servers/:id", h.handleDeleteMCPServer)
+		api.POST("/mcp/servers/:id/test", h.handleTestMCPServer)
+		api.POST("/mcp/servers/:id/connect", h.handleConnectMCPServer)
+		api.POST("/mcp/servers/:id/disconnect", h.handleDisconnectMCPServer)
 
 		api.GET("/files/view", gin.WrapF(tools.FileViewHandler))
 		api.POST("/files/open", h.handleFileOpen)

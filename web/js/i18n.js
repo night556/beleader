@@ -63,6 +63,7 @@ var _lang = 'en';
     'topbar.bookmarks':           { en: 'Bookmarks', zh: '收藏' },
     'topbar.tools':               { en: 'Tools', zh: '工具' },
     'topbar.agents':              { en: 'Agents', zh: 'Agents' },
+    'topbar.mcp':                 { en: 'MCP', zh: 'MCP' },
     'topbar.knowledge':           { en: 'Knowledge', zh: '知识库' },
     'topbar.settings':            { en: 'Settings', zh: '设置' },
 
@@ -93,6 +94,17 @@ var _lang = 'en';
     'agents.toolagents_search':   { en: 'Search tool agents...', zh: '搜索工具 Agent...' },
     'agents.no_tools':            { en: 'No tools selected. Search below to add.', zh: '未选择工具，在下方搜索添加。' },
     'agents.no_tool_agents':      { en: 'No tool agents selected.', zh: '未选择工具 Agent。' },
+
+    // MCP panel
+    'mcp.title':                  { en: 'MCP Servers', zh: 'MCP Servers' },
+    'mcp.search_placeholder':     { en: 'Search MCP...', zh: '搜索 MCP...' },
+    'mcp.new':                    { en: '+ New', zh: '+ 新建' },
+    'mcp.connect':                { en: 'Connect', zh: '连接' },
+    'mcp.disconnect':             { en: 'Disconnect', zh: '断开' },
+    'mcp.test':                   { en: 'Test', zh: '测试' },
+    'mcp.edit':                   { en: 'Edit', zh: '编辑' },
+    'mcp.delete':                 { en: 'Delete', zh: '删除' },
+    'mcp.empty':                  { en: 'No MCP servers configured', zh: '暂无 MCP server' },
 
     // Modal / clear context
     'modal.cancel':               { en: 'Cancel', zh: '取消' },

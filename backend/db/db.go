@@ -44,7 +44,7 @@ func (db *DB) Close() error {
 }
 
 func (db *DB) autoMigrate() error {
-	if err := db.GORM.AutoMigrate(&Session{}, &ProjectRef{}, &Message{}, &Agent{}, &ProjectAgent{}, &Knowledge{}); err != nil {
+	if err := db.GORM.AutoMigrate(&Session{}, &ProjectRef{}, &Message{}, &Agent{}, &ProjectAgent{}, &Knowledge{}, &MCPServer{}); err != nil {
 		return err
 	}
 
@@ -90,6 +90,11 @@ func (db *DB) autoMigrate() error {
 		db.GORM.Exec("ALTER TABLE agents ADD COLUMN tools TEXT DEFAULT '[]'")
 		db.GORM.Exec("ALTER TABLE agents ADD COLUMN tool_agents TEXT DEFAULT '[]'")
 		db.GORM.Exec("PRAGMA user_version = 2")
+	}
+
+	if schemaVersion < 3 {
+		// MCPServer table created by AutoMigrate above; mark version
+		db.GORM.Exec("PRAGMA user_version = 3")
 	}
 
 	// Seed system tool agents
@@ -187,6 +192,26 @@ type Knowledge struct {
 }
 
 func (Knowledge) TableName() string { return "knowledges" }
+
+// ── MCPServer ──
+
+type MCPServer struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name      string    `gorm:"size:64;uniqueIndex" json:"name"`
+	Type      string    `gorm:"size:16" json:"type"`              // "stdio" | "http"
+	Enabled   bool      `gorm:"default:false" json:"enabled"`
+	Command   string    `gorm:"size:512;default:''" json:"command"`
+	Args      string    `gorm:"type:text;default:'[]'" json:"args"`
+	Env       string    `gorm:"type:text;default:'{}'" json:"env"`
+	URL       string    `gorm:"size:512;default:''" json:"url"`
+	Headers   string    `gorm:"type:text;default:'{}'" json:"headers"`
+	Status    string    `gorm:"size:16;default:'disconnected'" json:"status"`
+	Error     string    `gorm:"size:512;default:''" json:"error"`
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+func (MCPServer) TableName() string { return "mcp_servers" }
 
 // ── Session methods ──
 
@@ -762,4 +787,49 @@ func (db *DB) SearchKnowledgeByQuery(q string, limit, offset int) ([]Knowledge, 
 	err := db.GORM.Where("title LIKE ? OR content LIKE ?", query, query).
 		Order("created_at DESC").Limit(limit).Offset(offset).Find(&knowledge).Error
 	return knowledge, count, err
+}
+
+// ── MCPServer methods ──
+
+func (db *DB) CreateMCPServer(s *MCPServer) error {
+	return db.GORM.Create(s).Error
+}
+
+func (db *DB) UpdateMCPServer(s *MCPServer) error {
+	return db.GORM.Model(&MCPServer{}).Where("id = ?", s.ID).Updates(map[string]any{
+		"name":    s.Name,
+		"type":    s.Type,
+		"enabled": s.Enabled,
+		"command": s.Command,
+		"args":    s.Args,
+		"env":     s.Env,
+		"url":     s.URL,
+		"headers": s.Headers,
+		"status":  s.Status,
+		"error":   s.Error,
+	}).Error
+}
+
+func (db *DB) DeleteMCPServer(id int64) error {
+	return db.GORM.Where("id = ?", id).Delete(&MCPServer{}).Error
+}
+
+func (db *DB) GetMCPServerByID(id int64) (*MCPServer, error) {
+	var s MCPServer
+	if err := db.GORM.First(&s, id).Error; err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (db *DB) ListMCPServers() ([]MCPServer, error) {
+	var servers []MCPServer
+	err := db.GORM.Order("name ASC").Find(&servers).Error
+	return servers, err
+}
+
+func (db *DB) ListEnabledMCPServers() ([]MCPServer, error) {
+	var servers []MCPServer
+	err := db.GORM.Where("enabled = 1").Order("name ASC").Find(&servers).Error
+	return servers, err
 }
