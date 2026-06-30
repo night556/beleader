@@ -57,8 +57,6 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 	switch opts.AgentType {
 	case "main":
 		sysPrompt += "\n\n" + session.MainPrompt
-		sysPrompt += "\n\n" + session.DesktopRules
-		sysPrompt += "\n\n" + session.BrowserRules
 	case "coordinator":
 		prompt := session.CoordinatorPrompt
 		if opts.CustomPrompt != "" {
@@ -127,8 +125,8 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		})
 		tools.RegisterCoordinatorTools(
 			sessionMgr,
-			func(name, task string, enableBrowser, enableDesktop bool) (string, error) {
-				return h.spawnWorker(sessionID, refID, name, task, enableBrowser, enableDesktop)
+			func(agentName, name, task string, enableBrowser, enableDesktop bool) (string, error) {
+				return h.spawnWorker(sessionID, refID, agentName, name, task, enableBrowser, enableDesktop)
 			},
 			func(workerName string) (string, error) {
 				return h.terminateWorker(refID, workerName)

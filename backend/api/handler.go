@@ -182,9 +182,21 @@ func (h *Handler) handleChat(c *gin.Context) {
 
 	tools.BrowserHeadless = h.Config.Browser.Headless
 	tools.BrowserProfileDir = h.Config.BrowserProfileDir()
-	tools.SpeakEnabled = h.Config.SpeakEnabled
-	tools.RegisterAll(h.SessionMgr, h.Config.WorkDir, func(title, prompt string) (string, string, error) {
-		return h.CreateProject(title, prompt)
+	// Main is the platform controller: read-only file tools, web, project/agent/knowledge/MCP management.
+	tools.RegisterReadFile(h.SessionMgr)
+	tools.RegisterReadDir(h.SessionMgr)
+	tools.RegisterSearchContent(h.SessionMgr, h.Config.WorkDir)
+	tools.RegisterSearchFiles(h.SessionMgr, h.Config.WorkDir)
+	tools.RegisterRunCommand(h.SessionMgr, h.Config.WorkDir)
+	tools.RegisterWebTools(h.SessionMgr)
+	h.SessionMgr.RegisterTool("create_project", func(ctx context.Context, args string) *session.ToolResult {
+		var p struct{ Title string `json:"title"`; Prompt string `json:"prompt"` }
+		json.Unmarshal([]byte(args), &p)
+		refID, _, err := h.CreateProject(p.Title, p.Prompt)
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		return &session.ToolResult{Content: fmt.Sprintf("Project created. ref_id=%s", refID)}
 	})
 	tools.RegisterProjectManagementTools(
 		h.SessionMgr,
@@ -192,11 +204,10 @@ func (h *Handler) handleChat(c *gin.Context) {
 		h.getProjectStatusForLLM,
 		h.searchConversationForLLM,
 	)
-	tools.RegisterHTMLTools(h.SessionMgr)
-	tools.RegisterSpeakTool(h.SessionMgr)
-	h.RegisterAgentTools()
 	h.RegisterDeleteProjectTool()
 	h.RegisterInterveneProjectTool()
+	h.RegisterAgentTools()
+	h.RegisterMCPTools()
 
 	if len(req.Images) > 0 {
 		multiContent := buildTextAndImageMultiContent(req.Message, req.Images)
@@ -267,7 +278,7 @@ func (h *Handler) getWorkerByName(refID, workerName string) (*db.ProjectAgent, e
 }
 
 // spawnWorker creates a Worker session and starts its RunLoop.
-func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, task string, enableBrowser, enableDesktop bool) (string, error) {
+func (h *Handler) spawnWorker(coordinatorSessionID, refID, agentName, name, task string, enableBrowser, enableDesktop bool) (string, error) {
 	// Check if a worker with this name already exists
 	if existing, _ := h.getWorkerByName(refID, name); existing != nil {
 		if existing.Status == "running" {
@@ -279,9 +290,9 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, task string, en
 	agentType := "worker"
 	var toolNames []string
 
-	agent, err := h.DB.GetAgentByName(name)
+	agent, err := h.DB.GetAgentByName(agentName)
 	if err != nil {
-		return "", fmt.Errorf("no agent template named '%s'. Use list_agents to see available templates.", name)
+		return "", fmt.Errorf("no agent template named '%s'. Use list_agents to see available templates.", agentName)
 	}
 	customPrompt := agent.Content
 	json.Unmarshal([]byte(agent.Tools), &toolNames)
@@ -291,7 +302,7 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, task string, en
 
 	h.DB.CreateSession(workerSessionID, "running")
 	h.acquireHC(workerSessionID)
-	h.DB.AddProjectAgent(refID, name, workerSessionID, agentType, customPrompt, enableBrowser, enableDesktop)
+	h.DB.AddProjectAgent(refID, name, workerSessionID, agentType, customPrompt, agentName, enableBrowser, enableDesktop)
 
 	h.Notify(SessionEvent{
 		Type: "worker_spawned",
@@ -397,7 +408,7 @@ func (h *Handler) interveneWorker(refID, workerName, message string) (string, er
 			CustomPrompt:  agent.Prompt,
 			EnableBrowser: agent.EnableBrowser,
 			EnableDesktop: agent.EnableDesktop,
-			ToolNames:     h.resolveToolNames(workerName),
+			ToolNames:     h.resolveToolNames(agent.AgentTemplate),
 		})
 
 	h.Notify(SessionEvent{
@@ -599,6 +610,183 @@ func (h *Handler) RegisterInterveneProjectTool() {
 
 		return &session.ToolResult{Content: fmt.Sprintf("Message sent to project %s", p.RefID)}
 	})
+}
+
+// RegisterMCPTools registers MCP management tools on the shared SessionMgr for main.
+func (h *Handler) RegisterMCPTools() {
+	tools.RegisterMCPTools(
+		h.SessionMgr,
+		func() (string, error) {
+			servers, err := h.DB.ListMCPServers()
+			if err != nil {
+				return "", err
+			}
+			if h.MCPMgr != nil {
+				connected := h.MCPMgr.GetConnectedServers()
+				connectedSet := make(map[string]bool, len(connected))
+				for _, name := range connected {
+					connectedSet[name] = true
+				}
+				for i := range servers {
+					if connectedSet[servers[i].Name] {
+						servers[i].Status = "connected"
+					}
+				}
+			}
+			b, _ := json.Marshal(servers)
+			return string(b), nil
+		},
+		func(name, mcpType, command, args, env, url, headers string, enabled bool) (string, error) {
+			s := db.MCPServer{
+				Name: name, Type: mcpType, Enabled: enabled,
+				Command: command, Args: args, Env: env,
+				URL: url, Headers: headers,
+			}
+			if err := h.DB.CreateMCPServer(&s); err != nil {
+				return "", err
+			}
+			if enabled && h.MCPMgr != nil {
+				if err := h.MCPMgr.Connect(s); err != nil {
+					return fmt.Sprintf("Created but connect failed: %v", err), nil
+				}
+				return fmt.Sprintf("MCP server '%s' created and connected.", name), nil
+			}
+			return fmt.Sprintf("MCP server '%s' created.", name), nil
+		},
+		func(name, newName, mcpType, command, args, env, url, headers string, enabled bool) (string, error) {
+			servers, err := h.DB.ListMCPServers()
+			if err != nil {
+				return "", err
+			}
+			var existing *db.MCPServer
+			for i := range servers {
+				if servers[i].Name == name {
+					existing = &servers[i]
+					break
+				}
+			}
+			if existing == nil {
+				return "", fmt.Errorf("MCP server '%s' not found", name)
+			}
+			s := *existing
+			if newName != "" {
+				s.Name = newName
+			}
+			if mcpType != "" {
+				s.Type = mcpType
+			}
+			if command != "" {
+				s.Command = command
+			}
+			if args != "" {
+				s.Args = args
+			}
+			if env != "" {
+				s.Env = env
+			}
+			if url != "" {
+				s.URL = url
+			}
+			if headers != "" {
+				s.Headers = headers
+			}
+			s.Enabled = enabled
+			if err := h.DB.UpdateMCPServer(&s); err != nil {
+				return "", err
+			}
+			nameChanged := newName != "" && newName != name
+			if existing.Enabled {
+				if !enabled || nameChanged {
+					if h.MCPMgr != nil {
+						h.MCPMgr.Disconnect(existing.Name)
+					}
+				}
+			}
+			if enabled && h.MCPMgr != nil {
+				h.MCPMgr.Connect(s)
+			}
+			return fmt.Sprintf("MCP server '%s' updated.", s.Name), nil
+		},
+		func(name string) (string, error) {
+			servers, err := h.DB.ListMCPServers()
+			if err != nil {
+				return "", err
+			}
+			var found *db.MCPServer
+			for i := range servers {
+				if servers[i].Name == name {
+					found = &servers[i]
+					break
+				}
+			}
+			if found == nil {
+				return "", fmt.Errorf("MCP server '%s' not found", name)
+			}
+			if h.MCPMgr != nil {
+				h.MCPMgr.Disconnect(found.Name)
+			}
+			if err := h.DB.DeleteMCPServer(found.ID); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("MCP server '%s' deleted.", name), nil
+		},
+		func(name string) (string, error) {
+			servers, err := h.DB.ListMCPServers()
+			if err != nil {
+				return "", err
+			}
+			var found *db.MCPServer
+			for i := range servers {
+				if servers[i].Name == name {
+					found = &servers[i]
+					break
+				}
+			}
+			if found == nil {
+				return "", fmt.Errorf("MCP server '%s' not found", name)
+			}
+			if h.MCPMgr == nil {
+				return "", fmt.Errorf("MCP manager not initialized")
+			}
+			if err := h.MCPMgr.Connect(*found); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("MCP server '%s' connected.", name), nil
+		},
+		func(name string) (string, error) {
+			if h.MCPMgr == nil {
+				return "", fmt.Errorf("MCP manager not initialized")
+			}
+			if err := h.MCPMgr.Disconnect(name); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("MCP server '%s' disconnected.", name), nil
+		},
+		func(name string) (string, error) {
+			servers, err := h.DB.ListMCPServers()
+			if err != nil {
+				return "", err
+			}
+			var found *db.MCPServer
+			for i := range servers {
+				if servers[i].Name == name {
+					found = &servers[i]
+					break
+				}
+			}
+			if found == nil {
+				return "", fmt.Errorf("MCP server '%s' not found", name)
+			}
+			if h.MCPMgr == nil {
+				return "", fmt.Errorf("MCP manager not initialized")
+			}
+			count, names, err := h.MCPMgr.TestConnection(*found)
+			if err != nil {
+				return "", fmt.Errorf("test failed: %v", err)
+			}
+			return fmt.Sprintf("Test succeeded. %d tools: %v", count, names), nil
+		},
+	)
 }
 
 func (h *Handler) insertUserMessage(sessionID, message string, images []string) {

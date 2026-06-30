@@ -19,9 +19,6 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-// SpeakEnabled controls whether the speak TTS tool is registered.
-var SpeakEnabled bool
-
 func readFileToolForVision(vision bool) openai.Tool {
 	if !vision {
 		return readFileTool
@@ -161,19 +158,19 @@ func BaseTools(vision bool) []openai.Tool {
 	}
 }
 
-// MainTools returns tools for the main chat session.
+// MainTools returns tools for the main chat session (platform controller).
+// Main manages the BeLeader platform itself — projects, agents, knowledge, MCP servers —
+// and has read-only access to files and web for research. It does NOT write files or execute commands.
 func MainTools(vision bool) []openai.Tool {
-	tools := BaseTools(vision)
-	tools = append(tools, createProjectTool)
-	tools = append(tools, listProjectsTool, getProjectStatusTool, searchConversationTool, deleteProjectTool)
-	tools = append(tools, showHTMLTool, closeHTMLTool, listHTMLsTool, focusSessionTool, showFileTool)
-	tools = append(tools, interveneProjectTool)
-	if SpeakEnabled {
-		tools = append(tools, speakTool)
+	return []openai.Tool{
+		readFileToolForVision(vision), readDirTool, searchContentTool, searchFilesTool,
+		runCommandTool,
+		webSearchTool, webFetchTool,
+		createProjectTool, listProjectsTool, getProjectStatusTool, searchConversationTool, deleteProjectTool, interveneProjectTool,
+		listAgentsTool, createAgentTool, editAgentTool, deleteAgentTool,
+		searchKnowledgeTool, saveKnowledgeTool, deleteKnowledgeTool,
+		listMCPServersTool, createMCPServerTool, updateMCPServerTool, deleteMCPServerTool, connectMCPServerTool, disconnectMCPServerTool, testMCPServerTool,
 	}
-	tools = append(tools, listAgentsTool, createAgentTool, editAgentTool, deleteAgentTool)
-	tools = append(tools, searchKnowledgeTool, saveKnowledgeTool, deleteKnowledgeTool)
-	return tools
 }
 
 // CoordinatorTools returns tools for the Coordinator agent.
@@ -206,7 +203,7 @@ func RegisterAll(mgr *session.Manager, workDir string, createProjectCallback fun
 
 func RegisterCoordinatorTools(
 	mgr *session.Manager,
-	spawnWorkerFn func(name, task string, enableBrowser, enableDesktop bool) (string, error),
+	spawnWorkerFn func(agentName, name, task string, enableBrowser, enableDesktop bool) (string, error),
 	terminateWorkerFn func(workerName string) (string, error),
 	deleteWorkerFn func(workerName string) (string, error),
 	interveneWorkerFn func(workerName, message string) (string, error),
@@ -500,16 +497,17 @@ var spawnWorkerTool = openai.Tool{
 	Type: "function",
 	Function: &openai.FunctionDefinition{
 		Name:        "spawn_worker",
-		Description: "Create a new Worker from an agent template. Name must match an existing agent — use list_agents to see available templates. Worker names must be unique per project — use list_workers first to check what exists. To reuse an existing Worker, use intervene_worker. If unsure which template to use, 'general' is always available.",
+		Description: "Create a new Worker from an agent template. Use list_agents to see available templates, then pass the template name as agent_name. Worker names must be unique per project — use list_workers first to check what exists. Multiple workers can use the same agent template with different names. To reuse an existing Worker, use intervene_worker.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"name":            map[string]any{"type": "string", "description": "Unique worker name. Must not already exist in this project. Also looks up agent templates — if an agent with this name exists, its prompt loads automatically."},
+				"agent_name":     map[string]any{"type": "string", "description": "Agent template name from list_agents. Determines the Worker tools and system prompt. e.g. general, browser, desktop."},
+				"name":           map[string]any{"type": "string", "description": "Unique worker name for this project. Can be descriptive like backend-dev, frontend-qa. Does NOT need to match an agent template."},
 				"task":             map[string]any{"type": "string", "description": "The task for the Worker to execute. Becomes its first message. Should be self-contained with clear goals and constraints."},
 				"enable_browser":  map[string]any{"type": "boolean", "description": "Enable browser automation tools for this Worker. Default false."},
 				"enable_desktop":  map[string]any{"type": "boolean", "description": "Enable desktop automation tools for this Worker. Default false."},
 			},
-			"required": []string{"name", "task"},
+			"required": []string{"agent_name", "name", "task"},
 		},
 	},
 }
@@ -821,6 +819,143 @@ func RegisterReadFile(mgr *session.Manager) {
 // RegisterWriteFile registers only the write_file tool handler.
 func RegisterWriteFile(mgr *session.Manager) {
 	mgr.RegisterTool("write_file", writeFileHandler)
+}
+
+// RegisterReadDir registers only the read_dir tool handler.
+func RegisterReadDir(mgr *session.Manager) {
+	mgr.RegisterTool("read_dir", func(ctx context.Context, args string) *session.ToolResult {
+		var p struct{ Path string }
+		json.Unmarshal([]byte(args), &p)
+		if p.Path == "" {
+			return &session.ToolResult{Error: "path is required"}
+		}
+		entries, err := os.ReadDir(p.Path)
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		var lines []string
+		for _, e := range entries {
+			t := "file"
+			if e.IsDir() {
+				t = "dir"
+			}
+			lines = append(lines, fmt.Sprintf("%s  [%s]", e.Name(), t))
+		}
+		return &session.ToolResult{Content: strings.Join(lines, "\n")}
+	})
+}
+
+// RegisterSearchContent registers only the search_content tool handler.
+func RegisterSearchContent(mgr *session.Manager, workDir string) {
+	mgr.RegisterTool("search_content", func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			Pattern      string `json:"pattern"`
+			FilePattern  string `json:"file_pattern"`
+			Path         string `json:"path"`
+			ContextLines int    `json:"context_lines"`
+			Offset       int    `json:"offset"`
+			Limit        int    `json:"limit"`
+		}
+		json.Unmarshal([]byte(args), &p)
+		if p.Pattern == "" {
+			return &session.ToolResult{Error: "pattern is required"}
+		}
+		searchPath := p.Path
+		if searchPath == "" {
+			searchPath = workDir
+		}
+		pattern := p.FilePattern
+		if pattern == "" {
+			pattern = "*"
+		}
+		if p.ContextLines > 10 {
+			p.ContextLines = 10
+		}
+		if p.Limit <= 0 {
+			p.Limit = 50
+		} else if p.Limit > 200 {
+			p.Limit = 200
+		}
+		if p.Offset < 0 {
+			p.Offset = 0
+		}
+		allResults, _ := searchFiles(searchPath, pattern, p.Pattern, p.ContextLines)
+		total := len(allResults)
+		if total == 0 {
+			return &session.ToolResult{Content: "No matches found."}
+		}
+		start := p.Offset
+		if start > total {
+			start = total
+		}
+		end := start + p.Limit
+		if end > total {
+			end = total
+		}
+		page := allResults[start:end]
+		var out strings.Builder
+		fmt.Fprintf(&out, "Showing %d-%d of %d total matches.", start+1, end, total)
+		if end < total {
+			fmt.Fprintf(&out, " Use offset=%d for next page.", end)
+		}
+		fmt.Fprintf(&out, "\n\n%s", strings.Join(page, "\n"))
+		return &session.ToolResult{Content: out.String()}
+	})
+}
+
+// RegisterSearchFiles registers only the search_files tool handler.
+func RegisterSearchFiles(mgr *session.Manager, workDir string) {
+	mgr.RegisterTool("search_files", func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			Pattern string `json:"pattern"`
+			Path    string `json:"path"`
+		}
+		json.Unmarshal([]byte(args), &p)
+		if p.Pattern == "" {
+			p.Pattern = "*"
+		}
+		searchPath := p.Path
+		if searchPath == "" {
+			searchPath = workDir
+		}
+		var matches []string
+		filepath.Walk(searchPath, func(fp string, fi os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if fi.IsDir() {
+				base := filepath.Base(fp)
+				if base == ".git" || base == "node_modules" || base == "__pycache__" || (len(base) > 0 && base[0] == '.') {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			rel, _ := filepath.Rel(searchPath, fp)
+			if matched, _ := filepath.Match(p.Pattern, filepath.Base(fp)); matched {
+				size := fi.Size()
+				var sz string
+				switch {
+				case size < 1024:
+					sz = fmt.Sprintf("%dB", size)
+				case size < 1024*1024:
+					sz = fmt.Sprintf("%.1fKB", float64(size)/1024)
+				default:
+					sz = fmt.Sprintf("%.1fMB", float64(size)/(1024*1024))
+				}
+				matches = append(matches, fmt.Sprintf("%s  (%s)", rel, sz))
+			}
+			return nil
+		})
+		if len(matches) == 0 {
+			return &session.ToolResult{Content: fmt.Sprintf("No files matching '%s' in %s", p.Pattern, searchPath)}
+		}
+		if len(matches) > 200 {
+			remaining := len(matches) - 200
+			matches = matches[:200]
+			return &session.ToolResult{Content: strings.Join(matches, "\n") + fmt.Sprintf("\n\n... and %d more (truncated at 200). Refine pattern.", remaining)}
+		}
+		return &session.ToolResult{Content: strings.Join(matches, "\n")}
+	})
 }
 
 func RegisterFileTools(mgr *session.Manager, workDir string) {
@@ -1140,6 +1275,12 @@ func RegisterFileTools(mgr *session.Manager, workDir string) {
 	})
 }
 
+// RegisterRunCommand registers only the run_command tool.
+func RegisterRunCommand(mgr *session.Manager, workDir string) {
+	setExecWorkDir(workDir)
+	mgr.RegisterTool("run_command", execHandler)
+}
+
 func RegisterExecutionTools(mgr *session.Manager, workDir string) {
 	setExecWorkDir(workDir)
 	mgr.RegisterTool("run_command", execHandler)
@@ -1173,9 +1314,10 @@ func makeCreateProjectHandler(callback func(title, prompt string) (string, strin
 	}
 }
 
-func makeSpawnWorkerHandler(callback func(name, task string, enableBrowser, enableDesktop bool) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+func makeSpawnWorkerHandler(callback func(agentName, name, task string, enableBrowser, enableDesktop bool) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
 	return func(ctx context.Context, args string) *session.ToolResult {
 		var p struct {
+			AgentName      string `json:"agent_name"`
 			Name           string `json:"name"`
 			Task           string `json:"task"`
 			EnableBrowser  bool   `json:"enable_browser"`
@@ -1185,7 +1327,7 @@ func makeSpawnWorkerHandler(callback func(name, task string, enableBrowser, enab
 		if callback == nil {
 			return &session.ToolResult{Error: "spawn_worker not available in this session"}
 		}
-		result, err := callback(p.Name, p.Task, p.EnableBrowser, p.EnableDesktop)
+		result, err := callback(p.AgentName, p.Name, p.Task, p.EnableBrowser, p.EnableDesktop)
 		if err != nil {
 			return &session.ToolResult{Error: err.Error()}
 		}
@@ -1438,4 +1580,275 @@ var focusSessionTool = openai.Tool{
 			"required": []string{"ref_id"},
 		},
 	},
+}
+
+// ── MCP management tools ──
+
+var listMCPServersTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "list_mcp_servers",
+		Description: "List all configured MCP servers with their name, type, status, and connection info.",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	},
+}
+
+var createMCPServerTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "create_mcp_server",
+		Description: "Create a new MCP server configuration. For stdio type, provide command and args. For http type, provide url and headers.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":    map[string]any{"type": "string", "description": "Unique name for this MCP server."},
+				"type":    map[string]any{"type": "string", "description": "'stdio' or 'http'."},
+				"command": map[string]any{"type": "string", "description": "For stdio: executable path or command (e.g. 'npx', 'python')."},
+				"args":    map[string]any{"type": "string", "description": "For stdio: JSON array of command arguments, e.g. '[\"-y\", \"@anthropic/mcp-server\"]'."},
+				"env":     map[string]any{"type": "string", "description": "For stdio: JSON object of environment variables, e.g. '{\"KEY\": \"value\"}'."},
+				"url":     map[string]any{"type": "string", "description": "For http: server URL (e.g. 'http://localhost:8080/mcp')."},
+				"headers": map[string]any{"type": "string", "description": "For http: JSON object of HTTP headers."},
+				"enabled": map[string]any{"type": "boolean", "description": "Auto-connect after creation. Default false."},
+			},
+			"required": []string{"name", "type"},
+		},
+	},
+}
+
+var updateMCPServerTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "update_mcp_server",
+		Description: "Update an existing MCP server configuration. Provide name to identify the server; all other fields are optional. Changing name or type will disconnect and reconnect.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":     map[string]any{"type": "string", "description": "Name of the MCP server to update."},
+				"new_name": map[string]any{"type": "string", "description": "Rename the server."},
+				"type":     map[string]any{"type": "string", "description": "Server type: 'stdio' or 'http'."},
+				"command":  map[string]any{"type": "string", "description": "For stdio: executable path or command."},
+				"args":     map[string]any{"type": "string", "description": "For stdio: JSON array of command arguments."},
+				"env":      map[string]any{"type": "string", "description": "For stdio: JSON object of environment variables."},
+				"url":      map[string]any{"type": "string", "description": "For http: server URL."},
+				"headers":  map[string]any{"type": "string", "description": "For http: JSON object of HTTP headers."},
+				"enabled":  map[string]any{"type": "boolean", "description": "Auto-connect after update."},
+			},
+			"required": []string{"name"},
+		},
+	},
+}
+
+var deleteMCPServerTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "delete_mcp_server",
+		Description: "Delete an MCP server configuration. Disconnects first if connected.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{"type": "string", "description": "Name of the MCP server to delete."},
+			},
+			"required": []string{"name"},
+		},
+	},
+}
+
+var connectMCPServerTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "connect_mcp_server",
+		Description: "Connect to an MCP server and register its tools. The server must already be configured.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{"type": "string", "description": "Name of the MCP server to connect."},
+			},
+			"required": []string{"name"},
+		},
+	},
+}
+
+var disconnectMCPServerTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "disconnect_mcp_server",
+		Description: "Disconnect an MCP server and unregister its tools.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{"type": "string", "description": "Name of the MCP server to disconnect."},
+			},
+			"required": []string{"name"},
+		},
+	},
+}
+
+var testMCPServerTool = openai.Tool{
+	Type: "function",
+	Function: &openai.FunctionDefinition{
+		Name:        "test_mcp_server",
+		Description: "Test connection to an MCP server: list its tools without permanently connecting.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{"type": "string", "description": "Name of the MCP server to test."},
+			},
+			"required": []string{"name"},
+		},
+	},
+}
+
+// RegisterMCPTools registers MCP server management tools on a session Manager.
+func RegisterMCPTools(mgr *session.Manager,
+	listFn func() (string, error),
+	createFn func(name, mcpType, command, args, env, url, headers string, enabled bool) (string, error),
+	updateFn func(name, newName, mcpType, command, args, env, url, headers string, enabled bool) (string, error),
+	deleteFn func(name string) (string, error),
+	connectFn func(name string) (string, error),
+	disconnectFn func(name string) (string, error),
+	testFn func(name string) (string, error),
+) {
+	if listFn != nil {
+		mgr.RegisterTool("list_mcp_servers", makeListMCPServersHandler(listFn))
+	}
+	if createFn != nil {
+		mgr.RegisterTool("create_mcp_server", makeCreateMCPServerHandler(createFn))
+	}
+	if updateFn != nil {
+		mgr.RegisterTool("update_mcp_server", makeUpdateMCPServerHandler(updateFn))
+	}
+	if deleteFn != nil {
+		mgr.RegisterTool("delete_mcp_server", makeDeleteMCPServerHandler(deleteFn))
+	}
+	if connectFn != nil {
+		mgr.RegisterTool("connect_mcp_server", makeConnectMCPServerHandler(connectFn))
+	}
+	if disconnectFn != nil {
+		mgr.RegisterTool("disconnect_mcp_server", makeDisconnectMCPServerHandler(disconnectFn))
+	}
+	if testFn != nil {
+		mgr.RegisterTool("test_mcp_server", makeTestMCPServerHandler(testFn))
+	}
+}
+
+func makeListMCPServersHandler(fn func() (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		result, err := fn()
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		return &session.ToolResult{Content: result}
+	}
+}
+
+func makeCreateMCPServerHandler(fn func(name, mcpType, command, args, env, url, headers string, enabled bool) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			Name    string `json:"name"`
+			Type    string `json:"type"`
+			Command string `json:"command"`
+			Args    string `json:"args"`
+			Env     string `json:"env"`
+			URL     string `json:"url"`
+			Headers string `json:"headers"`
+			Enabled bool   `json:"enabled"`
+		}
+		json.Unmarshal([]byte(args), &p)
+		if p.Name == "" || p.Type == "" {
+			return &session.ToolResult{Error: "name and type are required"}
+		}
+		result, err := fn(p.Name, p.Type, p.Command, p.Args, p.Env, p.URL, p.Headers, p.Enabled)
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		return &session.ToolResult{Content: result}
+	}
+}
+
+func makeUpdateMCPServerHandler(fn func(name, newName, mcpType, command, args, env, url, headers string, enabled bool) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct {
+			Name    string `json:"name"`
+			NewName string `json:"new_name"`
+			Type    string `json:"type"`
+			Command string `json:"command"`
+			Args    string `json:"args"`
+			Env     string `json:"env"`
+			URL     string `json:"url"`
+			Headers string `json:"headers"`
+			Enabled bool   `json:"enabled"`
+		}
+		json.Unmarshal([]byte(args), &p)
+		if p.Name == "" {
+			return &session.ToolResult{Error: "name is required"}
+		}
+		result, err := fn(p.Name, p.NewName, p.Type, p.Command, p.Args, p.Env, p.URL, p.Headers, p.Enabled)
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		return &session.ToolResult{Content: result}
+	}
+}
+
+func makeDeleteMCPServerHandler(fn func(name string) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct{ Name string `json:"name"` }
+		json.Unmarshal([]byte(args), &p)
+		if p.Name == "" {
+			return &session.ToolResult{Error: "name is required"}
+		}
+		result, err := fn(p.Name)
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		return &session.ToolResult{Content: result}
+	}
+}
+
+func makeConnectMCPServerHandler(fn func(name string) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct{ Name string `json:"name"` }
+		json.Unmarshal([]byte(args), &p)
+		if p.Name == "" {
+			return &session.ToolResult{Error: "name is required"}
+		}
+		result, err := fn(p.Name)
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		return &session.ToolResult{Content: result}
+	}
+}
+
+func makeDisconnectMCPServerHandler(fn func(name string) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct{ Name string `json:"name"` }
+		json.Unmarshal([]byte(args), &p)
+		if p.Name == "" {
+			return &session.ToolResult{Error: "name is required"}
+		}
+		result, err := fn(p.Name)
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		return &session.ToolResult{Content: result}
+	}
+}
+
+func makeTestMCPServerHandler(fn func(name string) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+	return func(ctx context.Context, args string) *session.ToolResult {
+		var p struct{ Name string `json:"name"` }
+		json.Unmarshal([]byte(args), &p)
+		if p.Name == "" {
+			return &session.ToolResult{Error: "name is required"}
+		}
+		result, err := fn(p.Name)
+		if err != nil {
+			return &session.ToolResult{Error: err.Error()}
+		}
+		return &session.ToolResult{Content: result}
+	}
 }

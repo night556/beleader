@@ -141,6 +141,7 @@ type ProjectAgent struct {
 	Role           string `gorm:"size:32" json:"role"`
 	Status         string `gorm:"size:16;default:idle" json:"status"`
 	Prompt         string `gorm:"default:''" json:"prompt"`
+	AgentTemplate  string `gorm:"size:128;default:''" json:"agent_template"`
 	EnableBrowser  bool   `gorm:"column:enable_browser;default:0" json:"enable_browser"`
 	EnableDesktop  bool   `gorm:"column:enable_desktop;default:0" json:"enable_desktop"`
 }
@@ -468,7 +469,7 @@ func (db *DB) ListProjects() ([]ProjectRef, error) {
 
 // ── ProjectAgent methods ──
 
-func (db *DB) AddProjectAgent(projectID, name, sessionID, role, prompt string, enableBrowser, enableDesktop bool) error {
+func (db *DB) AddProjectAgent(projectID, name, sessionID, role, prompt, agentTemplate string, enableBrowser, enableDesktop bool) error {
 	return db.GORM.Create(&ProjectAgent{
 		ProjectID:     projectID,
 		Name:          name,
@@ -476,6 +477,7 @@ func (db *DB) AddProjectAgent(projectID, name, sessionID, role, prompt string, e
 		Role:          role,
 		Status:        "running",
 		Prompt:        prompt,
+		AgentTemplate: agentTemplate,
 		EnableBrowser: enableBrowser,
 		EnableDesktop: enableDesktop,
 	}).Error
@@ -645,12 +647,18 @@ Spawn Workers one at a time or in small batches. Wait for each Worker to finish 
 A Worker that has finished still holds its conversation context. If a follow-up task is closely related to what that Worker already did, use intervene_worker to give it the new task instead of spawning a fresh Worker that would need to re-learn the context.
 
 ## spawn_worker
-Workers are created from agent templates. The name parameter MUST match an existing agent — use list_agents to see what is available. An agent named "general" is always available for common tasks (file ops, commands, search, web fetch).
+Workers are created from agent templates. Use list_agents to see available templates, then pass the template name as agent_name. An agent named "general" is always available for common tasks.
+
+agent_name = the agent template (e.g. "general", "browser", "desktop")
+name = a unique worker name for this project (e.g. "backend-dev", "frontend-qa")
+
+Multiple workers can use the same template with different names:
+  spawn_worker(agent_name="general", name="backend", task="...")
+  spawn_worker(agent_name="general", name="frontend", task="...")
 
 Worker names are unique per project. spawn_worker fails if the name already exists.
 - No Worker with that name → spawn_worker
 - Worker already exists → intervene_worker (reuses context)
-- Parallel worker for a different task → spawn with a variant name (e.g. name + "-2")
 - Stop a Worker → terminate_worker
 - Delete a Worker → delete_worker (only when asked by the user)
 
