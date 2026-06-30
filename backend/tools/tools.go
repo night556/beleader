@@ -206,7 +206,7 @@ func RegisterAll(mgr *session.Manager, workDir string, createProjectCallback fun
 
 func RegisterCoordinatorTools(
 	mgr *session.Manager,
-	spawnWorkerFn func(name, prompt, task string, enableBrowser, enableDesktop bool) (string, error),
+	spawnWorkerFn func(name, task string, enableBrowser, enableDesktop bool) (string, error),
 	terminateWorkerFn func(workerName string) (string, error),
 	deleteWorkerFn func(workerName string) (string, error),
 	interveneWorkerFn func(workerName, message string) (string, error),
@@ -500,12 +500,11 @@ var spawnWorkerTool = openai.Tool{
 	Type: "function",
 	Function: &openai.FunctionDefinition{
 		Name:        "spawn_worker",
-		Description: "Create a new Worker session to execute a task. Worker names must be unique per project — use list_workers first to check what exists, and intervene_worker to reuse an existing Worker. Name also looks up agent templates — matching templates load automatically. Use list_agents to check available templates. Provide prompt for one-off Workers not in the library.",
+		Description: "Create a new Worker from an agent template. Name must match an existing agent — use list_agents to see available templates. Worker names must be unique per project — use list_workers first to check what exists. To reuse an existing Worker, use intervene_worker. If unsure which template to use, 'general' is always available.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name":            map[string]any{"type": "string", "description": "Unique worker name. Must not already exist in this project. Also looks up agent templates — if an agent with this name exists, its prompt loads automatically."},
-				"prompt":          map[string]any{"type": "string", "description": "Custom role definition. Overrides any matching template. Use for one-off Workers not in the template library."},
 				"task":             map[string]any{"type": "string", "description": "The task for the Worker to execute. Becomes its first message. Should be self-contained with clear goals and constraints."},
 				"enable_browser":  map[string]any{"type": "boolean", "description": "Enable browser automation tools for this Worker. Default false."},
 				"enable_desktop":  map[string]any{"type": "boolean", "description": "Enable desktop automation tools for this Worker. Default false."},
@@ -1174,11 +1173,10 @@ func makeCreateProjectHandler(callback func(title, prompt string) (string, strin
 	}
 }
 
-func makeSpawnWorkerHandler(callback func(name, prompt, task string, enableBrowser, enableDesktop bool) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+func makeSpawnWorkerHandler(callback func(name, task string, enableBrowser, enableDesktop bool) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
 	return func(ctx context.Context, args string) *session.ToolResult {
 		var p struct {
 			Name           string `json:"name"`
-			Prompt         string `json:"prompt"`
 			Task           string `json:"task"`
 			EnableBrowser  bool   `json:"enable_browser"`
 			EnableDesktop  bool   `json:"enable_desktop"`
@@ -1187,7 +1185,7 @@ func makeSpawnWorkerHandler(callback func(name, prompt, task string, enableBrows
 		if callback == nil {
 			return &session.ToolResult{Error: "spawn_worker not available in this session"}
 		}
-		result, err := callback(p.Name, p.Prompt, p.Task, p.EnableBrowser, p.EnableDesktop)
+		result, err := callback(p.Name, p.Task, p.EnableBrowser, p.EnableDesktop)
 		if err != nil {
 			return &session.ToolResult{Error: err.Error()}
 		}

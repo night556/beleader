@@ -83,17 +83,10 @@ var _lang = 'en';
     'agents.save':                { en: 'Save', zh: '保存' },
     'agents.cancel':              { en: 'Cancel', zh: '取消' },
     'agents.delete_btn':          { en: 'Delete', zh: '删除' },
-    'agents.default_agent':       { en: 'Default Agent', zh: '默认 Agent' },
-    'agents.type':                { en: 'Type', zh: '类型' },
-    'agents.type_general':        { en: 'General', zh: '通用' },
-    'agents.type_tool_agent':     { en: 'Tool Agent', zh: '工具 Agent' },
-    'agents.type_skill_agent':    { en: 'Skill Agent', zh: 'Skill Agent' },
+
     'agents.tools':               { en: 'Tools', zh: '工具' },
-    'agents.tool_agents':         { en: 'Tool Agents', zh: '工具 Agent' },
     'agents.tools_search':        { en: 'Search tools...', zh: '搜索工具...' },
-    'agents.toolagents_search':   { en: 'Search tool agents...', zh: '搜索工具 Agent...' },
     'agents.no_tools':            { en: 'No tools selected. Search below to add.', zh: '未选择工具，在下方搜索添加。' },
-    'agents.no_tool_agents':      { en: 'No tool agents selected.', zh: '未选择工具 Agent。' },
 
     // MCP panel
     'mcp.title':                  { en: 'MCP Servers', zh: 'MCP Servers' },
@@ -115,7 +108,7 @@ var _lang = 'en';
 
     // createProject modal
     'project.new_title':          { en: 'New Project', zh: '新建项目' },
-	    'project.agent_label':        { en: 'Agent Template', zh: 'Agent 模板' },
+
     'project.name_placeholder':   { en: 'Project name', zh: '项目名称' },
     'project.create':             { en: 'Create', zh: '创建' },
     'settings.title':             { en: 'Settings', zh: '设置' },

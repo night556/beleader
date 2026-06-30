@@ -16,7 +16,7 @@ import (
 
 // RunSessionOpts controls how runSession builds prompts and selects tools.
 type RunSessionOpts struct {
-	AgentType     string   // "main", "coordinator", "worker", "tool_agent", "skill_agent", or "simple"
+	AgentType     string   // "main", "coordinator", "worker", or "simple"
 	RoleLabel     string   // label for messages in the UI
 	CustomPrompt  string   // Worker/Simple/Tool/Skill: custom role definition (from agents table or Coordinator)
 	EnableBrowser bool     // Worker (legacy): enable browser automation tools
@@ -82,15 +82,6 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		if opts.CustomPrompt != "" {
 			sysPrompt += "\n\n" + opts.CustomPrompt
 		}
-	case "tool_agent":
-		sysPrompt += "\n\n" + session.WorkerBasePrompt
-		if opts.CustomPrompt != "" {
-			sysPrompt += "\n\n## Capability\n" + opts.CustomPrompt
-		}
-	case "skill_agent":
-		if opts.CustomPrompt != "" {
-			sysPrompt += "\n\n" + opts.CustomPrompt
-		}
 	}
 
 	h.Notify(SessionEvent{Type: "thinking", SessionID: sessionID})
@@ -132,12 +123,12 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		toolList = tools.MainTools(model.Vision)
 	case "coordinator":
 		tools.RegisterAll(sessionMgr, workDir, func(title, prompt string) (string, string, error) {
-			return h.CreateProject(title, prompt, "")
+			return h.CreateProject(title, prompt)
 		})
 		tools.RegisterCoordinatorTools(
 			sessionMgr,
-			func(name, prompt, task string, enableBrowser, enableDesktop bool) (string, error) {
-				return h.spawnWorker(sessionID, refID, name, prompt, task, enableBrowser, enableDesktop)
+			func(name, task string, enableBrowser, enableDesktop bool) (string, error) {
+				return h.spawnWorker(sessionID, refID, name, task, enableBrowser, enableDesktop)
 			},
 			func(workerName string) (string, error) {
 				return h.terminateWorker(refID, workerName)
@@ -171,29 +162,16 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		)
 		toolList = tools.CoordinatorTools(model.Vision)
 	case "worker":
-		tools.RegisterAll(sessionMgr, workDir, nil)
-		tools.RegisterKnowledgeTools(sessionMgr,
-			func(query string, limit int) (string, error) {
-				knowledge, err := h.DB.SearchKnowledge(query, limit)
-				if err != nil {
-					return "", err
-				}
-				b, _ := json.Marshal(knowledge)
-				return string(b), nil
-			},
-			nil, nil,
-		)
+		if len(opts.ToolNames) > 0 {
+			tools.Global.RegisterTo(sessionMgr, opts.ToolNames)
+			toolList = tools.Global.BuildToolList(opts.ToolNames)
+		}
 		if opts.EnableBrowser {
 			tools.RegisterBrowserTools(sessionMgr)
-		}
-		if opts.EnableDesktop {
-			tools.RegisterDesktopTools(sessionMgr)
-		}
-		toolList = tools.WorkerTools(model.Vision)
-		if opts.EnableBrowser {
 			toolList = append(toolList, tools.BrowserTools()...)
 		}
 		if opts.EnableDesktop {
+			tools.RegisterDesktopTools(sessionMgr)
 			toolList = append(toolList, tools.DesktopTools()...)
 		}
 	case "simple":
@@ -201,12 +179,6 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		tools.RegisterWriteFile(sessionMgr)
 		toolList = append(toolList, tools.ReadFileToolDef())
 		toolList = append(toolList, tools.WriteFileToolDef())
-	case "tool_agent":
-		tools.Global.RegisterTo(sessionMgr, opts.ToolNames)
-		toolList = tools.Global.BuildToolList(opts.ToolNames)
-	case "skill_agent":
-		tools.Global.RegisterTo(sessionMgr, opts.ToolNames)
-		toolList = tools.Global.BuildToolList(opts.ToolNames)
 	}
 
 	result, err := sessionMgr.RunLoop(ctx, sessionID, sysPrompt, userMessage, toolList, llmClient, model.ContextLimit, model.Vision, pauseCh, interveneCh,
@@ -269,7 +241,7 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 			h.DB.UpdateProjectStatus(refID, "completed")
 			h.Notify(SessionEvent{Type: "project_completed", SessionID: sessionID, Data: gin.H{"ref_id": refID, "status": "completed"}})
 
-		case "worker", "tool_agent", "skill_agent":
+		case "worker":
 			h.DB.UpdateSessionStatus(sessionID, "idle")
 			h.releaseHC(sessionID)
 			h.DB.UpdateProjectAgentStatus("", sessionID, "idle")

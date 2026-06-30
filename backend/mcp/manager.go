@@ -149,12 +149,12 @@ func (m *Manager) Connect(cfg db.MCPServer) error {
 	desc := cfg.Name + " MCP tools"
 	existing, err := m.db.GetAgentByName(cfg.Name)
 	if err == nil {
-		m.db.UpdateAgentByIDFull(existing.ID, cfg.Name, desc, cfg.Name+" MCP tools", "tool_agent", string(toolNamesJSON), "[]")
+		m.db.UpdateAgentByIDFull(existing.ID, cfg.Name, desc, cfg.Name+" MCP tools", "", string(toolNamesJSON), "[]")
 	} else {
 		m.db.CreateAgent(cfg.Name, cfg.Name+" MCP tools")
 		ag, _ := m.db.GetAgentByName(cfg.Name)
 		if ag != nil {
-			m.db.UpdateAgentByIDFull(ag.ID, cfg.Name, desc, cfg.Name+" MCP tools", "tool_agent", string(toolNamesJSON), "[]")
+			m.db.UpdateAgentByIDFull(ag.ID, cfg.Name, desc, cfg.Name+" MCP tools", "", string(toolNamesJSON), "[]")
 		}
 	}
 

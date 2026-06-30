@@ -184,7 +184,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 	tools.BrowserProfileDir = h.Config.BrowserProfileDir()
 	tools.SpeakEnabled = h.Config.SpeakEnabled
 	tools.RegisterAll(h.SessionMgr, h.Config.WorkDir, func(title, prompt string) (string, string, error) {
-		return h.CreateProject(title, prompt, "")
+		return h.CreateProject(title, prompt)
 	})
 	tools.RegisterProjectManagementTools(
 		h.SessionMgr,
@@ -267,7 +267,7 @@ func (h *Handler) getWorkerByName(refID, workerName string) (*db.ProjectAgent, e
 }
 
 // spawnWorker creates a Worker session and starts its RunLoop.
-func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, prompt, task string, enableBrowser, enableDesktop bool) (string, error) {
+func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, task string, enableBrowser, enableDesktop bool) (string, error) {
 	// Check if a worker with this name already exists
 	if existing, _ := h.getWorkerByName(refID, name); existing != nil {
 		if existing.Status == "running" {
@@ -276,30 +276,15 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, name, prompt, task st
 		return "", fmt.Errorf("Worker '%s' already exists and is idle. Options: (1) Use intervene_worker to give it a new task (it keeps its context). (2) If you need a fresh worker, use delete_worker first then spawn again. (3) Spawn with a different name for a separate role.", name)
 	}
 
-		var customPrompt string
 	agentType := "worker"
 	var toolNames []string
 
-	// name doubles as template lookup key
-	if agent, err := h.DB.GetAgentByName(name); err == nil {
-		customPrompt = agent.Content
-		if agent.Type == "tool_agent" {
-			agentType = "tool_agent"
-			json.Unmarshal([]byte(agent.Tools), &toolNames)
-		} else if agent.Type == "skill_agent" {
-			agentType = "skill_agent"
-			json.Unmarshal([]byte(agent.Tools), &toolNames)
-		}
+	agent, err := h.DB.GetAgentByName(name)
+	if err != nil {
+		return "", fmt.Errorf("no agent template named '%s'. Use list_agents to see available templates.", name)
 	}
-
-	// prompt always overrides template
-	if prompt != "" {
-		customPrompt = prompt
-	}
-
-	if customPrompt == "" {
-		return "", fmt.Errorf("no agent template named '%s' and no prompt provided — check list_agents or provide a prompt", name)
-	}
+	customPrompt := agent.Content
+	json.Unmarshal([]byte(agent.Tools), &toolNames)
 
 	workerSessionID := uuid.New().String()
 	workDir := h.Config.ProjectDir(refID)
@@ -412,7 +397,7 @@ func (h *Handler) interveneWorker(refID, workerName, message string) (string, er
 			CustomPrompt:  agent.Prompt,
 			EnableBrowser: agent.EnableBrowser,
 			EnableDesktop: agent.EnableDesktop,
-			ToolNames:     h.resolveToolNames(workerName, agent.Role),
+			ToolNames:     h.resolveToolNames(workerName),
 		})
 
 	h.Notify(SessionEvent{
@@ -833,7 +818,6 @@ func (h *Handler) handleGetSettings(c *gin.Context) {
 		"browser":       cfg.Browser,
 		"speak_enabled": cfg.SpeakEnabled,
 		"port_maps":     cfg.PortMaps,
-		"default_agent": cfg.DefaultAgent,
 		"work_dir":      cfg.WorkDir,
 	})
 }
@@ -1310,11 +1294,7 @@ func buildTextAndImageMultiContent(text string, images []string) []openai.ChatMe
 }
 
 // resolveToolNames looks up the agent template and returns its tool names.
-// Returns nil for legacy agent types (worker/simple use EnableBrowser/EnableDesktop flags).
-func (h *Handler) resolveToolNames(agentName, agentRole string) []string {
-	if agentRole != "tool_agent" && agentRole != "skill_agent" {
-		return nil
-	}
+func (h *Handler) resolveToolNames(agentName string) []string {
 	agent, err := h.DB.GetAgentByName(agentName)
 	if err != nil {
 		return nil
