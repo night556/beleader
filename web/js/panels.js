@@ -1028,7 +1028,7 @@ function loadBookmarks() {
           '<div class="bkm-body">' +
             '<div class="bkm-role">' + (roleLabels[m.role] || m.role) + ' · ' + time + '</div>' +
             '<div class="bkm-text">' + preview + '</div>' +
-          '</div>' ;
+          '</div>' +
           '<button class="bkm-unstar" onclick="event.stopPropagation();toggleMessageBookmark(' + m.id + ', false)" title="' + t('bookmark.unstar_tip') + '">✕</button>' +
         '</div>';
       }

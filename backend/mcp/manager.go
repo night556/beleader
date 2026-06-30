@@ -14,6 +14,7 @@ import (
 	"beleader/backend/tools"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sashabaranov/go-openai"
 )
@@ -392,8 +393,12 @@ func (m *Manager) connectHTTP(cfg db.MCPServer) (*client.Client, error) {
 		json.Unmarshal([]byte(cfg.Headers), &headers)
 	}
 
-	// Prefer streamable HTTP
-	c, err := client.NewStreamableHttpClient(cfg.URL)
+	var opts []transport.StreamableHTTPCOption
+	if len(headers) > 0 {
+		opts = append(opts, transport.WithHTTPHeaders(headers))
+	}
+
+	c, err := client.NewStreamableHttpClient(cfg.URL, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create http client: %w", err)
 	}

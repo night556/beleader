@@ -584,7 +584,7 @@ func (m *Manager) Compress(ctx context.Context, sessionID string, afterID int64,
 
 	summary := resp.Choices[0].Message.Content
 
-	content := "[System] 棣冩惖 Context compressed\n\n" + summary
+	content := "[System] Context compressed\n\n" + summary
 	msgID, err := m.DB.InsertMessage(&db.Message{SessionID: sessionID, Role: "system", Content: content})
 	if err != nil {
 		return "", 0, err
