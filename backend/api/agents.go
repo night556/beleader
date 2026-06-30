@@ -173,6 +173,9 @@ func registerAgentTools(mgr *session.Manager, database *db.DB) {
 		}
 		var lines []string
 		for _, a := range agents {
+			if a.Name == "coordinator" {
+				continue
+			}
 			lines = append(lines, fmt.Sprintf("- **%s**: %s", a.Name, a.Desc))
 		}
 		return &session.ToolResult{Content: strings.Join(lines, "\n")}
