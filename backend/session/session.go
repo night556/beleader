@@ -337,7 +337,40 @@ func (m *Manager) BuildMessages(sessionID string, afterID int64, sysPrompt strin
 		cleaned = append(cleaned, msg)
 	}
 
-	return cleaned, nil
+	// Reorder: ensure tool results immediately follow their tool_calls.
+	// Worker completion messages can inject between tool_calls and tool_results
+	// via DB insert in session_runner.go, breaking the required ordering.
+	var reordered []openai.ChatCompletionMessage
+	var deferred []openai.ChatCompletionMessage
+	var pendingIDs map[string]bool
+	for _, msg := range cleaned {
+		if len(msg.ToolCalls) > 0 {
+			if len(deferred) > 0 {
+				reordered = append(reordered, deferred...)
+				deferred = nil
+			}
+			reordered = append(reordered, msg)
+			pendingIDs = make(map[string]bool)
+			for _, tc := range msg.ToolCalls {
+				pendingIDs[tc.ID] = true
+			}
+		} else if pendingIDs != nil && msg.ToolCallID != "" && pendingIDs[msg.ToolCallID] {
+			reordered = append(reordered, msg)
+			delete(pendingIDs, msg.ToolCallID)
+			if len(pendingIDs) == 0 {
+				pendingIDs = nil
+				reordered = append(reordered, deferred...)
+				deferred = nil
+			}
+		} else if pendingIDs != nil {
+			deferred = append(deferred, msg)
+		} else {
+			reordered = append(reordered, msg)
+		}
+	}
+	reordered = append(reordered, deferred...)
+
+	return reordered, nil
 }
 
 func (m *Manager) RunLoop(ctx context.Context, sessionID string, sysPrompt string, userContent string, toolList []openai.Tool, llmClient *llm.Client, modelContextLimit int, visionEnabled bool, pauseCh <-chan struct{}, interveneCh <-chan InterveneMsg, progress ProgressCallback) (*LoopResult, error) {

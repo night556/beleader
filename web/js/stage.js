@@ -959,6 +959,9 @@ function syncContentCards() {
   if (visible) {
     var active = _contentCards[_cardActive];
     if (!active || active.el.style.display === 'none') _cardActive = firstVisible;
+    for (var id in _contentCards) {
+      _contentCards[id].el.style.display = id === _cardActive ? 'flex' : 'none';
+    }
     stage.classList.add('split');
   } else {
     _cardActive = null;
