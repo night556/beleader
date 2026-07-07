@@ -13,11 +13,6 @@ type DB struct {
 	GORM *gorm.DB
 }
 
-var coordinatorPrompt string
-
-// SetCoordinatorPrompt sets the canonical Coordinator prompt used when seeding.
-func SetCoordinatorPrompt(p string) { coordinatorPrompt = p }
-
 func Open(path string) (*DB, error) {
 	gormDB, err := gorm.Open(sqlite.Open(path+"?_journal_mode=WAL&_foreign_keys=on"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
@@ -616,13 +611,13 @@ func (db *DB) UpdateAgentByIDFull(id int64, name, desc, content, agentType, tool
 
 func (db *DB) seedToolAgents() {
 	var count int64
-	coordinatorTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","read_status","write_status","run_command","run_http_request","web_search","web_fetch","spawn_worker","terminate_worker","delete_worker","intervene_worker","list_workers","list_agents","create_agent","edit_agent","delete_agent","show_html","close_html","list_htmls","focus_session","show_file","search_knowledge","save_knowledge","delete_knowledge","create_project"]`
+	coordinatorTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","read_status","update_status","run_command","run_http_request","web_search","web_fetch","spawn_worker","terminate_worker","delete_worker","intervene_worker","list_workers","list_agents","create_agent","edit_agent","delete_agent","show_html","close_html","list_htmls","focus_session","show_file","search_knowledge","save_knowledge","delete_knowledge","create_project"]`
 	if db.GORM.Model(&Agent{}).Where("name = 'coordinator'").Count(&count); count == 0 {
 		db.GORM.Create(&Agent{
 			Name:    "coordinator",
 			Desc:    "Project orchestrator — plan, delegate, manage workers and project state",
 			Type:    "",
-			Content: coordinatorPrompt,
+			Content: "",
 			Tools: coordinatorTools,
 		})
 	}

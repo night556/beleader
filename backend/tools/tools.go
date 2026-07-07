@@ -178,7 +178,7 @@ func CoordinatorTools(vision bool) []openai.Tool {
 	return []openai.Tool{
 		readFileToolForVision(vision), readDirTool, searchContentTool, searchFilesTool,
 		webSearchTool, webFetchTool,
-		readStatusTool, writeStatusTool,
+		readStatusTool, updateStatusTool,
 		listAgentsTool, listWorkersTool, spawnWorkerTool, interveneWorkerTool, terminateWorkerTool, deleteWorkerTool,
 		showHTMLTool, closeHTMLTool, listHTMLsTool, focusSessionTool, showFileTool,
 		searchKnowledgeTool, saveKnowledgeTool, deleteKnowledgeTool,
@@ -620,17 +620,17 @@ var readStatusTool = openai.Tool{
 	},
 }
 
-var writeStatusTool = openai.Tool{
+var updateStatusTool = openai.Tool{
 	Type: "function",
 	Function: &openai.FunctionDefinition{
-		Name:        "write_status",
-		Description: "Replace the entire STATUS.md file with new content. Use after reviewing current status and deciding what needs to change.",
+		Name:        "update_status",
+		Description: "Update STATUS.md — add completed items, update progress, record decisions. Preserve existing content; only change the sections that need updating. Keep a '## Recent Activity' section with timestamped entries.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"content": map[string]any{
 					"type":        "string",
-					"description": "The complete new content for STATUS.md",
+					"description": "The complete updated STATUS.md content, preserving all existing sections and adding new information to the Recent Activity section",
 				},
 			},
 			"required": []string{"content"},
@@ -845,122 +845,16 @@ func RegisterReadDir(mgr *session.Manager) {
 	})
 }
 
-// RegisterSearchContent registers only the search_content tool handler.
-func RegisterSearchContent(mgr *session.Manager, workDir string) {
-	mgr.RegisterTool("search_content", func(ctx context.Context, args string) *session.ToolResult {
-		var p struct {
-			Pattern      string `json:"pattern"`
-			FilePattern  string `json:"file_pattern"`
-			Path         string `json:"path"`
-			ContextLines int    `json:"context_lines"`
-			Offset       int    `json:"offset"`
-			Limit        int    `json:"limit"`
-		}
-		json.Unmarshal([]byte(args), &p)
-		if p.Pattern == "" {
-			return &session.ToolResult{Error: "pattern is required"}
-		}
-		searchPath := p.Path
-		if searchPath == "" {
-			searchPath = workDir
-		}
-		if fi, err := os.Stat(searchPath); err != nil {
-			return &session.ToolResult{Error: fmt.Sprintf("path not found: %s", searchPath)}
-		} else if fi.IsDir() {
-			return &session.ToolResult{Error: fmt.Sprintf("path must be a file, not a directory: %s. Use search_files to find files, then search_content on specific files.", searchPath)}
-		}
-		pattern := p.FilePattern
-		if pattern == "" {
-			pattern = "*"
-		}
-		if p.ContextLines > 10 {
-			p.ContextLines = 10
-		}
-		if p.Limit <= 0 {
-			p.Limit = 50
-		} else if p.Limit > 200 {
-			p.Limit = 200
-		}
-		if p.Offset < 0 {
-			p.Offset = 0
-		}
-		allResults, _ := searchFiles(searchPath, pattern, p.Pattern, p.ContextLines)
-		total := len(allResults)
-		if total == 0 {
-			return &session.ToolResult{Content: "No matches found."}
-		}
-		start := p.Offset
-		if start > total {
-			start = total
-		}
-		end := start + p.Limit
-		if end > total {
-			end = total
-		}
-		page := allResults[start:end]
-		var out strings.Builder
-		fmt.Fprintf(&out, "Showing %d-%d of %d total matches.", start+1, end, total)
-		if end < total {
-			fmt.Fprintf(&out, " Use offset=%d for next page.", end)
-		}
-		fmt.Fprintf(&out, "\n\n%s", strings.Join(page, "\n"))
-		return &session.ToolResult{Content: out.String()}
-	})
+// RegisterSearchContent registers the search_content tool handler.
+// The handler reads workDir from context (set by runSession).
+func RegisterSearchContent(mgr *session.Manager) {
+	mgr.RegisterTool("search_content", searchContentHandler)
 }
 
-// RegisterSearchFiles registers only the search_files tool handler.
-func RegisterSearchFiles(mgr *session.Manager, workDir string) {
-	mgr.RegisterTool("search_files", func(ctx context.Context, args string) *session.ToolResult {
-		var p struct {
-			Pattern string `json:"pattern"`
-			Path    string `json:"path"`
-		}
-		json.Unmarshal([]byte(args), &p)
-		if p.Pattern == "" {
-			p.Pattern = "*"
-		}
-		searchPath := p.Path
-		if searchPath == "" {
-			searchPath = workDir
-		}
-		var matches []string
-		filepath.Walk(searchPath, func(fp string, fi os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			if fi.IsDir() {
-				base := filepath.Base(fp)
-				if base == ".git" || base == "node_modules" || base == "__pycache__" || (len(base) > 0 && base[0] == '.') {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			rel, _ := filepath.Rel(searchPath, fp)
-			if matched, _ := filepath.Match(p.Pattern, filepath.Base(fp)); matched {
-				size := fi.Size()
-				var sz string
-				switch {
-				case size < 1024:
-					sz = fmt.Sprintf("%dB", size)
-				case size < 1024*1024:
-					sz = fmt.Sprintf("%.1fKB", float64(size)/1024)
-				default:
-					sz = fmt.Sprintf("%.1fMB", float64(size)/(1024*1024))
-				}
-				matches = append(matches, fmt.Sprintf("%s  (%s)", rel, sz))
-			}
-			return nil
-		})
-		if len(matches) == 0 {
-			return &session.ToolResult{Content: fmt.Sprintf("No files matching '%s' in %s", p.Pattern, searchPath)}
-		}
-		if len(matches) > 200 {
-			remaining := len(matches) - 200
-			matches = matches[:200]
-			return &session.ToolResult{Content: strings.Join(matches, "\n") + fmt.Sprintf("\n\n... and %d more (truncated at 200). Refine pattern.", remaining)}
-		}
-		return &session.ToolResult{Content: strings.Join(matches, "\n")}
-	})
+// RegisterSearchFiles registers the search_files tool handler.
+// The handler reads workDir from context (set by runSession).
+func RegisterSearchFiles(mgr *session.Manager) {
+	mgr.RegisterTool("search_files", searchFilesHandler)
 }
 
 func RegisterFileTools(mgr *session.Manager, workDir string) {
@@ -1036,9 +930,9 @@ func RegisterFileTools(mgr *session.Manager, workDir string) {
 		return &session.ToolResult{Content: strings.Join(lines, "\n")}
 	})
 
-	RegisterSearchContent(mgr, workDir)
+	RegisterSearchContent(mgr)
 
-			RegisterSearchFiles(mgr, workDir)
+			RegisterSearchFiles(mgr)
 
 	mgr.RegisterTool("write_file", func(ctx context.Context, args string) *session.ToolResult {
 		var p struct {
@@ -1158,7 +1052,7 @@ func RegisterFileTools(mgr *session.Manager, workDir string) {
 		return &session.ToolResult{Content: string(data)}
 	})
 
-	mgr.RegisterTool("write_status", func(ctx context.Context, args string) *session.ToolResult {
+	mgr.RegisterTool("update_status", func(ctx context.Context, args string) *session.ToolResult {
 		var p struct{ Content string `json:"content"` }
 		json.Unmarshal([]byte(args), &p)
 		if p.Content == "" {

@@ -192,6 +192,9 @@ func registerAgentTools(mgr *session.Manager, database *db.DB) {
 		if p.Name == "" || p.Content == "" {
 			return &session.ToolResult{Error: "name and content required"}
 		}
+		if p.Name == "coordinator" {
+			return &session.ToolResult{Error: "the coordinator agent is system-managed and cannot be modified"}
+		}
 		if err := database.CreateAgent(p.Name, p.Content); err != nil {
 			return &session.ToolResult{Error: err.Error()}
 		}
@@ -229,6 +232,9 @@ func registerAgentTools(mgr *session.Manager, database *db.DB) {
 		json.Unmarshal([]byte(args), &p)
 		if p.Name == "" {
 			return &session.ToolResult{Error: "name required"}
+		}
+		if p.Name == "coordinator" {
+			return &session.ToolResult{Error: "the coordinator agent is system-managed and cannot be deleted"}
 		}
 		if err := database.DeleteAgent(p.Name); err != nil {
 			return &session.ToolResult{Error: err.Error()}

@@ -185,8 +185,8 @@ func (h *Handler) handleChat(c *gin.Context) {
 	// Main is the platform controller: read-only file tools, web, project/agent/knowledge/MCP management.
 	tools.RegisterReadFile(h.SessionMgr)
 	tools.RegisterReadDir(h.SessionMgr)
-	tools.RegisterSearchContent(h.SessionMgr, h.Config.WorkDir)
-	tools.RegisterSearchFiles(h.SessionMgr, h.Config.WorkDir)
+	tools.RegisterSearchContent(h.SessionMgr)
+	tools.RegisterSearchFiles(h.SessionMgr)
 	tools.RegisterRunCommand(h.SessionMgr, h.Config.WorkDir)
 	tools.RegisterWebTools(h.SessionMgr)
 	h.SessionMgr.RegisterTool("create_project", func(ctx context.Context, args string) *session.ToolResult {

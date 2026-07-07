@@ -61,8 +61,6 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		prompt := session.CoordinatorPrompt
 		if opts.CustomPrompt != "" {
 			prompt = opts.CustomPrompt
-		} else if agent, err := h.DB.GetAgentByName("coordinator"); err == nil && agent.Content != "" {
-			prompt = agent.Content
 		}
 		sysPrompt += "\n\n" + strings.Replace(prompt, "{work_dir}", workDir, 1)
 	case "worker":

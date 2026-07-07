@@ -15,7 +15,6 @@ import (
 	"beleader/backend/db"
 	"beleader/backend/llm"
 	"beleader/backend/mcp"
-	"beleader/backend/session"
 	"beleader/backend/tools"
 
 	"github.com/gin-gonic/gin"
@@ -76,9 +75,6 @@ func RunAutoPort(cfg *config.Config, database *db.DB, llmClient *llm.Client, log
 func runServer(cfg *config.Config, database *db.DB, llmClient *llm.Client, port string, blocking bool) {
 	// Register all builtin tools into the global Registry before creating the handler.
 	tools.RegisterBuiltinTools()
-
-	// Seed prompts are canonical — set them before DB seed uses them.
-	db.SetCoordinatorPrompt(session.CoordinatorPrompt)
 
 	h := api.NewHandler(database, llmClient, cfg)
 

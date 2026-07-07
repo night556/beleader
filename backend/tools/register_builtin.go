@@ -52,6 +52,11 @@ func searchContentHandler(ctx context.Context, args string) *session.ToolResult 
 	if searchPath == "" {
 		searchPath, _ = ctx.Value(session.CtxKeyWorkDir).(string)
 	}
+	if fi, err := os.Stat(searchPath); err != nil {
+		return &session.ToolResult{Error: fmt.Sprintf("path not found: %s", searchPath)}
+	} else if fi.IsDir() {
+		return &session.ToolResult{Error: fmt.Sprintf("path must be a file, not a directory: %s. Use search_files to find files, then search_content on specific files.", searchPath)}
+	}
 	pattern := p.FilePattern
 	if pattern == "" {
 		pattern = "*"
@@ -184,7 +189,7 @@ func readStatusHandler(ctx context.Context, args string) *session.ToolResult {
 	return &session.ToolResult{Content: string(data)}
 }
 
-func writeStatusHandler(ctx context.Context, args string) *session.ToolResult {
+func updateStatusHandler(ctx context.Context, args string) *session.ToolResult {
 	var p struct{ Content string `json:"content"` }
 	json.Unmarshal([]byte(args), &p)
 	if p.Content == "" {
@@ -222,7 +227,7 @@ func RegisterBuiltinTools() {
 
 	// Status tools
 	RegisterBuiltin("read_status", readStatusTool, readStatusHandler, "Read the project STATUS.md file.")
-	RegisterBuiltin("write_status", writeStatusTool, writeStatusHandler, "Replace the entire STATUS.md file.")
+	RegisterBuiltin("update_status", updateStatusTool, updateStatusHandler, "Update STATUS.md, preserving existing content and adding recent activity.")
 
 	// Execution tools
 	RegisterBuiltin("run_command", runCommandTool, execHandlerWithWorkDir, "Execute a shell command (sync or background).")
