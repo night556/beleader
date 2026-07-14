@@ -76,10 +76,10 @@ func spawnWorkerHandler(ctx context.Context, args string) *engine.ToolResult {
 	// Use the emit from parent context so sub-agent progress is visible.
 	// But for spawn_worker, we consume the events internally and only return the final result.
 	// We create a no-op emit for the sub-agent so it doesn't interfere with parent SSE.
-	noopEmit := func(ev engine.EventFrame) {}
+	noopEmit := func(ev engine.RuntimeEventRecord) {}
 
 	// Run the sub-agent.
-	result, _ := eng.RunLoop(ctx, subThread, p.SystemPrompt, p.Task, toolList, llmClient, subThread.Model.ContextLimit, visionEnabled, make(chan struct{}), make(chan engine.InterveneMsg, 1), noopEmit)
+	result, _ := eng.RunLoop(ctx, subThread, "sub_"+engine.NewTurnID(), p.SystemPrompt, p.Task, toolList, llmClient, subThread.Model.ContextLimit, visionEnabled, make(chan struct{}), make(chan engine.InterveneMsg, 1), noopEmit)
 
 	if result != nil {
 		if result.Error != "" {

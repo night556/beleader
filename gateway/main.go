@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	"beleader/gateway/api"
@@ -17,10 +20,36 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+func loadEnvFile(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		kv := strings.SplitN(line, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		k := strings.TrimSpace(kv[0])
+		v := strings.TrimSpace(kv[1])
+		if os.Getenv(k) == "" {
+			os.Setenv(k, v)
+		}
+	}
+}
+
 func main() {
-	port := flag.Int("port", 0, "HTTP server port (0=random, default: PORT env or 8080)")
-	runtimeURL := flag.String("runtime-url", "http://127.0.0.1:8081", "Runtime service URL")
-	logDir := flag.String("log-dir", "", "Log directory for rotating file logs (default: stdout)")
+	loadEnvFile(".env")
+
+	port := flag.Int("port", 0, "HTTP server port (0=default: PORT env or 8080)")
+	runtimeURL := flag.String("runtime-url", "", "Runtime service URL (default: RUNTIME_URL env or http://127.0.0.1:8081)")
+	logDir := flag.String("log-dir", "", "Log directory for rotating file logs (default: LOG_DIR env or stdout)")
 	flag.Parse()
 
 	os.MkdirAll(config.ConfigDir(), 0755)
@@ -28,9 +57,13 @@ func main() {
 	cfg := config.DefaultConfig()
 	if *runtimeURL != "" {
 		cfg.RuntimeURL = *runtimeURL
+	} else if u := os.Getenv("RUNTIME_URL"); u != "" {
+		cfg.RuntimeURL = u
 	}
 
-	database, err := db.Open(config.DBPath())
+	dbPath := config.DBPath()
+	os.MkdirAll(filepath.Dir(dbPath), 0755)
+	database, err := db.Open(dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
 		os.Exit(1)
@@ -47,6 +80,9 @@ func main() {
 		llmClient = llm.New("", "", "")
 	}
 
+	if *logDir == "" {
+		*logDir = os.Getenv("LOG_DIR")
+	}
 	if *logDir != "" {
 		os.MkdirAll(*logDir, 0755)
 		lj := &lumberjack.Logger{

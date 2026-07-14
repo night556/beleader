@@ -48,7 +48,7 @@ func countLines(f *os.File) int64 {
 }
 
 // Append writes an event to the JSONL file with an auto-incremented seq and timestamp.
-func (w *EventWriter) Append(ev engine.EventFrame) error {
+func (w *EventWriter) Append(ev engine.RuntimeEventRecord) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -73,7 +73,7 @@ func (w *EventWriter) Close() error {
 
 // ReadEvents reads events from events.jsonl starting at sinceSeq and sends them to ch.
 // When it reaches the end of the file, it continues tailing until ch is closed or ctx is done.
-func ReadEvents(dataDir, threadID string, sinceSeq int64, ch chan<- engine.EventFrame) error {
+func ReadEvents(dataDir, threadID string, sinceSeq int64, ch chan<- engine.RuntimeEventRecord) error {
 	defer close(ch)
 
 	path := filepath.Join(ThreadDir(dataDir, threadID), "events.jsonl")
@@ -89,7 +89,7 @@ func ReadEvents(dataDir, threadID string, sinceSeq int64, ch chan<- engine.Event
 
 	var lastSeq int64
 	for scanner.Scan() {
-		var ev engine.EventFrame
+		var ev engine.RuntimeEventRecord
 		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
 			continue
 		}
@@ -111,7 +111,7 @@ func ReadEvents(dataDir, threadID string, sinceSeq int64, ch chan<- engine.Event
 		scanner2.Buffer(buf, 10*1024*1024)
 		var lastSeq2 int64
 		for scanner2.Scan() {
-			var ev engine.EventFrame
+			var ev engine.RuntimeEventRecord
 			if err := json.Unmarshal(scanner2.Bytes(), &ev); err != nil {
 				continue
 			}

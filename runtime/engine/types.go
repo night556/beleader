@@ -34,27 +34,89 @@ const (
 	CtxKeyProgress      ctxKey = "progress"
 	CtxKeyToolCallID    ctxKey = "tool_call_id"
 	CtxKeyThreadID      ctxKey = "thread_id"
+	CtxKeyTurnID        ctxKey = "turn_id"
+	CtxKeyItemID        ctxKey = "item_id"
 	CtxKeyWorkDir       ctxKey = "work_dir"
 	CtxKeyThreadDir     ctxKey = "thread_dir"
 )
 
-// SendProgress sends a tool_progress event if a progress callback is in the context.
-// In the new EventFrame model, this emits exec_command_output_delta events.
-func SendProgress(ctx context.Context, command, delta string) {
-	progress, _ := ctx.Value(CtxKeyProgress).(func(EventFrame))
-	if progress == nil {
-		return
+// EmitEvent sends an event through the progress callback in ctx.
+func EmitEvent(ctx context.Context, ev RuntimeEventRecord) {
+	progress, _ := ctx.Value(CtxKeyProgress).(func(RuntimeEventRecord))
+	if progress != nil {
+		progress(ev)
 	}
-	tcID, _ := ctx.Value(CtxKeyToolCallID).(string)
-	tid, _ := ctx.Value(CtxKeyThreadID).(string)
-	progress(EventFrame{
-		Event:      EventExecCommandOutputDelta,
-		Command:    command,
-		Delta:      delta,
-		ToolName:   "run_command",
-		ResponseID: tcID,
-		TurnID:     tid,
+}
+
+// SendProgress emits item.delta events for streaming command output.
+func SendProgress(ctx context.Context, command, delta string) {
+	itemID, _ := ctx.Value(CtxKeyItemID).(string)
+	EmitEvent(ctx, RuntimeEventRecord{
+		SchemaVersion: 1,
+		Event:         EventItemDelta,
+		ItemID:        itemID,
+		Payload: map[string]any{
+			"delta": delta,
+			"kind":  ItemKindCommandExecution,
+		},
 	})
+}
+
+// SendCommandBegin emits item.started for a command_execution item.
+func SendCommandBegin(ctx context.Context, command string) string {
+	itemID, _ := ctx.Value(CtxKeyItemID).(string)
+	turnID, _ := ctx.Value(CtxKeyTurnID).(string)
+	metadata := map[string]any{
+		"tool_name": "run_command",
+		"command":   command,
+	}
+	ev := StartItem(itemID, turnID, ItemKindCommandExecution, command, metadata)
+	// Add tool info to payload (CodeWhale includes tool details in item.started for tools).
+	payload := ev.Payload
+	payload["tool"] = map[string]any{
+		"id":    itemID,
+		"name":  "run_command",
+		"input": map[string]any{"command": command},
+	}
+	ev.Payload = payload
+	EmitEvent(ctx, ev)
+	return itemID
+}
+
+// SendCommandEnd emits item.completed for a command_execution item.
+func SendCommandEnd(ctx context.Context, command string, exitCode int) {
+	itemID, _ := ctx.Value(CtxKeyItemID).(string)
+	turnID, _ := ctx.Value(CtxKeyTurnID).(string)
+	status := ItemStatusCompleted
+	if exitCode != 0 {
+		status = ItemStatusFailed
+	}
+	detail := fmt.Sprintf("Command '%s' exited with code %d", command, exitCode)
+	metadata := map[string]any{
+		"tool_name": "run_command",
+		"command":   command,
+		"exit_code": exitCode,
+	}
+	ev := RuntimeEventRecord{
+		SchemaVersion: 1,
+		Event:         EventItemCompleted,
+		ItemID:        itemID,
+		Payload: map[string]any{
+			"item": TurnItemRecord{
+				ID:       itemID,
+				TurnID:   turnID,
+				Kind:     ItemKindCommandExecution,
+				Status:   status,
+				Summary:  detail,
+				Detail:   detail,
+				Metadata: metadata,
+			},
+		},
+	}
+	if exitCode != 0 {
+		ev.Event = EventItemFailed
+	}
+	EmitEvent(ctx, ev)
 }
 
 // Engine manages tool handlers and runs the LLM loop.
@@ -119,8 +181,8 @@ type InterveneMsg struct {
 }
 
 // ProgressCallback is the callback type for emitting events during RunLoop.
-// It receives an EventFrame that will be written to SSE + events.jsonl.
-type ProgressCallback func(EventFrame)
+// It receives a RuntimeEventRecord that will be written to SSE + events.jsonl.
+type ProgressCallback func(RuntimeEventRecord)
 
 // CompressPrompt is the system prompt for context compression.
 const CompressPrompt = `You are compressing a conversation to save context space. Your output will replace all previous messages. The assistant must be able to continue working from your summary alone.

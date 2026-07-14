@@ -299,6 +299,8 @@ func execHandler(ctx context.Context, args string) *engine.ToolResult {
 		return &engine.ToolResult{Error: err.Error()}
 	}
 
+	engine.SendCommandBegin(ctx, p.Command)
+
 	if err := cmd.Start(); err != nil {
 		return &engine.ToolResult{Error: err.Error()}
 	}
@@ -340,6 +342,16 @@ func execHandler(ctx context.Context, args string) *engine.ToolResult {
 	waitErr := cmd.Wait()
 	wg.Wait()
 
+	exitCode := 0
+	if waitErr != nil {
+		if exitErr, ok := waitErr.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+	engine.SendCommandEnd(ctx, p.Command, exitCode)
+
 	output := outBuf.String()
 	if errOutput := errBuf.String(); errOutput != "" {
 		output += "\n[stderr]\n" + errOutput
@@ -347,8 +359,7 @@ func execHandler(ctx context.Context, args string) *engine.ToolResult {
 
 	if waitErr != nil {
 		if timeoutCtx.Err() != nil {
-			return &engine.ToolResult{Content: output, Error: fmt.Sprintf("command timed out after %ds", p.Timeout)}
-		}
+			return &engine.ToolResult{Content: output, Error: fmt.Sprintf("command timed out after %ds", p.Timeout)}}
 		return &engine.ToolResult{Content: output, Error: waitErr.Error()}
 	}
 	return &engine.ToolResult{Content: output}

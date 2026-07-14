@@ -13,7 +13,6 @@ import (
 	"beleader/gateway/mcp"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // Handler is the Gateway HTTP handler.
@@ -125,7 +124,14 @@ func (h *Handler) handleChat(c *gin.Context) {
 
 	threadID := req.ThreadID
 	if threadID == "" {
-		threadID = uuid.New().String()
+		// New thread: create on Runtime first — Runtime owns the ID.
+		rtID, err := h.createRuntimeThread(agent)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		threadID = rtID
+
 		title := req.Message
 		if len(title) > 80 {
 			title = title[:80]
@@ -143,13 +149,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 		h.cancelThread(threadID)
 	}
 
-	rtThreadID, err := h.ensureRuntimeThread(threadID, agent)
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(200, gin.H{"thread_id": threadID, "runtime_thread_id": rtThreadID})
+	c.JSON(200, gin.H{"thread_id": threadID})
 	go h.runSession(threadID, agent, req.Message, req.Images)
 }
 
@@ -404,12 +404,21 @@ func (h *Handler) resolveModel() *db.ModelProfile {
 	return m
 }
 
-func (h *Handler) ensureRuntimeThread(threadID string, agent *db.Agent) (string, error) {
-	model := h.resolveModel()
-	if model == nil {
-		model = &db.ModelProfile{ContextLimit: 128000}
+func (h *Handler) buildModelMap() map[string]any {
+	m := h.resolveModel()
+	if m == nil {
+		return map[string]any{"context_limit": 128000}
 	}
+	return map[string]any{
+		"base_url":      m.BaseURL,
+		"api_key":       m.APIKey,
+		"model":         m.Model,
+		"context_limit": m.ContextLimit,
+		"vision":        m.Vision,
+	}
+}
 
+func (h *Handler) createRuntimeThread(agent *db.Agent) (string, error) {
 	var toolNames []string
 	json.Unmarshal([]byte(agent.Tools), &toolNames)
 	if len(toolNames) == 0 {
@@ -418,16 +427,9 @@ func (h *Handler) ensureRuntimeThread(threadID string, agent *db.Agent) (string,
 
 	req := CreateThreadRequest{
 		SystemPrompt: agent.SystemPrompt,
-		Model: map[string]any{
-			"base_url":      model.BaseURL,
-			"api_key":       model.APIKey,
-			"model":         model.Model,
-			"context_limit": model.ContextLimit,
-			"vision":        model.Vision,
-		},
-		Tools: baseToolDefsFiltered(toolNames),
+		Model:        h.buildModelMap(),
+		Tools:        baseToolDefsFiltered(toolNames),
 		Metadata: map[string]any{
-			"title":    threadID,
 			"agent_id": agent.ID,
 		},
 	}

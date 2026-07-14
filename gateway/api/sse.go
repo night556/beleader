@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 )
 
@@ -54,17 +55,17 @@ func (b *SSEBroker) Unsubscribe(ch chan string) {
 }
 
 func (b *SSEBroker) Broadcast(event SSEEvent) {
-	data, err := json.Marshal(event)
+	payloadJSON, err := json.Marshal(event.Payload)
 	if err != nil {
 		return
 	}
-	dataStr := string(data)
+	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Type, string(payloadJSON))
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for ch := range b.clients {
 		select {
-		case ch <- dataStr:
+		case ch <- msg:
 		default:
 		}
 	}

@@ -170,12 +170,12 @@ func messageRole(kind string) string {
 }
 
 // RunLoop runs the LLM agent loop on the thread.
-func (e *Engine) RunLoop(ctx context.Context, thread *Thread, sysPrompt string, userContent string, toolList []openai.Tool, llmClient *llm.Client, modelContextLimit int, visionEnabled bool, pauseCh <-chan struct{}, interveneCh <-chan InterveneMsg, emit ProgressCallback) (*LoopResult, error) {
+// turnID is the current turn identifier for item lifecycle events.
+func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sysPrompt string, userContent string, toolList []openai.Tool, llmClient *llm.Client, modelContextLimit int, visionEnabled bool, pauseCh <-chan struct{}, interveneCh <-chan InterveneMsg, emit ProgressCallback) (*LoopResult, error) {
 	rounds := 0
 	lastPromptTokens := 0
 	currentTotalTokens := thread.TotalTokens
 	afterID := thread.ContextStartID
-	responseID := ""
 
 	if userContent != "" {
 		thread.AddMessage(Message{Kind: "user_message", Content: userContent})
@@ -233,46 +233,25 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, sysPrompt string, 
 			}
 		}
 
-		// Emit response_start.
-		responseID = fmt.Sprintf("resp_%s_%d", thread.ID, rounds)
-		emit(EventFrame{
-			Event:      EventResponseStart,
-			ResponseID: responseID,
-		})
+		// ── item.started for this LLM response ──
+		agentItemID := NewItemID()
+		emit(StartItem(agentItemID, turnID, ItemKindAgentMessage, "", nil))
 
 		resp, err := llmClient.ChatStream(ctx, msgs, toolList, func(delta string) error {
-			emit(EventFrame{
-				Event:      EventResponseDelta,
-				ResponseID: responseID,
-				Delta:      delta,
-				Channel:    "text",
-			})
+			emit(DeltaEvent(agentItemID, ItemKindAgentMessage, delta))
 			return nil
 		})
 		if err != nil {
 			if ctx.Err() != nil {
-				emit(EventFrame{
-					Event:      EventResponseEnd,
-					ResponseID: responseID,
-				})
+				emit(CompleteItem(agentItemID, turnID, ItemKindAgentMessage, "", nil))
 				return &LoopResult{Stopped: true, Rounds: rounds}, nil
 			}
-			emit(EventFrame{
-				Event:      EventResponseEnd,
-				ResponseID: responseID,
-			})
-			emit(EventFrame{
-				Event:   EventError,
-				Message: err.Error(),
-			})
+			emit(FailItem(agentItemID, turnID, ItemKindAgentMessage, err.Error()))
 			return &LoopResult{Completed: false, Rounds: rounds, Error: err.Error()}, nil
 		}
 
 		if len(resp.Choices) == 0 {
-			emit(EventFrame{
-				Event:      EventResponseEnd,
-				ResponseID: responseID,
-			})
+			emit(CompleteItem(agentItemID, turnID, ItemKindAgentMessage, "", nil))
 			return &LoopResult{Completed: true, Rounds: rounds}, nil
 		}
 
@@ -280,10 +259,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, sysPrompt string, 
 		assistantMsg := choice.Message
 
 		if len(assistantMsg.ToolCalls) == 0 && strings.TrimSpace(assistantMsg.Content) == "" {
-			emit(EventFrame{
-				Event:      EventResponseEnd,
-				ResponseID: responseID,
-			})
+			emit(CompleteItem(agentItemID, turnID, ItemKindAgentMessage, "", nil))
 			continue
 		}
 
@@ -301,9 +277,9 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, sysPrompt string, 
 		}
 
 		// Store message with kind.
-		msgKind := "agent_message"
+		msgKind := ItemKindAgentMessage
 		if len(tcs) > 0 {
-			msgKind = "tool_call"
+			msgKind = ItemKindToolCall
 		}
 		thread.AddMessage(Message{
 			Kind:             msgKind,
@@ -312,36 +288,35 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, sysPrompt string, 
 			ReasoningContent: assistantMsg.ReasoningContent,
 		})
 
-		// Emit response_end for this response.
-		emit(EventFrame{
-			Event:      EventResponseEnd,
-			ResponseID: responseID,
-			Content:    assistantMsg.Content,
-			Kind:       msgKind,
-		})
+		// ── item.completed for this LLM response ──
+		emit(CompleteItem(agentItemID, turnID, msgKind, assistantMsg.Content, nil))
 
 		if len(assistantMsg.ToolCalls) == 0 {
 			return &LoopResult{Completed: true, Rounds: rounds, Content: assistantMsg.Content}, nil
 		}
 
-		// Execute tool calls.
+		// ── Execute tool calls ──
 		var shouldStop bool
 		for _, tc := range assistantMsg.ToolCalls {
 			if ctx.Err() != nil {
 				return &LoopResult{Stopped: true, Rounds: rounds}, nil
 			}
 
-			emit(EventFrame{
-				Event:      EventToolCallStart,
-				ResponseID: responseID,
-				ToolName:   tc.Function.Name,
-				Arguments:  tc.Function.Arguments,
-			})
+			toolItemID := NewItemID()
+			toolMeta := map[string]any{
+				"tool_use_id": tc.ID,
+				"tool_name":   tc.Function.Name,
+			}
+
+			// item.started for tool_call
+			emit(StartItem(toolItemID, turnID, ItemKindToolCall, tc.Function.Name, toolMeta))
 
 			toolCtx := context.WithValue(ctx, CtxKeyVisionEnabled, visionEnabled)
 			toolCtx = context.WithValue(toolCtx, CtxKeyProgress, emit)
 			toolCtx = context.WithValue(toolCtx, CtxKeyToolCallID, tc.ID)
 			toolCtx = context.WithValue(toolCtx, CtxKeyThreadID, thread.ID)
+			toolCtx = context.WithValue(toolCtx, CtxKeyTurnID, turnID)
+			toolCtx = context.WithValue(toolCtx, CtxKeyItemID, toolItemID)
 			toolCtx = context.WithValue(toolCtx, CtxKeyWorkDir, thread.WorkspaceDir)
 			toolCtx = context.WithValue(toolCtx, CtxKeyThreadDir, thread.DataDir)
 
@@ -362,12 +337,8 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, sysPrompt string, 
 			dbJSON, _ := json.Marshal(dbResult)
 			thread.AddMessage(Message{Kind: "tool_result", Content: string(dbJSON), ToolCallID: tc.ID})
 
-			emit(EventFrame{
-				Event:      EventToolCallResult,
-				ResponseID: responseID,
-				ToolName:   tc.Function.Name,
-				Output:     string(dbJSON),
-			})
+			// item.completed for tool_call
+			emit(CompleteItem(toolItemID, turnID, ItemKindToolCall, string(dbJSON), toolMeta))
 
 			if visionEnabled && len(result.Images) > 0 {
 				label := result.ImageLabel

@@ -9,3 +9,4 @@ bin/
 .env
 *.log
 desktop/src-tauri/binaries/*
+/data/*

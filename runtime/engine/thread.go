@@ -61,7 +61,7 @@ type Thread struct {
 	WorkspaceDir   string         `json:"workspace_dir"`
 	Metadata       map[string]any `json:"metadata"`
 	MaxContextPct  int            `json:"max_context_pct"`
-	Messages       []Message      `json:"messages"`
+	Messages       []Message      `json:"-"` // persisted in turns file, rebuilt from events
 	ContextStartID int64          `json:"context_start_id"`
 	TotalTokens    int            `json:"total_tokens"`
 	CreatedAt      time.Time      `json:"created_at"`

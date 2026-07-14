@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"beleader/runtime/engine"
 	"beleader/runtime/llm"
@@ -53,8 +54,9 @@ type CreateThreadResponse struct {
 
 // TurnRequest is the JSON body for POST /v1/threads/{id}/turns.
 type TurnRequest struct {
-	Message string   `json:"message"`
-	Images  []string `json:"images,omitempty"`
+	Message string             `json:"message"`
+	Images  []string           `json:"images,omitempty"`
+	Model   *engine.ModelConfig `json:"model,omitempty"`
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +189,12 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		return
 	}
 
+	// Update model config if provided (per-turn override).
+	if req.Model != nil {
+		thread.Model = *req.Model
+		store.SaveThread(s.dataDir, thread)
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeJSON(w, 500, map[string]string{"error": "streaming not supported"})
@@ -219,55 +227,91 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	interveneCh := make(chan engine.InterveneMsg, 1)
 
 	// Event emission callback: writes SSE + persists to events.jsonl.
-	emit := func(ev engine.EventFrame) {
+	// Injects thread_id and turn_id into every event automatically.
+	turnID := engine.NewTurnID()
+	emit := func(ev engine.RuntimeEventRecord) {
+		if ev.ThreadID == "" {
+			ev.ThreadID = threadID
+		}
+		if ev.TurnID == "" {
+			ev.TurnID = turnID
+		}
 		b, _ := json.Marshal(ev)
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Event, string(b))
 		flusher.Flush()
 		ew.Append(ev)
 	}
 
-	// Emit turn_started.
-	turnID := fmt.Sprintf("turn_%d", thread.LastMessageID()+1)
-	emit(engine.EventFrame{
-		Event:  engine.EventTurnStarted,
-		TurnID: turnID,
+	// Emit turn.started.
+	emit(engine.RuntimeEventRecord{
+		Event: engine.EventTurnStarted,
+		Payload: map[string]any{"turn": engine.TurnRecord{
+			ID:           turnID,
+			ThreadID:     threadID,
+			Status:       engine.TurnStatusInProgress,
+			InputSummary: truncate(req.Message, 100),
+			StartedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		}},
 	})
 
 	log.Printf("[turn] %s: %s", threadID, truncate(req.Message, 100))
-	result, err := s.eng.RunLoop(ctx, thread, thread.SystemPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit)
+	result, err := s.eng.RunLoop(ctx, thread, turnID, thread.SystemPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit)
 	if err != nil {
-		emit(engine.EventFrame{
-			Event:  engine.EventError,
-			TurnID: turnID,
-			Message: err.Error(),
-		})
+				emit(engine.FailItem("item_error", turnID, engine.ItemKindError, err.Error()))
+
 		return
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	switch {
 	case result.Completed:
-		emit(engine.EventFrame{
-			Event:   engine.EventTurnComplete,
-			TurnID:  turnID,
-			Content: result.Content,
+		emit(engine.RuntimeEventRecord{
+			Event: engine.EventTurnCompleted,
+			Payload: map[string]any{"turn": engine.TurnRecord{
+				ID:        turnID,
+				ThreadID:  threadID,
+				Status:    engine.TurnStatusCompleted,
+				InputSummary: truncate(req.Message, 100),
+				StartedAt:    now,
+				EndedAt:      now,
+			}},
 		})
 	case result.Paused:
-		emit(engine.EventFrame{
-			Event:  engine.EventTurnAborted,
-			TurnID: turnID,
-			Reason: "paused",
+		emit(engine.RuntimeEventRecord{
+			Event: engine.EventTurnCompleted,
+			Payload: map[string]any{"turn": engine.TurnRecord{
+				ID:        turnID,
+				ThreadID:  threadID,
+				Status:    engine.TurnStatusInterrupted,
+				InputSummary: truncate(req.Message, 100),
+				StartedAt:    now,
+				EndedAt:      now,
+			}},
 		})
 	case result.Stopped:
-		emit(engine.EventFrame{
-			Event:  engine.EventTurnAborted,
-			TurnID: turnID,
-			Reason: "stopped",
+		emit(engine.RuntimeEventRecord{
+			Event: engine.EventTurnCompleted,
+			Payload: map[string]any{"turn": engine.TurnRecord{
+				ID:        turnID,
+				ThreadID:  threadID,
+				Status:    engine.TurnStatusInterrupted,
+				InputSummary: truncate(req.Message, 100),
+				StartedAt:    now,
+				EndedAt:      now,
+			}},
 		})
 	case result.Error != "":
-		emit(engine.EventFrame{
-			Event:   engine.EventError,
-			TurnID:  turnID,
-			Message: result.Error,
+		emit(engine.FailItem("item_error", turnID, engine.ItemKindError, result.Error))
+		emit(engine.RuntimeEventRecord{
+			Event: engine.EventTurnCompleted,
+			Payload: map[string]any{"turn": engine.TurnRecord{
+				ID:        turnID,
+				ThreadID:  threadID,
+				Status:    engine.TurnStatusInterrupted,
+				InputSummary: truncate(req.Message, 100),
+				StartedAt:    now,
+				EndedAt:      now,
+			}},
 		})
 	}
 
@@ -294,7 +338,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, threadID s
 	w.WriteHeader(200)
 	flusher.Flush()
 
-	ch := make(chan engine.EventFrame, 100)
+	ch := make(chan engine.RuntimeEventRecord, 100)
 	go store.ReadEvents(s.dataDir, threadID, sinceSeq, ch)
 
 	for ev := range ch {

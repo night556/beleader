@@ -26,9 +26,9 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 
 	// Persist user message.
 	h.DB.InsertMessage(&db.Message{
-		ThreadID:    threadID,
-		Kind:        "user_message",
-		Content:     message,
+		ThreadID:     threadID,
+		Kind:         "user_message",
+		Content:      message,
 		MultiContent: encodeMultiContent(images),
 	})
 
@@ -36,6 +36,7 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 	resp, err := h.Runtime.SendTurn(threadID, TurnRequest{
 		Message: message,
 		Images:  images,
+		Model:   h.buildModelMap(),
 	})
 	if err != nil {
 		log.Printf("[session] %s: send turn error: %v", threadID, err)
@@ -44,77 +45,93 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 	}
 	defer resp.Body.Close()
 
-	h.Notify(SessionEvent{Type: "turn_started", SessionID: threadID, Data: threadID})
-
 	// Parse SSE events from Runtime and relay.
-	ParseSSEStream(resp.Body, func(eventType string, payload map[string]any) {
+	ParseSSEStream(resp.Body, func(eventType string, envelope map[string]any) {
+		// Extract inner payload from the RuntimeEventRecord envelope.
+		payload, _ := envelope["payload"].(map[string]any)
+		if payload == nil {
+			payload = map[string]any{}
+		}
+
 		ev := SessionEvent{Type: eventType, SessionID: threadID, Data: payload}
 
 		switch eventType {
-		case "turn_started", "turn_complete", "turn_aborted":
+		case "turn.started", "turn.completed":
 			h.Notify(ev)
 
-		case "response_start":
-			h.Notify(ev)
-
-		case "response_delta":
-			h.Notify(ev)
-
-		case "response_end":
-			// Persist final assistant/content message.
-			content, _ := payload["content"].(string)
-			kind, _ := payload["kind"].(string)
-			if kind == "" {
-				kind = "agent_message"
+		case "item.started":
+			item, _ := payload["item"].(map[string]any)
+			if item != nil {
+				kind, _ := item["kind"].(string)
+				if kind == "tool_call" {
+					metadata, _ := item["metadata"].(map[string]any)
+					toolName, _ := metadata["tool_name"].(string)
+					toolUseID, _ := metadata["tool_use_id"].(string)
+					tcsJSON, _ := json.Marshal([]map[string]any{{
+						"id":   toolUseID,
+						"type": "function",
+						"function": map[string]any{
+							"name": toolName,
+						},
+					}})
+					h.DB.InsertMessage(&db.Message{
+						ThreadID:  threadID,
+						Kind:      "tool_call",
+						ToolCalls: string(tcsJSON),
+					})
+				}
 			}
-			h.DB.InsertMessage(&db.Message{
-				ThreadID: threadID,
-				Kind:     kind,
-				Content:  content,
-			})
 			h.Notify(ev)
 
-		case "tool_call_start":
-			// Persist tool call as a message.
-			toolName, _ := payload["tool_name"].(string)
-			args, _ := payload["arguments"].(string)
-			tcsJSON, _ := json.Marshal([]map[string]any{{
-				"id":   payload["response_id"],
-				"type": "function",
-				"function": map[string]any{
-					"name":      toolName,
-					"arguments": args,
-				},
-			}})
-			h.DB.InsertMessage(&db.Message{
-				ThreadID:  threadID,
-				Kind:      "tool_call",
-				ToolCalls: string(tcsJSON),
-			})
+		case "item.delta":
 			h.Notify(ev)
 
-		case "tool_call_result":
-			// Persist tool result.
-			output, _ := payload["output"].(string)
-			h.DB.InsertMessage(&db.Message{
-				ThreadID:   threadID,
-				Kind:       "tool_result",
-				Content:    output,
-				ToolCallID: payload["response_id"].(string),
-			})
+		case "item.completed":
+			item, _ := payload["item"].(map[string]any)
+			if item != nil {
+				kind, _ := item["kind"].(string)
+				detail, _ := item["detail"].(string)
+				switch kind {
+				case "agent_message":
+					h.DB.InsertMessage(&db.Message{
+						ThreadID: threadID,
+						Kind:     "agent_message",
+						Content:  detail,
+					})
+				case "tool_call":
+					metadata, _ := item["metadata"].(map[string]any)
+					toolUseID, _ := metadata["tool_use_id"].(string)
+					// Only persist individual tool execution results (skip batch completions).
+					if toolUseID != "" {
+						dbContent := detail
+						if m, ok := parseJSONMap(detail); ok {
+							delete(m, "images")
+							if b, err := json.Marshal(m); err == nil {
+								dbContent = string(b)
+							}
+						}
+						h.DB.InsertMessage(&db.Message{
+							ThreadID:   threadID,
+							Kind:       "tool_result",
+							Content:    dbContent,
+							ToolCallID: toolUseID,
+						})
+					}
+				}
+			}
 			h.Notify(ev)
 
-		case "exec_command_begin", "exec_command_output_delta", "exec_command_end":
+		case "item.failed":
+			item, _ := payload["item"].(map[string]any)
+			if item != nil {
+				detail, _ := item["detail"].(string)
+				h.DB.InsertMessage(&db.Message{
+					ThreadID: threadID,
+					Kind:     "error",
+					Content:  detail,
+				})
+			}
 			h.Notify(ev)
-
-		case "error":
-			h.Notify(ev)
-			msg, _ := payload["message"].(string)
-			h.DB.InsertMessage(&db.Message{
-				ThreadID: threadID,
-				Kind:     "error",
-				Content:  msg,
-			})
 		}
 	})
 
@@ -135,4 +152,12 @@ func encodeMultiContent(images []string) string {
 	}
 	b, _ := json.Marshal(parts)
 	return string(b)
+}
+
+func parseJSONMap(s string) (map[string]any, bool) {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return nil, false
+	}
+	return m, true
 }

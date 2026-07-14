@@ -39,8 +39,9 @@ type CreateThreadResponse struct {
 
 // TurnRequest is the JSON body for POST /v1/threads/{id}/turns.
 type TurnRequest struct {
-	Message string   `json:"message"`
-	Images  []string `json:"images,omitempty"`
+	Message string         `json:"message"`
+	Images  []string       `json:"images,omitempty"`
+	Model   map[string]any `json:"model,omitempty"`
 }
 
 // CreateThread creates a new thread in the Runtime service.

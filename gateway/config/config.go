@@ -22,6 +22,9 @@ func ConfigDir() string {
 }
 
 func DBPath() string {
+	if p := os.Getenv("DB_PATH"); p != "" {
+		return p
+	}
 	return filepath.Join(ConfigDir(), "beleader.db")
 }
 
