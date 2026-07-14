@@ -29,7 +29,7 @@
     <button class="sidebar-item active" data-view="home" onclick="switchView('home')" data-i18n="sidebar.home">首页</button>
   </div>
   <div class="sidebar-foot">
-    <button class="sidebar-new-btn" onclick="createProject()" data-i18n-title="tab.new_project" title="New Project">+ <span data-i18n="sidebar.new_project">新建项目</span></button>
+    <button class="sidebar-new-btn" onclick="newThread()" data-i18n-title="sidebar.new_thread" title="New Thread">+ <span data-i18n="sidebar.new_thread">新建会话</span></button>
   </div>
   <div class="sidebar-actions">
     <button class="sidebar-action" onclick="toggleTools()" data-i18n="topbar.tools">Tools</button>
@@ -85,18 +85,10 @@
   <div class="content-cards" id="content-cards"></div>
 </main>
 
-<!-- TTS progress -->
-<div class="tts-bar" id="tts-bar" style="display:none">
-  <div class="tts-bar-fill" id="tts-bar-fill" style="width:0%"></div>
-  <button class="tts-bar-close" onclick="stopTTS()">✕</button>
-</div>
 
 <!-- Image preview -->
 <div class="img-preview" id="img-preview"></div>
 <input type="file" id="img-file-input" accept="image/*" multiple hidden>
-
-<!-- Agent bar -->
-<div class="agent-bar" id="agent-bar"></div>
 
 <!-- Input -->
 <footer class="input-area">
@@ -108,9 +100,7 @@
     <button class="capsule-btn stop-btn" data-i18n-title="input.stop_title" title="Stop" onclick="stopSession()">■</button>
     <textarea id="msg-input" rows="1" data-i18n-placeholder="input.placeholder" placeholder="下指令…" autofocus></textarea>
     <button class="capsule-btn aux-btn" data-i18n-title="input.upload_title" title="Upload image" onclick="document.getElementById('img-file-input').click()">📷</button>
-    <button class="capsule-btn aux-btn" id="mic-btn" data-i18n-title="input.voice_title" title="Voice input">🎤</button>
-    <button class="capsule-btn aux-btn" id="speak-btn" data-i18n-title="input.voice_output_title" title="Voice output" onclick="toggleSpeak()">🔊</button>
-    <button class="capsule-btn send-btn" id="send-btn" data-i18n-title="input.send_title" title="Send">↑</button>
+        <button class="capsule-btn send-btn" id="send-btn" data-i18n-title="input.send_title" title="Send">↑</button>
   </div>
 </footer>
 
@@ -135,31 +125,6 @@
     <button class="panel-close" onclick="toggleSettings()">✕</button>
   </div>
   <div class="panel-body" id="settings-body">
-    <div class="set-section">
-      <h4 data-i18n="settings.general">通用</h4>
-      <div class="set-row"><label data-i18n="settings.max_hc">最大并发 (HC)</label><input type="number" id="set-hc-max" min="1" max="20" value="5"></div>
-      <div class="set-row"><label data-i18n="settings.context_threshold">上下文阈值 (%)</label><input type="number" id="set-context-pct" min="10" max="95" value="60"></div>
-      <div class="set-row set-row-check"><label data-i18n="settings.headless">无头模式</label><input type="checkbox" id="set-headless"></div>
-    </div>
-    <div class="set-section">
-      <h4 data-i18n="settings.voice">语音</h4>
-      <div class="set-row"><label data-i18n="settings.stt_lang">STT 语言</label>
-        <select id="set-stt-lang">
-          <option value="zh-CN">zh-CN</option>
-          <option value="en-US">en-US</option>
-        </select>
-      </div>
-      <div class="set-row"><label data-i18n="settings.tts_rate">TTS 语速</label><input type="range" id="set-tts-rate" min="0.5" max="2" step="0.1" value="1"></div>
-      <div class="set-row"><label data-i18n="settings.tts_pitch">TTS 音调</label><input type="range" id="set-tts-pitch" min="0.5" max="2" step="0.1" value="1"></div>
-      <div class="set-row"><label data-i18n="settings.tts_voice">TTS 语音</label><select id="set-tts-voice"></select></div>
-      <div class="set-row set-row-check"><label data-i18n="settings.speak_enabled">语音输出</label><input type="checkbox" id="set-speak-enabled" checked></div>
-    </div>
-    <div class="set-section">
-      <h4 data-i18n="settings.port_maps">Port Maps</h4>
-      <p style="font-size:11px;color:var(--text-dim);margin:4px 0 8px" data-i18n="settings.port_maps_desc">Map local ports for preview via /api/proxy/{name}/</p>
-      <button class="btn-add" onclick="addPortMap()" style="margin-bottom:10px" data-i18n="settings.add_port">+ Add Port</button>
-      <div id="port-map-list"></div>
-    </div>
     <div class="set-section">
       <h4 data-i18n="settings.models">模型</h4>
       <button class="btn-add" onclick="addModel()" data-i18n="settings.add_model" style="margin-bottom:10px">+ 添加模型</button>
@@ -234,7 +199,7 @@
 
 </div><!-- end panel-container -->
 
-<!-- Modal component (shared by createProject, clearContext confirm, agent editor) -->
+<!-- Modal component (shared by clearContext confirm, agent editor) -->
 <div class="modal-backdrop" id="modal-backdrop" style="display:none">
   <div class="modal-dialog" id="modal-dialog">
     <div class="modal-head">
@@ -255,6 +220,5 @@
 <script src="/js/input.js"></script>
 <script src="/js/panels.js"></script>
 <script src="/js/knowledge.js"></script>
-<script src="/js/voice.js"></script>
 </body>
 </html>

@@ -26,8 +26,14 @@ function sendMsg() {
   if (!text && imgs.length === 0) return;
 
   if (!hasModels) {
-    showErrorView(t('error.cannot_send'), t('error.no_model_msg'));
-    updateStatus(t('error.missing_model'), 'error');
+    showErrorView('Cannot send', 'No model configured. Add one in Settings.');
+    updateStatus('Missing model', 'error');
+    msgInput.value = text;
+    return;
+  }
+  if (!activeAgentId) {
+    showErrorView('Cannot send', 'No agent available.');
+    updateStatus('Missing agent', 'error');
     msgInput.value = text;
     return;
   }
@@ -37,39 +43,37 @@ function sendMsg() {
   // Show user message on stage immediately
   if (text) showUserMsg(text);
 
-  var view = currentView;
-  if (view === 'home') {
-    fetch(SERVER_URL + '/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, images: imgs })
-    });
-  } else {
-    var s = null;
-    for (var i = 0; i < sessions.length; i++) {
-      if (sessions[i].ref_id === view || sessions[i].id === view) { s = sessions[i]; break; }
-    }
-    if (s && s.ref_id) {
-      fetch(SERVER_URL + '/api/projects/' + s.ref_id + '/intervene', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, images: imgs })
-      });
-    } else {
-      console.error('[sendMsg] session not found for view:', view);
-    }
-  }
+  var body = { message: text, images: imgs, agent_id: activeAgentId };
+  if (activeThreadId) body.thread_id = activeThreadId;
+
+  fetch(SERVER_URL + '/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.thread_id && !activeThreadId) {
+        activeThreadId = d.thread_id;
+        updateThreadList();
+        // Refresh thread list from server
+        fetch(SERVER_URL + '/api/threads')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            threads = Array.isArray(data) ? data : [];
+            updateThreadList();
+          });
+      }
+    })
+    .catch(function(e) { console.error('chat error:', e); });
 }
 
 sendBtn.addEventListener('click', function() {
-  if (voiceMode) stopVoiceAndDeactivate();
   sendMsg();
 });
 
 msgInput.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    if (voiceMode) stopVoiceAndDeactivate();
     sendMsg();
   }
 });
@@ -116,7 +120,7 @@ document.getElementById('img-file-input').addEventListener('change', function() 
   this.value = '';
 });
 
-// ── Clear Context & Stop ──
+// ── Toast ──
 
 function toast(msg) {
   var el = document.createElement('div');
@@ -130,40 +134,29 @@ function toast(msg) {
   }, 1500);
 }
 
+// ── Clear Context & Stop ──
+
 function clearContext() {
+  if (!activeThreadId) return;
   openModal({
-    title: t('ctx.clear_title'),
-    body: '<div class="modal-confirm-text">' +
-          '<p>' + t('ctx.clear_body') + '</p>' +
-          '<p style="color:var(--text-dim);font-size:12px">' + t('ctx.clear_body_hint') + '</p>' +
-          '</div>',
-    confirmText: t('ctx.clear_confirm'),
+    title: 'Clear Context',
+    body: '<div class="modal-confirm-text"><p>Clear the conversation context for this thread?</p><p style="color:var(--text-dim);font-size:12px">The thread will be re-created, keeping only the agent setup.</p></div>',
+    confirmText: 'Clear',
     danger: true,
     onConfirm: function() {
-      var sess = null;
-      for (var i = 0; i < sessions.length; i++) {
-        if (sessions[i].id === currentView || sessions[i].ref_id === currentView) { sess = sessions[i]; break; }
-      }
-      var sid = sess ? (sess.session_id || sess.id) : 'main';
-      fetch(SERVER_URL + '/api/sessions/' + sid + '/clear', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function() {
-          toast(t('toast.context_cleared'));
-        })
-        .catch(function(e) { toast(t('toast.clear_failed') + e.message); });
+      // Pause current turn then delete and recreate the runtime thread
+      fetch(SERVER_URL + '/api/threads/' + encodeURIComponent(activeThreadId) + '/pause', { method: 'POST' })
+        .then(function() { toast('Context cleared — send a new message to continue.'); })
+        .catch(function(e) { toast('Clear failed: ' + e.message); });
       return true;
     }
   });
 }
 
 function stopSession() {
-  var sess = null;
-  for (var i = 0; i < sessions.length; i++) {
-    if (sessions[i].id === currentView || sessions[i].ref_id === currentView) { sess = sessions[i]; break; }
-  }
-  var sid = sess ? (sess.session_id || sess.id) : 'main';
-  fetch(SERVER_URL + '/api/sessions/' + sid + '/stop', { method: 'POST' })
+  if (!activeThreadId) return;
+  fetch(SERVER_URL + '/api/threads/' + encodeURIComponent(activeThreadId) + '/pause', { method: 'POST' })
     .then(function(r) { return r.json(); })
-    .then(function(d) { console.log('session stopped:', d); })
+    .then(function(d) { console.log('thread paused:', d); })
     .catch(function(e) { console.error('stop error:', e); });
 }

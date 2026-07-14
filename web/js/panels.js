@@ -573,11 +573,6 @@ function loadSettings() {
   fetch(SERVER_URL + '/api/settings')
     .then(function(r) { return r.json(); })
     .then(function(cfg) {
-      document.getElementById('set-hc-max').value = cfg.hc && cfg.hc.max || 5;
-      document.getElementById('set-context-pct').value = cfg.thresholds && cfg.thresholds.max_context_pct || 60;
-      document.getElementById('set-headless').checked = cfg.browser && cfg.browser.headless || false;
-      document.getElementById('set-speak-enabled').checked = cfg.speak_enabled !== false;
-      renderPortMapList(cfg.port_maps || []);
       if (cfg.llm) {
         var models = cfg.llm.models || [];
         activeModelId = cfg.llm.active || (models.length > 0 ? models[0].id : '');
@@ -704,20 +699,13 @@ function saveSettings() {
   }
   if (!activeModelId && models.length > 0) activeModelId = models[0].id;
   var body = {
-    llm: { models: models, active: activeModelId },
-    hc: { max: parseInt(document.getElementById('set-hc-max').value) || 5 },
-    thresholds: { max_context_pct: parseInt(document.getElementById('set-context-pct').value) || 60 },
-    browser: { headless: document.getElementById('set-headless').checked },
-    speak_enabled: document.getElementById('set-speak-enabled').checked,
-    port_maps: collectPortMaps()
+    llm: { models: models, active: activeModelId }
   };
   fetch(SERVER_URL + '/api/settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   }).then(function() {
-    speakEnabled = document.getElementById('set-speak-enabled').checked;
-    updateSpeakButton();
     if (!hasModels && models.length > 0) resetIdlePrompt();
     closePanels();
   })
@@ -800,17 +788,15 @@ function openAgentEditor(id) {
 
   var title = agent ? t('agents.edit_title') : t('agents.new_title');
   var currentTools = [];
-  var currentToolAgents = [];
   try { if (agent && agent.tools) currentTools = JSON.parse(agent.tools); } catch(e) {}
-  try { if (agent && agent.tool_agents) currentToolAgents = JSON.parse(agent.tool_agents); } catch(e) {}
 
   var body =
     '<div class="modal-field"><label>' + t('agents.name') + '</label>' +
     '<input type="text" id="agent-name-input" class="modal-input" value="' + escapeHtml(agent ? agent.name : '') + '"></div>' +
     '<div class="modal-field"><label>' + t('agents.desc') + '</label>' +
     '<input type="text" id="agent-desc-input" class="modal-input" value="' + escapeHtml(agent ? agent.desc : '') + '"></div>' +
-    '<div class="modal-field"><label>' + t('agents.content') + '</label>' +
-    '<textarea id="agent-content-input" class="modal-textarea">' + escapeHtml(agent ? agent.content : '') + '</textarea></div>' +
+    '<div class="modal-field"><label>' + t('agents.system_prompt') + '</label>' +
+    '<textarea id="agent-system-prompt-input" class="modal-textarea">' + escapeHtml(agent ? agent.system_prompt : '') + '</textarea></div>' +
     '<div id="agent-tools-section">' +
     '<div class="modal-field"><label>' + t('agents.tools') + '</label>' +
     '<div id="agent-tools-chips" class="tools-chips"></div>' +
@@ -883,7 +869,7 @@ function openAgentEditor(id) {
           if (ts) ts.addEventListener('input', window._refreshToolPicker);
         }).catch(function() { var tp = document.getElementById('agent-tools-picker'); if (tp) tp.innerHTML = '<span class="modal-hint">Failed to load tools</span>'; });
 
-      var ta = document.getElementById('agent-content-input');
+      var ta = document.getElementById('agent-system-prompt-input');
       if (ta) {
         ta.addEventListener('keydown', function(e) {
           if (e.key === 'Tab') {
@@ -899,13 +885,13 @@ function openAgentEditor(id) {
     onConfirm: function() {
       var name = document.getElementById('agent-name-input').value.trim();
       var desc = document.getElementById('agent-desc-input').value.trim();
-      var content = document.getElementById('agent-content-input').value;
-      if (!name || !content) {
-        toast(name ? t('agents.content') + ' required' : t('agents.name') + ' required');
+      var systemPrompt = document.getElementById('agent-system-prompt-input').value;
+      if (!name || !systemPrompt) {
+        toast(name ? t('agents.system_prompt') + ' required' : t('agents.name') + ' required');
         return false;
       }
       var tools = window._modalSelectedTools || [];
-      var payload = {name: name, desc: desc, content: content, tools: JSON.stringify(tools)};
+      var payload = {name: name, desc: desc, system_prompt: systemPrompt, tools: JSON.stringify(tools)};
       if (agent) {
         fetch(SERVER_URL + '/api/agents/' + agent.id, {
           method: 'PUT',
@@ -944,71 +930,14 @@ function deleteAgent(id, name) {
   });
 }
 
-// Legacy stub for backward compat — no longer renders into settings
-function renderAgentList(agents) { _agentsCache = agents || []; }
+// Legacy stub for backward compat — no longer needed
 
-// ── Port Maps ──
-
-var _portMapCounter = 0;
-
-function renderPortMapList(portMaps) {
-  var container = document.getElementById('port-map-list');
-  if (!portMaps || portMaps.length === 0) {
-    container.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0">No port maps configured</div>';
-    return;
-  }
-  _portMapCounter = portMaps.length;
-  var html = '';
-  for (var i = 0; i < portMaps.length; i++) {
-    var pm = portMaps[i];
-    var port = pm.local_port || '';
-    var name = pm.name || '';
-    var directUrl = 'http://127.0.0.1:' + port;
-    html += '<div class="form-row" style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
-    html += '<input placeholder="' + t('port_map.name') + '" value="' + escapeHtml(name) + '" data-pm="' + i + '" data-field="pm-name" style="flex:1;min-width:0">';
-    html += '<span style="color:var(--text-dim)">:</span>';
-    html += '<input type="number" placeholder="' + t('port_map.port') + '" value="' + port + '" data-pm="' + i + '" data-field="pm-port" min="1" max="65535" style="width:80px;min-width:0">';
-    html += '<a href="' + directUrl + '" target="_blank" title="' + t('port_map.open_browser') + '" style="color:var(--primary);text-decoration:none;font-size:13px">↗</a>';
-    html += '<span class="model-badge model-badge-delete" onclick="this.closest(\'.form-row\').remove()">&times;</span>';
-    html += '</div>';
-  }
-  container.innerHTML = html;
-}
-
-function addPortMap() {
-  var container = document.getElementById('port-map-list');
-  var idx = _portMapCounter++;
-  var html = '<div class="form-row" style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
-  html += '<input placeholder="' + t('port_map.name') + '" data-pm="' + idx + '" data-field="pm-name" style="flex:1;min-width:0">';
-  html += '<span style="color:var(--text-dim)">:</span>';
-  html += '<input type="number" placeholder="' + t('port_map.port') + '" data-pm="' + idx + '" data-field="pm-port" min="1" max="65535" style="width:80px;min-width:0">';
-  html += '<span class="model-badge model-badge-delete" onclick="this.closest(\'.form-row\').remove()">&times;</span>';
-  html += '</div>';
-  container.insertAdjacentHTML('beforeend', html);
-}
-
-function collectPortMaps() {
-  var rows = document.querySelectorAll('#port-map-list .form-row');
-  var maps = [];
-  for (var i = 0; i < rows.length; i++) {
-    var nameInput = rows[i].querySelector('[data-field="pm-name"]');
-    var portInput = rows[i].querySelector('[data-field="pm-port"]');
-    var name = (nameInput && nameInput.value || '').trim();
-    var port = parseInt(portInput && portInput.value || '0') || 0;
-    if (name && port > 0 && port <= 65535) {
-      maps.push({ name: name, local_port: port });
-    }
-  }
-  return maps;
-}
-
-function loadBookmarks() {
-  var projectId = currentView === 'home' ? null : currentView;
-  if (!projectId) {
+// ── Bookmarks ──
+  if (!activeThreadId) {
     document.getElementById('bookmarks-body').innerHTML = '<div class="bookmarks-empty">' + t('bookmark.home_hint') + '</div>';
     return;
   }
-  fetch(SERVER_URL + '/api/messages/bookmarked?project_id=' + encodeURIComponent(projectId))
+  fetch(SERVER_URL + '/api/messages/bookmarked?thread_id=' + encodeURIComponent(activeThreadId))
     .then(function(r) { return r.json(); })
     .then(function(msgs) {
       var body = document.getElementById('bookmarks-body');

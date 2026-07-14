@@ -3,66 +3,33 @@ var SERVER_URL = window.location.origin;
 
 // Core state
 var state = {
-  name: 'idle',       // idle | thinking | tool_calls | responding | speaking | error
+  name: 'idle',       // idle | thinking | tool_calls | responding | error
 };
 
 // Timeline & Stage
-var timelineItems = [];   // [{id, type, icon, label, content, status, html, session_id, tool_call_id, time}]
+var timelineItems = [];   // [{id, type, icon, label, content, status, html, thread_id, tool_call_id, time}]
 var currentStage = null;  // {live:true|false, item: timelineItem}
-var lastUserItem = null;  // track last user message for auto-collapse
+var lastUserItem = null;
 
-// Session management
-var activeSessionId = 'main';
-var currentView = 'home';    // 'home' | project ref_id
-var sessions = [{ id:'main', ref_id:null, title:'main', status:'idle', agents:[], session_id:'main' }];
+// Thread management
+var activeThreadId = null;  // null = new chat
+var threads = [];           // [{id, title, agent_id, model_id, created_at, updated_at}]
+var agents = [];            // [{id, name, desc, system_prompt, tools}]
+var activeAgentId = null;
 var pendingImages = [];
 
 // UI state
 var historyOpen = false;
 var settingsOpen = false;
-var speakEnabled = true;
 var hasModels = true;
-
-// Agent activity tracking
-var _agentActivities = {};
-
-// Per-session context usage tracking
 var _contextPcts = {};
-
-// Per-session total token usage tracking
-var _sessionTokens = {};
-
-// Per-project total token usage (coordinator + all workers summed by backend)
-var _projectTokens = {};
 
 // Pagination state
 var _loadingOlder = false;
 var _noMoreMessages = false;
 
-// Agent bar expanded state (collapse idle workers by default)
-var _agentBarExpanded = false;
-
 // Cached agent list for agents panel
 var _agentsCache = [];
-
-// Agent drill-down filter (worker session_id, or null)
-var _agentFilter = null;
-
-// Workspace directory (loaded from settings)
-var _workDir = '';
-
-function getAgentBySession(sid) {
-  for (var i = 0; i < sessions.length; i++) {
-    if (sessions[i].session_id === sid) return { session: sessions[i], agent: null };
-    var agents = sessions[i].agents;
-    if (agents) {
-      for (var j = 0; j < agents.length; j++) {
-        if (agents[j].session_id === sid) return { session: sessions[i], agent: agents[j] };
-      }
-    }
-  }
-  return null;
-}
 
 // Timeline helpers
 var _itemSeq = 0;
@@ -80,4 +47,10 @@ function findTimelineItem(id) {
     if (timelineItems[i].id === id) return timelineItems[i];
   }
   return null;
+}
+
+// Check if a thread_id belongs to the current view
+function isCurrentThread(tid) {
+  if (!tid) return true;
+  return tid === activeThreadId;
 }

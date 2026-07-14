@@ -1,8 +1,4 @@
 // i18n.js — Internationalization
-// Detects browser language; defaults to English for open-source friendliness.
-// HTML: <span data-i18n="key">fallback</span> — textContent is replaced on DOM ready.
-// HTML: <button data-i18n-title="key" title="fallback"> — title attr is replaced.
-// JS:   t('key') returns the translated string.
 
 var _locale = {};
 var _lang = 'en';
@@ -11,9 +7,6 @@ var _lang = 'en';
   var dict = {
     // App
     'app.title':                  { en: 'BeLeader', zh: 'BeLeader' },
-
-    // Top bar
-    'tab.new_project':            { en: 'New Project', zh: '新建项目' },
 
     // Context bar
     'ctx.clear':                  { en: 'Clear', zh: '清空' },
@@ -36,7 +29,6 @@ var _lang = 'en';
     'status.tool_result':         { en: 'Tool Result', zh: '工具结果' },
     'status.tool_error_short':    { en: ' [Error]', zh: ' [错误]' },
     'status.unknown_error':       { en: 'Unknown Error', zh: '未知错误' },
-    'status.listening':           { en: 'Listening...', zh: '正在聆听...' },
     'status.ai_thinking':         { en: 'AI thinking...', zh: 'AI 思考中...' },
     'status.idle_activity':       { en: 'Idle', zh: '空闲' },
     'status.replying_activity':   { en: 'Replying', zh: '回复中' },
@@ -48,16 +40,7 @@ var _lang = 'en';
     'input.placeholder':          { en: 'Give instructions…', zh: '下指令…' },
     'input.stop_title':           { en: 'Stop', zh: '停止' },
     'input.upload_title':         { en: 'Upload image', zh: '上传图片' },
-    'input.voice_title':          { en: 'Voice input', zh: '语音输入' },
-    'input.voice_output_title':   { en: 'Voice output', zh: '语音输出' },
     'input.send_title':           { en: 'Send', zh: '发送' },
-
-    // Settings panel
-    'settings.button_title':      { en: 'Settings', zh: '设置' },
-    'knowledge.button_title':     { en: 'Knowledge', zh: '知识库' },
-    'agents.button_title':        { en: 'Agents', zh: 'Agents' },
-    'knowledge.title':            { en: 'Knowledge', zh: '知识库' },
-    'knowledge.search_placeholder': { en: 'Search knowledge...', zh: '搜索知识...' },
 
     // Top bar button labels
     'topbar.bookmarks':           { en: 'Bookmarks', zh: '收藏' },
@@ -73,7 +56,7 @@ var _lang = 'en';
     'agents.search_placeholder':  { en: 'Search agents...', zh: '搜索 Agent...' },
     'agents.name':                { en: 'Name', zh: '名称' },
     'agents.desc':                { en: 'Description', zh: '描述' },
-    'agents.content':             { en: 'System Prompt', zh: '系统提示词' },
+    'agents.system_prompt':       { en: 'System Prompt', zh: '系统提示词' },
     'agents.edit':                { en: 'Edit', zh: '编辑' },
     'agents.delete':              { en: 'Delete', zh: '删除' },
     'agents.delete_confirm':      { en: 'Delete agent "$1"? This cannot be undone.', zh: '删除 Agent「$1」？此操作不可撤销。' },
@@ -83,7 +66,6 @@ var _lang = 'en';
     'agents.save':                { en: 'Save', zh: '保存' },
     'agents.cancel':              { en: 'Cancel', zh: '取消' },
     'agents.delete_btn':          { en: 'Delete', zh: '删除' },
-
     'agents.tools':               { en: 'Tools', zh: '工具' },
     'agents.tools_search':        { en: 'Search tools...', zh: '搜索工具...' },
     'agents.no_tools':            { en: 'No tools selected. Search below to add.', zh: '未选择工具，在下方搜索添加。' },
@@ -101,39 +83,18 @@ var _lang = 'en';
 
     // Modal / clear context
     'modal.cancel':               { en: 'Cancel', zh: '取消' },
-    'ctx.clear_title':            { en: 'Clear Context?', zh: '清空当前会话上下文？' },
-    'ctx.clear_body':             { en: 'This will erase the conversation history of the current session. This cannot be undone.', zh: '此操作会清除当前会话的对话历史，不可撤销。' },
-    'ctx.clear_body_hint':        { en: 'Use this when the LLM returns malformed messages or the context feels polluted. After clearing, the Coordinator can still recover project state from STATUS.md; worker history is not recoverable.', zh: '适用于 LLM 返回错误消息、上下文被污染等异常情况。清空后 Coordinator 仍可从 STATUS.md 恢复项目状态，Worker 历史不可恢复。' },
-    'ctx.clear_confirm':          { en: 'Clear', zh: '清空' },
 
-    // createProject modal
-    'project.new_title':          { en: 'New Project', zh: '新建项目' },
-
-    'project.name_placeholder':   { en: 'Project name', zh: '项目名称' },
-    'project.create':             { en: 'Create', zh: '创建' },
+    // Settings
     'settings.title':             { en: 'Settings', zh: '设置' },
-    'settings.general':           { en: 'General', zh: '通用' },
-    'settings.max_hc':            { en: 'Max Concurrency (HC)', zh: '最大并发 (HC)' },
-    'settings.context_threshold': { en: 'Context Threshold (%)', zh: '上下文阈值 (%)' },
-    'settings.headless':          { en: 'Headless Mode', zh: '无头模式' },
-    'settings.voice':             { en: 'Voice', zh: '语音' },
-    'settings.stt_lang':          { en: 'STT Language', zh: 'STT 语言' },
-    'settings.tts_rate':          { en: 'TTS Speed', zh: 'TTS 语速' },
-    'settings.tts_pitch':         { en: 'TTS Pitch', zh: 'TTS 音调' },
-    'settings.tts_voice':         { en: 'TTS Voice', zh: 'TTS 语音' },
-    'settings.speak_enabled':     { en: 'Speech Output', zh: '语音输出' },
     'settings.models':            { en: 'Models', zh: '模型' },
     'settings.add_model':         { en: '+ Add Model', zh: '+ 添加模型' },
-    'settings.active_model':      { en: 'Active Model', zh: '活跃模型' },
     'settings.save':              { en: 'Save Settings', zh: '保存设置' },
 
     // Timeline
     'timeline.ai_reply':          { en: 'AI Reply', zh: 'AI 回复' },
-    'timeline.back_to_project':   { en: '✕ Back to project', zh: '✕ 返回项目' },
-    'timeline.viewing':           { en: 'Viewing: ', zh: '查看: ' },
     'timeline.no_model_title':    { en: 'No AI Model Configured', zh: '尚未配置 AI 模型' },
     'timeline.no_model_desc':     { en: 'Configure an LLM model to start chatting', zh: '需要配置一个 LLM 模型才能开始对话' },
-    'timeline.no_model_btn':      { en: '⚙ Configure Model in Settings', zh: '⚙ 前往设置配置模型' },
+    'timeline.no_model_btn':      { en: 'Configure Model in Settings', zh: '前往设置配置模型' },
     'timeline.no_models_setup_title': { en: 'No Models Configured', zh: '尚未配置模型' },
     'timeline.no_models_setup_hint':  { en: 'Add at least one LLM model to get started', zh: '请添加至少一个 LLM 模型以开始使用' },
     'timeline.no_models_setup_btn':   { en: '+ Configure Model', zh: '+ 配置模型' },
@@ -144,25 +105,20 @@ var _lang = 'en';
 
     // Errors
     'error.cannot_send':          { en: 'Cannot Send', zh: '无法发送' },
-    'error.no_model_msg':         { en: 'No AI model configured. Open Settings (⚙) to add one.', zh: '尚未配置 AI 模型。请点击右上角 ⚙ 进入设置，添加一个 LLM 模型后再试。' },
+    'error.no_model_msg':         { en: 'No AI model configured. Open Settings to add one.', zh: '尚未配置 AI 模型。请进入设置添加一个 LLM 模型后再试。' },
     'error.missing_model':        { en: 'Missing Model Config', zh: '缺少模型配置' },
-    'error.cannot_delete_active': { en: 'Cannot delete active model. Switch to another first.', zh: '不能删除当前激活的模型，请先切换到其他模型' },
+    'error.cannot_delete_active': { en: 'Cannot delete active model. Switch to another first.', zh: '不能删除当前活跃的模型，请先切换到其他模型' },
     'error.at_least_one_model':   { en: 'Please configure at least one model.', zh: '请至少配置一个模型' },
 
     // Model card
     'model.new':                  { en: 'New Model', zh: '新建模型' },
     'model.id_label':             { en: 'ID', zh: '标识' },
     'model.id_placeholder':       { en: 'e.g. gpt-4o', zh: '例如 gpt-4o' },
-    'model.params_label':         { en: 'Parameters', zh: '参数' },
-
-    // Project
-    'project.name_prompt':        { en: 'Project Name:', zh: '项目名称:' },
-    'project.delete_title':       { en: 'Delete Project', zh: '删除项目' },
-    'project.delete_confirm':     { en: 'Delete project "$1"?', zh: '确定删除项目「$1」吗？' },
-    'project.delete_warning':     { en: 'This will permanently delete all project data, including all files in the working directory. Please back up any important content before proceeding.', zh: '此操作将永久删除项目的所有数据，包括工作目录下的所有文件。如果需要保存的内容，请先备份到其他位置。' },
-    'project.delete_dir_label':   { en: 'Working directory:', zh: '工作目录：' },
-    'project.delete_confirm_btn': { en: 'I Confirm', zh: '我已确认' },
-    'project.del_tooltip':        { en: 'Delete project', zh: '删除项目' },
+    'model.base_url':             { en: 'Base URL', zh: 'Base URL' },
+    'model.api_key':              { en: 'API Key', zh: 'API Key' },
+    'model.model_select':         { en: 'Model', zh: 'Model' },
+    'model.base_url_placeholder': { en: 'https://api.openai.com/v1', zh: 'https://api.openai.com/v1' },
+    'model.model_placeholder':    { en: 'Enter model name...', zh: '输入模型名称...' },
 
     // Connection banner
     'conn.connected':             { en: 'Connected', zh: '已连接' },
@@ -174,7 +130,7 @@ var _lang = 'en';
     // Sidebar
     'sidebar.toggle':             { en: 'Toggle Sidebar', zh: '菜单' },
     'sidebar.home':               { en: 'Home', zh: '首页' },
-    'sidebar.new_project':        { en: 'New Project', zh: '新建项目' },
+    'sidebar.new_thread':         { en: 'New Thread', zh: '新建会话' },
 
     // Context bar
     'ctx.model_title':            { en: 'Current model', zh: '当前模型' },
@@ -184,34 +140,13 @@ var _lang = 'en';
     'bookmark.button_title':      { en: 'Bookmarks', zh: '收藏' },
     'bookmark.title':             { en: '★ Bookmarks', zh: '★ 收藏消息' },
     'bookmark.empty':             { en: 'No bookmarks yet', zh: '暂无收藏' },
-    'bookmark.home_hint':         { en: 'Open a project to bookmark messages', zh: '请在项目中收藏消息' },
+    'bookmark.home_hint':         { en: 'Open a thread to bookmark messages', zh: '请在会话中收藏消息' },
     'bookmark.star_tip':          { en: 'Bookmark', zh: '收藏' },
     'bookmark.unstar_tip':        { en: 'Unbookmark', zh: '取消收藏' },
 
-    // Timeline & agent bar
-    'timeline.loading':           { en: 'Loading…', zh: '加载中…' },
-    'agent.collapse':             { en: 'Collapse', zh: '收起' },
-    'agent.idle_count':           { en: '$1 completed', zh: '$1 个已完成' },
-    'agent.expand':               { en: 'Expand', zh: '展开' },
-
-    // Port maps
-    'settings.port_maps':         { en: 'Port Maps', zh: '端口映射' },
-    'settings.port_maps_desc':    { en: 'Map local ports for preview via /api/proxy/{name}/', zh: '映射本地端口，通过 /api/proxy/{name}/ 预览' },
-    'settings.add_port':          { en: '+ Add Port', zh: '+ 添加端口' },
-
-    // Model form
-    'model.base_url':             { en: 'Base URL', zh: 'Base URL' },
-    'model.api_key':              { en: 'API Key', zh: 'API Key' },
-    'model.model_select':         { en: 'Model', zh: 'Model' },
-    'model.base_url_placeholder': { en: 'https://api.openai.com/v1', zh: 'https://api.openai.com/v1' },
-    'model.model_placeholder':    { en: 'Enter model name...', zh: '输入模型名称...' },
-
-    // Port maps
-    'port_map.name':              { en: 'Name', zh: '名称' },
-    'port_map.port':              { en: 'Port', zh: '端口' },
-    'port_map.open_browser':      { en: 'Open in browser', zh: '在浏览器中打开' },
-
     // Knowledge
+    'knowledge.title':            { en: 'Knowledge', zh: '知识库' },
+    'knowledge.search_placeholder': { en: 'Search knowledge...', zh: '搜索知识...' },
     'knowledge.edit':             { en: 'Edit', zh: '编辑' },
     'knowledge.delete':           { en: 'Delete', zh: '删除' },
 
@@ -226,11 +161,9 @@ var _lang = 'en';
     'card.open_local':            { en: 'Local', zh: '本地' },
   };
 
-  // Detect language
   var navLang = (navigator.language || '').toLowerCase();
   _lang = navLang.indexOf('zh') === 0 ? 'zh' : 'en';
 
-  // Build locale dict
   for (var k in dict) {
     if (dict.hasOwnProperty(k)) {
       _locale[k] = dict[k][_lang] || dict[k].en;
@@ -252,9 +185,7 @@ function t(key, vars) {
   return s;
 }
 
-// Apply data-i18n attributes on DOM ready
 function applyI18n() {
-  // textContent
   var els = document.querySelectorAll('[data-i18n]');
   for (var i = 0; i < els.length; i++) {
     var key = els[i].getAttribute('data-i18n');
@@ -262,7 +193,6 @@ function applyI18n() {
       els[i].textContent = _locale[key];
     }
   }
-  // title attributes
   var titles = document.querySelectorAll('[data-i18n-title]');
   for (var j = 0; j < titles.length; j++) {
     var tkey = titles[j].getAttribute('data-i18n-title');
@@ -270,7 +200,6 @@ function applyI18n() {
       titles[j].setAttribute('title', _locale[tkey]);
     }
   }
-  // placeholder attributes
   var phs = document.querySelectorAll('[data-i18n-placeholder]');
   for (var k = 0; k < phs.length; k++) {
     var pkey = phs[k].getAttribute('data-i18n-placeholder');
