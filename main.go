@@ -18,8 +18,9 @@ import (
 //go:embed web/*
 var staticFiles embed.FS
 
+func extractAgent() {}
+
 func main() {
-	extractAgent()
 	port := flag.Int("port", 0, "HTTP server port (0=random, default: PORT env or 8080)")
 	logDir := flag.String("log-dir", "", "Log directory for rotating file logs (default: stdout)")
 	flag.Parse()
