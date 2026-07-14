@@ -143,7 +143,6 @@ type ProjectAgent struct {
 	Prompt         string `gorm:"default:''" json:"prompt"`
 	AgentTemplate  string `gorm:"size:128;default:''" json:"agent_template"`
 	EnableBrowser  bool   `gorm:"column:enable_browser;default:0" json:"enable_browser"`
-	EnableDesktop  bool   `gorm:"column:enable_desktop;default:0" json:"enable_desktop"`
 }
 
 func (ProjectAgent) TableName() string { return "project_agents" }
@@ -469,7 +468,7 @@ func (db *DB) ListProjects() ([]ProjectRef, error) {
 
 // ── ProjectAgent methods ──
 
-func (db *DB) AddProjectAgent(projectID, name, sessionID, role, prompt, agentTemplate string, enableBrowser, enableDesktop bool) error {
+func (db *DB) AddProjectAgent(projectID, name, sessionID, role, prompt, agentTemplate string, enableBrowser bool) error {
 	return db.GORM.Create(&ProjectAgent{
 		ProjectID:     projectID,
 		Name:          name,
@@ -479,7 +478,6 @@ func (db *DB) AddProjectAgent(projectID, name, sessionID, role, prompt, agentTem
 		Prompt:        prompt,
 		AgentTemplate: agentTemplate,
 		EnableBrowser: enableBrowser,
-		EnableDesktop: enableDesktop,
 	}).Error
 }
 
@@ -628,15 +626,6 @@ func (db *DB) seedToolAgents() {
 			Type:    "",
 			Content: "You are a browser automation agent. You control a web browser to navigate pages, interact with UI elements, extract data, and take screenshots.\n\n## Before Acting\n- Inspect page state (browser_content) before any interaction.\n\n## After Each Action\n- Verify the result — compare browser_content before/after.\n- If page didn't change as expected, try a different approach.\n\n## Interaction\n- Prefer ref numbers from the latest snapshot. CSS selectors only as fallback.\n- After typing into a search box, press Enter with browser_keys.\n- For dropdowns, use browser_select to see options before choosing.\n\n## Extraction\n- Use browser_content for text. Only screenshot as last resort.\n- Use browser_evaluate for targeted data extraction.\n\n## Cleanup\n- Close open tabs you no longer need with browser_close.\n- If the result should be displayed to the user, keep that tab open.\n\nWhen done, summarize what you accomplished and any key findings.",
 			Tools: `["browser_open","browser_close","browser_list","browser_switch","browser_click","browser_input","browser_scroll","browser_content","browser_evaluate","browser_screenshot","browser_sleep","browser_keys","browser_back","browser_select"]`,
-		})
-	}
-	if db.GORM.Model(&Agent{}).Where("name = 'desktop'").Count(&count); count == 0 {
-		db.GORM.Create(&Agent{
-			Name:    "desktop",
-			Desc:    "Desktop automation — screenshot, click, type, window management",
-			Type:    "",
-			Content: "You are a desktop automation agent. You control the desktop through a screenshot-analyze-act loop.\n\n## Coordinate System\nAll coordinates use a normalized 0-1000 grid. (0,0)=top-left, (1000,1000)=bottom-right, (500,500)=center.\n\n## Strategy\n- Start with a screenshot to see the current screen state.\n- Before every click, state what you are targeting.\n- If the screen shows something unexpected, analyze and adapt.\n- After any action that changes the UI, take a screenshot to verify.\n- For text input, prefer desktop_type_text — it supports Chinese and Unicode.\n- For very small targets, keyboard shortcuts are more reliable than clicking.\n\nWhen done, summarize what you accomplished.",
-			Tools: `["desktop_screenshot","desktop_click","desktop_double_click","desktop_move","desktop_drag","desktop_scroll","desktop_type_text","desktop_key_tap","desktop_clipboard_read","desktop_clipboard_write","desktop_window_list","desktop_window_activate","desktop_window_minimize","desktop_window_maximize","desktop_window_close","desktop_process_list","desktop_mouse_info","desktop_screen_info","desktop_active_window","desktop_sleep"]`,
 		})
 	}
 	if db.GORM.Model(&Agent{}).Where("name = 'general'").Count(&count); count == 0 {

@@ -137,22 +137,6 @@ If you discover the plan is wrong, a requirement cannot be met, or you are block
 
 If anything in the task description is unclear, ask for clarification in your response before you start working.`
 
-// DesktopRules is appended when desktop automation tools are enabled.
-const DesktopRules = `## Desktop Automation
-
-You can control the desktop through a screenshot, analyze, and act loop. Start with a screenshot to see the current screen state. Identify the target UI elements, their positions, and any relevant surrounding context. Then take the appropriate action.
-
-### Coordinate System
-All coordinates use a normalized 0-1000 grid overlaid on the screenshot image. (0,0) is the top-left corner. (1000,1000) is the bottom-right corner. (500,500) is the exact center. These are proportional positions, not raw pixels.
-
-For example, a button near the top-right is approximately (950, 50). A taskbar icon near the bottom-left is approximately (50, 950). Always aim for the center of your target element.
-
-### Strategy
-- Before every click, state what you are targeting and why you chose those coordinates.
-- If the screen shows something different from what you expected, analyze the discrepancy and adapt. Do not repeat the same action hoping for a different result.
-- After any action that changes the UI, take a screenshot to verify the result before the next step.
-- For text input, prefer desktop_type_text over simulating keystrokes. It supports Chinese and Unicode characters.
-- For very small targets, keyboard shortcuts are more reliable than clicking.`
 
 // BrowserRules is appended when browser automation tools are enabled.
 const BrowserRules = `## Browser Automation

@@ -19,6 +19,30 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+var notifyContent func(eventType string, data map[string]any)
+
+func SetContentNotifier(fn func(eventType string, data map[string]any)) {
+	notifyContent = fn
+}
+
+func mkTool(name, description string, properties map[string]any, required []string) openai.Tool {
+	params := map[string]any{"type": "object"}
+	if properties != nil {
+		params["properties"] = properties
+	}
+	if len(required) > 0 {
+		params["required"] = required
+	}
+	return openai.Tool{
+		Type: "function",
+		Function: &openai.FunctionDefinition{
+			Name:        name,
+			Description: description,
+			Parameters:  params,
+		},
+	}
+}
+
 func readFileToolForVision(vision bool) openai.Tool {
 	if !vision {
 		return readFileTool
@@ -180,7 +204,6 @@ func CoordinatorTools(vision bool) []openai.Tool {
 		webSearchTool, webFetchTool,
 		readStatusTool, updateStatusTool,
 		listAgentsTool, listWorkersTool, spawnWorkerTool, interveneWorkerTool, terminateWorkerTool, deleteWorkerTool,
-		showHTMLTool, closeHTMLTool, listHTMLsTool, focusSessionTool, showFileTool,
 		searchKnowledgeTool, saveKnowledgeTool, deleteKnowledgeTool,
 	}
 }
@@ -203,7 +226,7 @@ func RegisterAll(mgr *session.Manager, workDir string, createProjectCallback fun
 
 func RegisterCoordinatorTools(
 	mgr *session.Manager,
-	spawnWorkerFn func(agentName, name, task string, enableBrowser, enableDesktop bool) (string, error),
+	spawnWorkerFn func(agentName, name, task string, enableBrowser bool) (string, error),
 	terminateWorkerFn func(workerName string) (string, error),
 	deleteWorkerFn func(workerName string) (string, error),
 	interveneWorkerFn func(workerName, message string) (string, error),
@@ -505,7 +528,6 @@ var spawnWorkerTool = openai.Tool{
 				"name":           map[string]any{"type": "string", "description": "Unique worker name for this project. Can be descriptive like backend-dev, frontend-qa. Does NOT need to match an agent template."},
 				"task":             map[string]any{"type": "string", "description": "The task for the Worker to execute. Becomes its first message. Should be self-contained with clear goals and constraints."},
 				"enable_browser":  map[string]any{"type": "boolean", "description": "Enable browser automation tools for this Worker. Default false."},
-				"enable_desktop":  map[string]any{"type": "boolean", "description": "Enable desktop automation tools for this Worker. Default false."},
 			},
 			"required": []string{"agent_name", "name", "task"},
 		},
@@ -1109,20 +1131,20 @@ func makeCreateProjectHandler(callback func(title, prompt string) (string, strin
 	}
 }
 
-func makeSpawnWorkerHandler(callback func(agentName, name, task string, enableBrowser, enableDesktop bool) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
+func makeSpawnWorkerHandler(callback func(agentName, name, task string, enableBrowser bool) (string, error)) func(ctx context.Context, args string) *session.ToolResult {
 	return func(ctx context.Context, args string) *session.ToolResult {
 		var p struct {
 			AgentName      string `json:"agent_name"`
 			Name           string `json:"name"`
 			Task           string `json:"task"`
 			EnableBrowser  bool   `json:"enable_browser"`
-			EnableDesktop  bool   `json:"enable_desktop"`
+	
 		}
 		json.Unmarshal([]byte(args), &p)
 		if callback == nil {
 			return &session.ToolResult{Error: "spawn_worker not available in this session"}
 		}
-		result, err := callback(p.AgentName, p.Name, p.Task, p.EnableBrowser, p.EnableDesktop)
+		result, err := callback(p.AgentName, p.Name, p.Task, p.EnableBrowser)
 		if err != nil {
 			return &session.ToolResult{Error: err.Error()}
 		}
@@ -1320,64 +1342,6 @@ func formatSizeForImage(n int) string {
 	return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
 }
 
-var showHTMLTool = openai.Tool{
-	Type: "function",
-	Function: &openai.FunctionDefinition{
-		Name:        "show_html",
-		Description: "Show HTML content in a floating card on the desktop. Returns html_id for later close_html calls. Provide either 'content' (raw HTML) or 'path' (a local .html file to load).",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"title":   map[string]any{"type": "string", "description": "Card title"},
-				"content": map[string]any{"type": "string", "description": "HTML content to display. Omit if using path."},
-				"path":    map[string]any{"type": "string", "description": "Absolute path to a local .html file. Omit if using content."},
-				"width":   map[string]any{"type": "integer", "description": "Card width in pixels. Default 800."},
-				"height":  map[string]any{"type": "integer", "description": "Card height in pixels. Default 600."},
-			},
-			"required": []string{"title"},
-		},
-	},
-}
-
-var closeHTMLTool = openai.Tool{
-	Type: "function",
-	Function: &openai.FunctionDefinition{
-		Name:        "close_html",
-		Description: "Close an HTML display card by its ID (returned by show_html or list_htmls).",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"html_id": map[string]any{"type": "string", "description": "Display ID to close, e.g. 'content-1'"},
-			},
-			"required": []string{"html_id"},
-		},
-	},
-}
-
-var listHTMLsTool = openai.Tool{
-	Type: "function",
-	Function: &openai.FunctionDefinition{
-		Name:        "list_htmls",
-		Description: "List all open HTML display cards with their IDs, titles, and session IDs.",
-	},
-}
-
-var focusSessionTool = openai.Tool{
-	Type: "function",
-	Function: &openai.FunctionDefinition{
-		Name:        "focus_session",
-		Description: "Switch the desktop UI to a specific session or project tab, identified by session ID or project ref ID.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"ref_id": map[string]any{"type": "string", "description": "Session ID or project ref ID to switch to, e.g. 'main' or a project ref ID"},
-			},
-			"required": []string{"ref_id"},
-		},
-	},
-}
-
-// ── MCP management tools ──
 
 var listMCPServersTool = openai.Tool{
 	Type: "function",

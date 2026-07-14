@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"io/fs"
-	"os/exec"
 
 	"beleader/backend/config"
 	"beleader/backend/db"
@@ -28,8 +27,6 @@ import (
 
 type Handler struct {
 	DB              *db.DB
-	InteractionHTML string          // Set by desktop mode to serve /desktop debug page
-	DesktopFS       http.FileSystem // Set by desktop mode for static assets
 	WebFS           fs.FS           // Set by main.go: embedded web/ filesystem
 	LLM             *llm.Client
 	SessionMgr      *session.Manager
@@ -76,10 +73,6 @@ func NewHandler(database *db.DB, llmClient *llm.Client, cfg *config.Config) *Han
 	h.clients = make(map[string]*llm.Client)
 	h.RegisterObserver(h.SSE)
 
-	// Wire content card events (show_html, show_file) to SSE broadcast
-	tools.SetContentNotifier(func(eventType string, data map[string]any) {
-		h.SSE.OnSessionEvent(SessionEvent{Type: eventType, Data: data})
-	})
 
 	// Reset stale agent & session statuses from previous run
 	h.DB.ResetAllAgentStatuses()
@@ -93,13 +86,6 @@ func (h *Handler) SetStaticFS(f fs.FS) {
 }
 
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
-	if h.InteractionHTML != "" {
-		r.GET("/desktop", h.handleDesktopPage)
-		if h.DesktopFS != nil {
-			r.StaticFS("/desktop", h.DesktopFS)
-		}
-	}
-
 	// Serve embedded web files with SPA fallback (index.html)
 	if h.WebFS != nil {
 		webFS := h.WebFS
@@ -157,9 +143,6 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.POST("/mcp/servers/:id/connect", h.handleConnectMCPServer)
 		api.POST("/mcp/servers/:id/disconnect", h.handleDisconnectMCPServer)
 
-		api.GET("/files/view", gin.WrapF(tools.FileViewHandler))
-		api.POST("/files/open", h.handleFileOpen)
-		api.POST("/render-html", h.handleRenderHTML)
 	}
 }
 
@@ -278,7 +261,7 @@ func (h *Handler) getWorkerByName(refID, workerName string) (*db.ProjectAgent, e
 }
 
 // spawnWorker creates a Worker session and starts its RunLoop.
-func (h *Handler) spawnWorker(coordinatorSessionID, refID, agentName, name, task string, enableBrowser, enableDesktop bool) (string, error) {
+func (h *Handler) spawnWorker(coordinatorSessionID, refID, agentName, name, task string, enableBrowser bool) (string, error) {
 	// Check if a worker with this name already exists
 	if existing, _ := h.getWorkerByName(refID, name); existing != nil {
 		if existing.Status == "running" {
@@ -302,7 +285,7 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, agentName, name, task
 
 	h.DB.CreateSession(workerSessionID, "running")
 	h.acquireHC(workerSessionID)
-	h.DB.AddProjectAgent(refID, name, workerSessionID, agentType, customPrompt, agentName, enableBrowser, enableDesktop)
+	h.DB.AddProjectAgent(refID, name, workerSessionID, agentType, customPrompt, agentName, enableBrowser)
 
 	h.Notify(SessionEvent{
 		Type: "worker_spawned",
@@ -320,7 +303,6 @@ func (h *Handler) spawnWorker(coordinatorSessionID, refID, agentName, name, task
 		RoleLabel:     name,
 		CustomPrompt:  customPrompt,
 		EnableBrowser: enableBrowser,
-		EnableDesktop: enableDesktop,
 		ToolNames:     toolNames,
 	})
 
@@ -407,8 +389,7 @@ func (h *Handler) interveneWorker(refID, workerName, message string) (string, er
 			RoleLabel:     workerName,
 			CustomPrompt:  agent.Prompt,
 			EnableBrowser: agent.EnableBrowser,
-			EnableDesktop: agent.EnableDesktop,
-			ToolNames:     h.resolveToolNames(agent.AgentTemplate),
+				ToolNames:     h.resolveToolNames(agent.AgentTemplate),
 		})
 
 	h.Notify(SessionEvent{
@@ -1308,52 +1289,7 @@ func (h *Handler) handleDeleteKnowledge(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "deleted"})
 }
 
-func (h *Handler) handleFileOpen(c *gin.Context) {
-	var p struct{ Path string }
-	if err := c.ShouldBindJSON(&p); err != nil || p.Path == "" {
-		c.JSON(400, gin.H{"error": "path required"})
-		return
-	}
-	if _, err := os.Stat(p.Path); err != nil {
-		c.JSON(404, gin.H{"error": "file not found"})
-		return
-	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", p.Path)
-	case "darwin":
-		cmd = exec.Command("open", p.Path)
-	default:
-		cmd = exec.Command("xdg-open", p.Path)
-	}
-	if err := cmd.Run(); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, gin.H{"ok": true})
-}
 
-func (h *Handler) handleRenderHTML(c *gin.Context) {
-	var req struct {
-		HTML  string `json:"html"`
-		Width int    `json:"width"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.HTML == "" {
-		c.JSON(400, gin.H{"error": "html is required"})
-		return
-	}
-
-	png, err := tools.RenderHTMLToPNG(req.HTML, req.Width)
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.Header("Content-Type", "image/png")
-	c.Header("Content-Disposition", "attachment; filename=\"screenshot.png\"")
-	c.Data(200, "image/png", png)
-}
 
 func (h *Handler) getClient(modelID string) *llm.Client {
 	model := h.Config.ResolveModel(modelID)
@@ -1418,10 +1354,6 @@ func truncate(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "..."
 }
 
-func (h *Handler) handleDesktopPage(c *gin.Context) {
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.String(200, h.InteractionHTML)
-}
 
 func (h *Handler) listProjectsForLLM() (string, error) {
 	refs, err := h.DB.ListProjects()

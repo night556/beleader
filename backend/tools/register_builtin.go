@@ -248,33 +248,4 @@ func RegisterBuiltinTools() {
 			return browserDispatch(name, args)
 		}, desc)
 	}
-
-	// Desktop tools
-	for _, t := range DesktopTools() {
-		name := t.Function.Name
-		desc := t.Function.Description
-		if desc == "" {
-			desc = name
-		}
-		RegisterBuiltin(name, t, func(ctx context.Context, args string) *session.ToolResult {
-			return dispatchDesktop(name, args)
-		}, desc)
-	}
-
-	// HTML tools
-	RegisterBuiltin("show_html", showHTMLTool, func(ctx context.Context, args string) *session.ToolResult {
-		return showHTMLHandler(ctx, args)
-	}, "Show HTML content in a floating card on the desktop.")
-	RegisterBuiltin("close_html", closeHTMLTool, func(ctx context.Context, args string) *session.ToolResult {
-		return closeHTMLHandler(ctx, args)
-	}, "Close an HTML display card by its ID.")
-	RegisterBuiltin("list_htmls", listHTMLsTool, func(ctx context.Context, args string) *session.ToolResult {
-		return listHTMLsHandler(ctx, args)
-	}, "List all open HTML display cards.")
-	RegisterBuiltin("focus_session", focusSessionTool, func(ctx context.Context, args string) *session.ToolResult {
-		return focusSessionHandler(ctx, args)
-	}, "Switch the desktop UI to a specific session or project tab.")
-	RegisterBuiltin("show_file", showFileTool, func(ctx context.Context, args string) *session.ToolResult {
-		return showFileHandler(ctx, args)
-	}, "Display a file with syntax highlighting in a card on the desktop.")
 }

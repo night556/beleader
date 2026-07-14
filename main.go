@@ -7,18 +7,14 @@ import (
 	"io/fs"
 	"os"
 
-	"beleader/backend/api"
 	"beleader/backend/config"
 	"beleader/backend/db"
 	"beleader/backend/llm"
 	"beleader/backend/server"
-	"beleader/backend/tools"
 )
 
 //go:embed web/*
 var staticFiles embed.FS
-
-func extractAgent() {}
 
 func main() {
 	port := flag.Int("port", 0, "HTTP server port (0=random, default: PORT env or 8080)")
@@ -60,18 +56,11 @@ func main() {
 		llmClient = llm.New(activeModel.BaseURL, activeModel.APIKey, activeModel.Model)
 	}
 
-	server.OnHandlerCreated = func(h *api.Handler) {
-		webFS, _ := fs.Sub(staticFiles, "web")
-		h.SetStaticFS(webFS)
-		tools.SetContentNotifier(func(eventType string, data map[string]any) {
-			h.Notify(api.SessionEvent{Type: eventType, Data: data})
-		})
-		tools.RegisterHTMLTools(h.SessionMgr)
-	}
+	webFS, _ := fs.Sub(staticFiles, "web")
 
 	if *port == 0 {
-		server.RunAutoPort(cfg, database, llmClient, *logDir)
+		server.RunAutoPort(cfg, database, llmClient, *logDir, webFS)
 	} else {
-		server.RunWithPort(cfg, database, llmClient, *port)
+		server.RunWithPort(cfg, database, llmClient, *port, webFS)
 	}
 }

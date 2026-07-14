@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"os"
@@ -21,29 +22,25 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// OnHandlerCreated is an optional hook called after the API handler is created.
-// Desktop mode uses this to inject the desktop bridge.
-var OnHandlerCreated func(h *api.Handler)
-
 // Run starts the HTTP server with the port from PORT env var (default 8080).
 // Blocks until SIGINT/SIGTERM.
-func Run(cfg *config.Config, database *db.DB, llmClient *llm.Client) {
+func Run(cfg *config.Config, database *db.DB, llmClient *llm.Client, webFS fs.FS) {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-	runServer(cfg, database, llmClient, port, true)
+	runServer(cfg, database, llmClient, port, true, webFS)
 }
 
 // RunWithPort starts the HTTP server on a specific port. Blocking.
-func RunWithPort(cfg *config.Config, database *db.DB, llmClient *llm.Client, port int) {
-	runServer(cfg, database, llmClient, strconv.Itoa(port), true)
+func RunWithPort(cfg *config.Config, database *db.DB, llmClient *llm.Client, port int, webFS fs.FS) {
+	runServer(cfg, database, llmClient, strconv.Itoa(port), true, webFS)
 }
 
 // RunAutoPort listens on a random OS-assigned port, prints "PORT=<port>" to stdout
 // so a parent process can read it, optionally redirects logs to a rotating file,
 // then blocks until SIGINT/SIGTERM.
-func RunAutoPort(cfg *config.Config, database *db.DB, llmClient *llm.Client, logDir string) {
+func RunAutoPort(cfg *config.Config, database *db.DB, llmClient *llm.Client, logDir string, webFS fs.FS) {
 	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to find random port: %v\n", err)
@@ -69,22 +66,21 @@ func RunAutoPort(cfg *config.Config, database *db.DB, llmClient *llm.Client, log
 		llm.LogWriter = lj
 	}
 
-	runServer(cfg, database, llmClient, strconv.Itoa(port), true)
+	runServer(cfg, database, llmClient, strconv.Itoa(port), true, webFS)
 }
 
-func runServer(cfg *config.Config, database *db.DB, llmClient *llm.Client, port string, blocking bool) {
+func runServer(cfg *config.Config, database *db.DB, llmClient *llm.Client, port string, blocking bool, webFS fs.FS) {
 	// Register all builtin tools into the global Registry before creating the handler.
 	tools.RegisterBuiltinTools()
 
 	h := api.NewHandler(database, llmClient, cfg)
+	if webFS != nil {
+		h.SetStaticFS(webFS)
+	}
 
 	mcpMgr := mcp.NewManager(database)
 	mcpMgr.Start()
 	h.MCPMgr = mcpMgr
-
-	if OnHandlerCreated != nil {
-		OnHandlerCreated(h)
-	}
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()

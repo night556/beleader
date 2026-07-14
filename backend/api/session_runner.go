@@ -20,7 +20,6 @@ type RunSessionOpts struct {
 	RoleLabel     string   // label for messages in the UI
 	CustomPrompt  string   // Worker/Simple/Tool/Skill: custom role definition (from agents table or Coordinator)
 	EnableBrowser bool     // Worker (legacy): enable browser automation tools
-	EnableDesktop bool     // Worker (legacy): enable desktop automation tools
 	ToolNames     []string // Tool/Skill: tool names to register from global Registry
 }
 
@@ -67,9 +66,6 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		sysPrompt += "\n\n" + session.WorkerBasePrompt
 		if opts.CustomPrompt != "" {
 			sysPrompt += "\n\n## Role\n" + opts.CustomPrompt
-		}
-		if opts.EnableDesktop {
-			sysPrompt += "\n\n" + session.DesktopRules
 		}
 		if opts.EnableBrowser {
 			sysPrompt += "\n\n" + session.BrowserRules
@@ -123,8 +119,8 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		})
 		tools.RegisterCoordinatorTools(
 			sessionMgr,
-			func(agentName, name, task string, enableBrowser, enableDesktop bool) (string, error) {
-				return h.spawnWorker(sessionID, refID, agentName, name, task, enableBrowser, enableDesktop)
+			func(agentName, name, task string, enableBrowser bool) (string, error) {
+				return h.spawnWorker(sessionID, refID, agentName, name, task, enableBrowser)
 			},
 			func(workerName string) (string, error) {
 				return h.terminateWorker(refID, workerName)
@@ -139,7 +135,6 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 				return h.listWorkers(refID)
 			},
 		)
-		tools.RegisterHTMLTools(sessionMgr)
 		tools.RegisterKnowledgeTools(sessionMgr,
 			func(query string, limit int) (string, error) {
 				knowledge, err := h.DB.SearchKnowledge(query, limit)
@@ -165,10 +160,6 @@ func (h *Handler) runSession(sessionID, refID, workDir, userMessage string, opts
 		if opts.EnableBrowser {
 			tools.RegisterBrowserTools(sessionMgr)
 			toolList = append(toolList, tools.BrowserTools()...)
-		}
-		if opts.EnableDesktop {
-			tools.RegisterDesktopTools(sessionMgr)
-			toolList = append(toolList, tools.DesktopTools()...)
 		}
 	case "simple":
 		tools.RegisterReadFile(sessionMgr)
