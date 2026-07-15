@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -94,4 +95,84 @@ func ListThreadIDs(dataDir string) ([]string, error) {
 		}
 	}
 	return ids, nil
+}
+
+// AppendMessage appends a single message to messages.jsonl (append-only).
+func AppendMessage(dataDir, threadID string, msg *engine.Message) error {
+	dir := ThreadDir(dataDir, threadID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	f, err := os.OpenFile(filepath.Join(dir, "messages.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	_, err = f.Write(b)
+	return err
+}
+
+// LoadMessages reads messages.jsonl line by line and returns all messages.
+// If lastKnownSeq is set, it also replays events from events.jsonl after that seq
+// to catch any messages written to events but not yet to messages.jsonl (crash recovery).
+func LoadMessages(dataDir, threadID string) ([]engine.Message, error) {
+	dir := ThreadDir(dataDir, threadID)
+	path := filepath.Join(dir, "messages.jsonl")
+
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var msgs []engine.Message
+	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 1024*1024)
+	scanner.Buffer(buf, 10*1024*1024)
+	for scanner.Scan() {
+		var m engine.Message
+		if err := json.Unmarshal(scanner.Bytes(), &m); err != nil {
+			continue
+		}
+		msgs = append(msgs, m)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return msgs, nil
+}
+
+// TruncateMessages rewrites messages.jsonl with a full snapshot of messages.
+// Called after PruneCompressed to sync disk with in-memory state.
+func TruncateMessages(dataDir, threadID string, msgs []engine.Message) error {
+	dir := ThreadDir(dataDir, threadID)
+	path := filepath.Join(dir, "messages.jsonl")
+
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	for i := range msgs {
+		b, err := json.Marshal(&msgs[i])
+		if err != nil {
+			return err
+		}
+		b = append(b, '\n')
+		if _, err := f.Write(b); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -15,13 +15,22 @@ import (
 
 // BuildMessages reads messages from the thread and returns cleaned, ordered
 // []openai.ChatCompletionMessage ready for LLM consumption.
-func BuildMessages(thread *Thread, afterID int64, sysPrompt string, tools []openai.Tool, visionEnabled bool) ([]openai.ChatCompletionMessage, error) {
+// Messages with ID > afterID are included, plus messages whose ID is in pinnedIDs.
+func BuildMessages(thread *Thread, afterID int64, pinnedIDs []int64, sysPrompt string, tools []openai.Tool, visionEnabled bool) ([]openai.ChatCompletionMessage, error) {
 	msgs := []openai.ChatCompletionMessage{
 		{Role: "system", Content: sysPrompt},
 	}
 
-	for _, dm := range thread.GetMessages(afterID) {
-		if dm.Hidden || dm.Kind == "notice" || dm.Kind == "error" {
+	pinnedSet := make(map[int64]bool, len(pinnedIDs))
+	for _, id := range pinnedIDs {
+		pinnedSet[id] = true
+	}
+
+	for _, dm := range thread.GetAllMessages() {
+		if !(dm.ID > afterID || pinnedSet[dm.ID]) {
+			continue
+		}
+		if dm.Hidden || dm.Kind == "error" {
 			continue
 		}
 		role := messageRole(dm.Kind)
@@ -210,7 +219,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 		}
 
 		rounds++
-		msgs, err := BuildMessages(thread, afterID, sysPrompt, toolList, visionEnabled)
+		msgs, err := BuildMessages(thread, afterID, thread.PinnedIDs, sysPrompt, toolList, visionEnabled)
 		if err != nil {
 			return nil, err
 		}
@@ -224,18 +233,26 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 				}
 			}
 			if estPct > thread.MaxContextPct {
-				lastID := thread.LastMessageID()
-				_, _, compErr := e.Compress(ctx, thread, afterID, llmClient)
+				// Compute pin window — last N turns stay verbatim.
+				pinned := thread.ComputePinWindow()
+				if len(pinned) > 0 {
+					thread.ContextStartID = pinned[0] - 1
+				} else {
+					thread.ContextStartID = thread.LastMessageID()
+				}
+				thread.PinnedIDs = pinned
+
+				_, _, compErr := e.Compress(ctx, thread, thread.ContextStartID, llmClient)
 				if compErr == nil {
 					currentTotalTokens = thread.TotalTokens
-					thread.SetContextStart(lastID)
-					afterID = lastID
-					msgs, _ = BuildMessages(thread, afterID, sysPrompt, toolList, visionEnabled)
+					thread.PruneCompressed()
+					afterID = thread.ContextStartID
+					msgs, _ = BuildMessages(thread, afterID, thread.PinnedIDs, sysPrompt, toolList, visionEnabled)
 				}
 			}
 		}
 
-		// 鈹€鈹€ item.started for this LLM response 鈹€鈹€
+		// item.started for this LLM response
 		agentItemID := NewItemID()
 		emit(StartItem(agentItemID, turnID, ItemKindAgentMessage, "", nil))
 
@@ -293,14 +310,14 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 			ReasoningContent: assistantMsg.ReasoningContent,
 		})
 
-		// 鈹€鈹€ item.completed for this LLM response 鈹€鈹€
+		// item.completed for this LLM response
 		emit(CompleteItem(agentItemID, turnID, msgKind, assistantMsg.Content, nil))
 
 		if len(assistantMsg.ToolCalls) == 0 {
 			return &LoopResult{Completed: true, Rounds: rounds, Content: assistantMsg.Content}, nil
 		}
 
-		// 鈹€鈹€ Execute tool calls 鈹€鈹€
+		// Execute tool calls
 		var shouldStop bool
 		for _, tc := range assistantMsg.ToolCalls {
 			if ctx.Err() != nil {
@@ -378,7 +395,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 
 // Compress compresses the conversation history using the LLM and stores the summary.
 func (e *Engine) Compress(ctx context.Context, thread *Thread, afterID int64, llmClient *llm.Client) (string, int64, error) {
-	msgs, err := BuildMessages(thread, afterID, CompressPrompt, nil, false)
+	msgs, err := BuildMessages(thread, afterID, nil, CompressPrompt, nil, false)
 	if err != nil {
 		return "", 0, err
 	}

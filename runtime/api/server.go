@@ -156,6 +156,10 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	thread := engine.NewThread(req.SystemPrompt, req.Model, req.Tools, "", req.MaxContextPct, req.Metadata, nil)
+	thread.OnMessageAppend = func(msg *engine.Message) {
+		store.AppendMessage(s.dataDir, thread.ID, msg)
+	}
+
 	if err := store.SaveThread(s.dataDir, thread); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "failed to save thread: " + err.Error()})
 		return
@@ -187,9 +191,15 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 			writeJSON(w, 404, map[string]string{"error": "thread not found"})
 			return
 		}
+		msgs, _ := store.LoadMessages(s.dataDir, threadID)
+		thread.Messages = msgs
 		s.mu.Lock()
 		s.threads[threadID] = thread
 		s.mu.Unlock()
+	}
+
+	thread.OnMessageAppend = func(msg *engine.Message) {
+		store.AppendMessage(s.dataDir, threadID, msg)
 	}
 
 	var req TurnRequest
@@ -322,6 +332,11 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 				EndedAt:      now,
 			}},
 		})
+	}
+
+	// Sync messages.jsonl with pruned in-memory state after compression.
+	if len(thread.PinnedIDs) > 0 {
+		store.TruncateMessages(s.dataDir, threadID, thread.Messages)
 	}
 
 	// Save final thread state.

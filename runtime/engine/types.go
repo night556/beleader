@@ -185,15 +185,26 @@ type InterveneMsg struct {
 type ProgressCallback func(RuntimeEventRecord)
 
 // CompressPrompt is the system prompt for context compression.
-const CompressPrompt = `You are compressing a conversation to save context space. Your output will replace all previous messages. The assistant must be able to continue working from your summary alone.
+const CompressPrompt = `You are compressing a conversation to save context space.
 
-Summarize:
-- What the user asked for and what the assistant did about it
-- Key information from tool outputs (file paths, errors, search results, code snippets that matter)
-- What the assistant was doing right before compression
+Summarize EXACTLY in this format:
+
+## Files
+- path/to/file — what was done
+
+## Decisions
+- decision and rationale
+
+## Errors / Blockers
+- exact error messages verbatim
+
+## Current State
+- what is in progress
+
+## Next Steps
+- immediate next actions
 
 Rules:
-- Preserve actionable information (file paths, error messages, relevant code)
-- Discard redundant tool output, boilerplate, and noise
-- Do NOT create a task plan — just record what happened
-- Be dense. Every sentence should carry information needed to continue.`
+- Preserve exact file paths and error messages verbatim
+- Drop greetings, filler, and redundant tool output
+- Be dense — every sentence should carry actionable information`

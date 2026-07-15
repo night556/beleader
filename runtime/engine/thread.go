@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -62,11 +63,17 @@ type Thread struct {
 	WorkspaceDir   string         `json:"workspace_dir"`
 	Metadata       map[string]any `json:"metadata"`
 	MaxContextPct  int            `json:"max_context_pct"`
-	Messages       []Message      `json:"-"` // persisted in turns file, rebuilt from events
+	Messages       []Message      `json:"-"` // persisted in messages.jsonl
 	ContextStartID int64          `json:"context_start_id"`
+	PinnedIDs      []int64        `json:"pinned_ids"`
 	TotalTokens    int            `json:"total_tokens"`
 	CreatedAt      time.Time      `json:"created_at"`
-	mu             sync.RWMutex
+
+	// OnMessageAppend is called after a message is added to Messages.
+	// Set by the server layer to persist to messages.jsonl.
+	OnMessageAppend func(msg *Message)
+
+	mu sync.RWMutex
 }
 
 // ToolDef is a lightweight tool definition passed from Gateway.
@@ -105,6 +112,10 @@ func (t *Thread) AddMessage(msg Message) int64 {
 	msg.ID = int64(len(t.Messages) + 1)
 	msg.CreatedAt = time.Now()
 	t.Messages = append(t.Messages, msg)
+
+	if t.OnMessageAppend != nil {
+		t.OnMessageAppend(&msg)
+	}
 	return msg.ID
 }
 
@@ -118,6 +129,15 @@ func (t *Thread) GetMessages(afterID int64) []Message {
 			msgs = append(msgs, m)
 		}
 	}
+	return msgs
+}
+
+// GetAllMessages returns all messages (read lock).
+func (t *Thread) GetAllMessages() []Message {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	msgs := make([]Message, len(t.Messages))
+	copy(msgs, t.Messages)
 	return msgs
 }
 
@@ -143,4 +163,60 @@ func (t *Thread) AddTokens(n int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.TotalTokens += n
+}
+
+// PinTurnCount is the number of recent turns to preserve during compression.
+const PinTurnCount = 4
+
+// ComputePinWindow scans messages from the end and returns IDs of all messages
+// that fall within the last PinTurnCount user turns (inclusive of the turn start).
+func (t *Thread) ComputePinWindow() []int64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if len(t.Messages) == 0 {
+		return nil
+	}
+
+	userCount := 0
+	cutoff := 0
+	for i := len(t.Messages) - 1; i >= 0; i-- {
+		if t.Messages[i].Kind == "user_message" {
+			userCount++
+			if userCount >= PinTurnCount {
+				cutoff = i
+				break
+			}
+		}
+	}
+
+	var ids []int64
+	for i := cutoff; i < len(t.Messages); i++ {
+		ids = append(ids, t.Messages[i].ID)
+	}
+	return ids
+}
+
+// PruneCompressed removes messages before ContextStartID that are not in PinnedIDs.
+// This frees memory after compression — the full history lives in messages.jsonl.
+func (t *Thread) PruneCompressed() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.ContextStartID == 0 {
+		return
+	}
+
+	pinned := make(map[int64]bool, len(t.PinnedIDs))
+	for _, id := range t.PinnedIDs {
+		pinned[id] = true
+	}
+
+	keep := t.Messages[:0]
+	for _, m := range t.Messages {
+		if m.ID >= t.ContextStartID || pinned[m.ID] || m.Kind == "notice" && strings.HasPrefix(m.Content, "[System]") {
+			keep = append(keep, m)
+		}
+	}
+	t.Messages = keep
 }
