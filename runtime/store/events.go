@@ -33,6 +33,20 @@ func NewEventWriter(dataDir, threadID string) (*EventWriter, error) {
 	return &EventWriter{file: f, seq: seq}, nil
 }
 
+// InitEvents creates an empty events.jsonl if it doesn't exist,
+// so that SSE event streaming can open the file immediately.
+func InitEvents(dataDir, threadID string) error {
+	dir := ThreadDir(dataDir, threadID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "events.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
 func countLines(f *os.File) int64 {
 	fi, _ := f.Stat()
 	if fi.Size() == 0 {
@@ -48,7 +62,8 @@ func countLines(f *os.File) int64 {
 }
 
 // Append writes an event to the JSONL file with an auto-incremented seq and timestamp.
-func (w *EventWriter) Append(ev engine.RuntimeEventRecord) error {
+// Takes a pointer so the caller sees the assigned seq.
+func (w *EventWriter) Append(ev *engine.RuntimeEventRecord) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -69,6 +84,20 @@ func (w *EventWriter) Append(ev engine.RuntimeEventRecord) error {
 // Close closes the underlying file.
 func (w *EventWriter) Close() error {
 	return w.file.Close()
+}
+
+// EventSeq returns the current max event sequence number for a thread.
+func EventSeq(dataDir, threadID string) (int64, error) {
+	path := filepath.Join(ThreadDir(dataDir, threadID), "events.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer f.Close()
+	return countLines(f), nil
 }
 
 // ReadEvents reads events from events.jsonl starting at sinceSeq and sends them to ch.

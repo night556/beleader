@@ -110,6 +110,21 @@ func (c *RuntimeClient) SendTurn(threadID string, req TurnRequest) (*http.Respon
 	return resp, nil
 }
 
+// FetchEvents fetches events for a thread since a given seq from the Runtime.
+func (c *RuntimeClient) FetchEvents(threadID string, sinceSeq int64) (*http.Response, error) {
+	url := fmt.Sprintf("%s/v1/threads/%s/events?since_seq=%d", c.BaseURL, threadID, sinceSeq)
+	resp, err := c.HTTPClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("fetch events: %s — %s", resp.Status, string(b))
+	}
+	return resp, nil
+}
+
 // ParseSSEStream parses an SSE event stream, calling onEvent for each event.
 func ParseSSEStream(body io.ReadCloser, onEvent func(eventType string, payload map[string]any)) error {
 	defer body.Close()
@@ -153,5 +168,76 @@ func ParseSSEStream(body io.ReadCloser, onEvent func(eventType string, payload m
 	return scanner.Err()
 }
 
+// ParseAndForwardSSE reads an SSE stream from body, writes each line to w,
+// and calls onEvent for each parsed event. Flushes after each event.
+func ParseAndForwardSSE(body io.ReadCloser, w io.Writer, flusher http.Flusher, onEvent func(eventType string, payload map[string]any)) error {
+	defer body.Close()
+	scanner := bufio.NewScanner(body)
+	buf := make([]byte, 1024*1024)
+	scanner.Buffer(buf, 10*1024*1024)
+
+	var eventType string
+	var dataBuf bytes.Buffer
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if line == "" {
+			// Blank line: end of event — write the event block
+			if dataBuf.Len() > 0 {
+				fmt.Fprintf(w, "event: %s\n", eventType)
+				fmt.Fprintf(w, "data: %s\n\n", dataBuf.String())
+				flusher.Flush()
+
+				var payload map[string]any
+				json.Unmarshal(dataBuf.Bytes(), &payload)
+				onEvent(eventType, payload)
+				dataBuf.Reset()
+				eventType = ""
+			}
+			continue
+		}
+
+		if len(line) > 6 && line[:6] == "event:" {
+			eventType = line[7:]
+		} else if len(line) > 5 && line[:5] == "data:" {
+			if dataBuf.Len() > 0 {
+				dataBuf.WriteByte('\n')
+			}
+			dataBuf.WriteString(line[6:])
+		}
+	}
+
+	// Flush remaining.
+	if dataBuf.Len() > 0 {
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, dataBuf.String())
+		flusher.Flush()
+		var payload map[string]any
+		json.Unmarshal(dataBuf.Bytes(), &payload)
+		onEvent(eventType, payload)
+	}
+
+	return scanner.Err()
+}
+
 // ── unused local import guard ──
 var _ = time.Now
+
+// GetLatestSeq returns the current max event seq for a thread.
+func (c *RuntimeClient) GetLatestSeq(threadID string) (int64, error) {
+	resp, err := c.HTTPClient.Get(c.BaseURL + "/v1/threads/" + threadID + "/latest-seq")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("get latest seq: %s", resp.Status)
+	}
+	var result struct {
+		Seq int64 `json:"seq"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+	return result.Seq, nil
+}

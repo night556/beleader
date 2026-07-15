@@ -19,12 +19,19 @@ export const client = {
   listThreads: () => api<Thread[]>('/api/threads'),
   getThread: (id: string) => api<Thread>(`/api/threads/${encodeURIComponent(id)}`),
   deleteThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  getMessages: (threadId: string, afterId = 0) => api<Message[]>(`/api/threads/${encodeURIComponent(threadId)}/messages?after_id=${afterId}`),
+  getMessages: (threadId: string, afterId = 0) => api<{ messages: Message[]; latest_seq: number }>(`/api/threads/${encodeURIComponent(threadId)}/messages?after_id=${afterId}`),
   pauseThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
   resumeThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
 
   // Chat
-  sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string }) => api<{ thread_id: string }>('/api/chat', { method: 'POST', body: JSON.stringify(body) }),
+  // Returns raw Response for SSE streaming. Thread ID via X-Thread-Id header.
+  sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string }, signal?: AbortSignal) =>
+    fetch(`${SERVER_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    }),
 
   // Agents
   listAgents: () => api<Agent[]>('/api/agents'),

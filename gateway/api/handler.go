@@ -68,7 +68,6 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/threads/:id", h.handleGetThread)
 		api.DELETE("/threads/:id", h.handleDeleteThread)
 		api.GET("/threads/:id/messages", h.handleGetMessages)
-
 		api.POST("/threads/:id/pause", h.handlePause)
 		api.POST("/threads/:id/resume", h.handleResume)
 		api.POST("/threads/:id/intervene", h.handleIntervene)
@@ -124,7 +123,6 @@ func (h *Handler) handleChat(c *gin.Context) {
 
 	threadID := req.ThreadID
 	if threadID == "" {
-		// New thread: create on Runtime first — Runtime owns the ID.
 		rtID, err := h.createRuntimeThread(agent)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -149,8 +147,123 @@ func (h *Handler) handleChat(c *gin.Context) {
 		h.cancelThread(threadID)
 	}
 
-	c.JSON(200, gin.H{"thread_id": threadID})
-	go h.runSession(threadID, agent, req.Message, req.Images)
+	// Persist user message to DB.
+	h.DB.InsertMessage(&db.Message{
+		ThreadID:     threadID,
+		Kind:         "user_message",
+		Content:      req.Message,
+		MultiContent: encodeMultiContent(req.Images),
+	})
+
+	// Call Runtime to start the turn and stream SSE back.
+	resp, err := h.Runtime.SendTurn(threadID, TurnRequest{
+		Message: req.Message,
+		Images:  req.Images,
+		Model:   h.buildModelMap(),
+	})
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("X-Thread-Id", threadID)
+	c.Header("Cache-Control", "no-cache")
+	c.Writer.WriteHeader(http.StatusOK)
+	c.Writer.Flush()
+
+	flusher, _ := c.Writer.(http.Flusher)
+	thinkingAcc := map[string]string{} // item_id → accumulated thinking
+	ParseAndForwardSSE(resp.Body, c.Writer, flusher, func(eventType string, envelope map[string]any) {
+		payload, _ := envelope["payload"].(map[string]any)
+		if payload == nil {
+			payload = map[string]any{}
+		}
+
+		switch eventType {
+		case "item.delta":
+			itemID, _ := envelope["item_id"].(string)
+			kind, _ := payload["kind"].(string)
+			delta, _ := payload["delta"].(string)
+			if itemID != "" && kind == "thinking" {
+				thinkingAcc[itemID] += delta
+			}
+
+		case "item.started":
+			item, _ := payload["item"].(map[string]any)
+			if item != nil {
+				kind, _ := item["kind"].(string)
+				// Reset thinking accumulator for this item.
+				if id, _ := item["id"].(string); id != "" {
+					delete(thinkingAcc, id)
+				}
+				if kind == "tool_call" {
+					metadata, _ := item["metadata"].(map[string]any)
+					toolName, _ := metadata["tool_name"].(string)
+					toolUseID, _ := metadata["tool_use_id"].(string)
+					tcsJSON, _ := json.Marshal([]map[string]any{{
+						"id":   toolUseID,
+						"type": "function",
+						"function": map[string]any{
+							"name": toolName,
+						},
+					}})
+					h.DB.InsertMessage(&db.Message{
+						ThreadID:  threadID,
+						Kind:      "tool_call",
+						ToolCalls: string(tcsJSON),
+					})
+				}
+			}
+
+		case "item.completed":
+			item, _ := payload["item"].(map[string]any)
+			if item != nil {
+				kind, _ := item["kind"].(string)
+				detail, _ := item["detail"].(string)
+				itemID, _ := item["id"].(string)
+				switch kind {
+				case "agent_message":
+					h.DB.InsertMessage(&db.Message{
+						ThreadID:         threadID,
+						Kind:             "agent_message",
+						Content:          detail,
+						ReasoningContent: thinkingAcc[itemID],
+					})
+					delete(thinkingAcc, itemID)
+				case "tool_call":
+					metadata, _ := item["metadata"].(map[string]any)
+					toolUseID, _ := metadata["tool_use_id"].(string)
+					if toolUseID != "" {
+						dbContent := detail
+						if m, ok := parseJSONMap(detail); ok {
+							delete(m, "images")
+							if b, err := json.Marshal(m); err == nil {
+								dbContent = string(b)
+							}
+						}
+						h.DB.InsertMessage(&db.Message{
+							ThreadID:   threadID,
+							Kind:       "tool_result",
+							Content:    dbContent,
+							ToolCallID: toolUseID,
+						})
+					}
+				}
+			}
+
+		case "item.failed":
+			item, _ := payload["item"].(map[string]any)
+			if item != nil {
+				detail, _ := item["detail"].(string)
+				h.DB.InsertMessage(&db.Message{
+					ThreadID: threadID,
+					Kind:     "error",
+					Content:  detail,
+				})
+			}
+		}
+	})
 }
 
 func (h *Handler) cancelThread(threadID string) {
@@ -204,7 +317,11 @@ func (h *Handler) handleGetMessages(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, msgs)
+	resp := gin.H{"messages": msgs, "latest_seq": int64(0)}
+	if seq, err := h.Runtime.GetLatestSeq(threadID); err == nil {
+		resp["latest_seq"] = seq
+	}
+	c.JSON(200, resp)
 }
 
 // ── SSE ──
@@ -312,12 +429,13 @@ func (h *Handler) handleGetSettings(c *gin.Context) {
 	active := ""
 	for i, m := range dbModels {
 		models[i] = config.ModelProfile{
-			ID:           m.ModelID,
-			BaseURL:      m.BaseURL,
-			APIKey:       m.APIKey,
-			Model:        m.Model,
-			Vision:       m.Vision,
-			ContextLimit: m.ContextLimit,
+			ID:              m.ModelID,
+			BaseURL:         m.BaseURL,
+			APIKey:          m.APIKey,
+			Model:           m.Model,
+			Vision:          m.Vision,
+			ContextLimit:    m.ContextLimit,
+			ReasoningEffort: m.ReasoningEffort,
 		}
 		if m.IsActive {
 			active = m.ModelID
@@ -410,11 +528,12 @@ func (h *Handler) buildModelMap() map[string]any {
 		return map[string]any{"context_limit": 128000}
 	}
 	return map[string]any{
-		"base_url":      m.BaseURL,
-		"api_key":       m.APIKey,
-		"model":         m.Model,
-		"context_limit": m.ContextLimit,
-		"vision":        m.Vision,
+		"base_url":         m.BaseURL,
+		"api_key":          m.APIKey,
+		"model":            m.Model,
+		"context_limit":    m.ContextLimit,
+		"vision":           m.Vision,
+		"reasoning_effort": m.ReasoningEffort,
 	}
 }
 

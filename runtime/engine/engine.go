@@ -233,14 +233,17 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 			}
 		}
 
-		// ── item.started for this LLM response ──
+		// 鈹€鈹€ item.started for this LLM response 鈹€鈹€
 		agentItemID := NewItemID()
 		emit(StartItem(agentItemID, turnID, ItemKindAgentMessage, "", nil))
 
 		resp, err := llmClient.ChatStream(ctx, msgs, toolList, func(delta string) error {
 			emit(DeltaEvent(agentItemID, ItemKindAgentMessage, delta))
 			return nil
-		})
+			}, func(reasoningDelta string) error {
+			emit(ThinkingDeltaEvent(agentItemID, reasoningDelta))
+			return nil
+		}, thread.Model.ReasoningEffort)
 		if err != nil {
 			if ctx.Err() != nil {
 				emit(CompleteItem(agentItemID, turnID, ItemKindAgentMessage, "", nil))
@@ -288,14 +291,14 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 			ReasoningContent: assistantMsg.ReasoningContent,
 		})
 
-		// ── item.completed for this LLM response ──
+		// 鈹€鈹€ item.completed for this LLM response 鈹€鈹€
 		emit(CompleteItem(agentItemID, turnID, msgKind, assistantMsg.Content, nil))
 
 		if len(assistantMsg.ToolCalls) == 0 {
 			return &LoopResult{Completed: true, Rounds: rounds, Content: assistantMsg.Content}, nil
 		}
 
-		// ── Execute tool calls ──
+		// 鈹€鈹€ Execute tool calls 鈹€鈹€
 		var shouldStop bool
 		for _, tc := range assistantMsg.ToolCalls {
 			if ctx.Err() != nil {
@@ -306,6 +309,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 			toolMeta := map[string]any{
 				"tool_use_id": tc.ID,
 				"tool_name":   tc.Function.Name,
+				"arguments":   tc.Function.Arguments,
 			}
 
 			// item.started for tool_call
@@ -346,7 +350,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 					label = "Screenshot"
 				}
 				if result.Width > 0 && result.Height > 0 {
-					label = fmt.Sprintf("%s\n\nUse 0-1000 normalized coordinates over this image: (0,0)=top-left, (1000,1000)=bottom-right, (500,500)=center. Position by proportion — e.g. a button 60%% from left and 10%% from top is (600,100).",
+					label = fmt.Sprintf("%s\n\nUse 0-1000 normalized coordinates over this image: (0,0)=top-left, (1000,1000)=bottom-right, (500,500)=center. Position by proportion 鈥?e.g. a button 60%% from left and 10%% from top is (600,100).",
 						label)
 				}
 				e.injectImageMessage(thread, result.Images, label)

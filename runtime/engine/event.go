@@ -174,6 +174,11 @@ func FailItem(itemID, turnID, kind, detail string) RuntimeEventRecord {
 	}
 }
 
+// ThinkingDeltaEvent creates an item.delta event for reasoning/thinking content.
+func ThinkingDeltaEvent(itemID, delta string) RuntimeEventRecord {
+	return DeltaEvent(itemID, "thinking", delta)
+}
+
 // DeltaEvent creates an item.delta event.
 func DeltaEvent(itemID, kind, delta string) RuntimeEventRecord {
 	return RuntimeEventRecord{

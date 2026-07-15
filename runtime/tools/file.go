@@ -12,6 +12,18 @@ import (
 	"beleader/runtime/engine"
 )
 
+// resolvePath joins the given path with the workspace directory from context.
+// If the path is already absolute (per the host OS), it is used as-is.
+func resolvePath(ctx context.Context, p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	if wd, _ := ctx.Value(engine.CtxKeyWorkDir).(string); wd != "" {
+		return filepath.Join(wd, p)
+	}
+	return p
+}
+
 // ── File tool handlers ──
 
 func readFileHandler(ctx context.Context, args string) *engine.ToolResult {
@@ -24,6 +36,7 @@ func readFileHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.Path == "" {
 		return &engine.ToolResult{Error: "path is required"}
 	}
+	p.Path = resolvePath(ctx, p.Path)
 	data, err := os.ReadFile(p.Path)
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
@@ -74,6 +87,7 @@ func readDirHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.Path == "" {
 		return &engine.ToolResult{Error: "path is required"}
 	}
+	p.Path = resolvePath(ctx, p.Path)
 	entries, err := os.ReadDir(p.Path)
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
@@ -105,6 +119,8 @@ func searchContentHandler(ctx context.Context, args string) *engine.ToolResult {
 	searchPath := p.Path
 	if searchPath == "" {
 		searchPath, _ = ctx.Value(engine.CtxKeyWorkDir).(string)
+	} else {
+		searchPath = resolvePath(ctx, searchPath)
 	}
 	if fi, err := os.Stat(searchPath); err != nil {
 		return &engine.ToolResult{Error: fmt.Sprintf("path not found: %s", searchPath)}
@@ -161,6 +177,8 @@ func searchFilesHandler(ctx context.Context, args string) *engine.ToolResult {
 	searchPath := p.Path
 	if searchPath == "" {
 		searchPath, _ = ctx.Value(engine.CtxKeyWorkDir).(string)
+	} else {
+		searchPath = resolvePath(ctx, searchPath)
 	}
 	var matches []string
 	filepath.Walk(searchPath, func(fp string, fi os.FileInfo, err error) error {
@@ -210,6 +228,7 @@ func writeFileHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.Path == "" {
 		return &engine.ToolResult{Error: "path is required"}
 	}
+	p.Path = resolvePath(ctx, p.Path)
 	dir := filepath.Dir(p.Path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return &engine.ToolResult{Error: err.Error()}
@@ -233,6 +252,7 @@ func editFileHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.OldString == "" {
 		return &engine.ToolResult{Error: "old_string is required"}
 	}
+	p.Path = resolvePath(ctx, p.Path)
 	data, err := os.ReadFile(p.Path)
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
@@ -273,7 +293,7 @@ func deleteFileHandler(ctx context.Context, args string) *engine.ToolResult {
 
 	var moved, skipped, failed []string
 	for _, path := range p.Paths {
-		path = filepath.Clean(path)
+		path = resolvePath(ctx, filepath.Clean(path))
 		if path == "" {
 			skipped = append(skipped, "(empty)")
 			continue

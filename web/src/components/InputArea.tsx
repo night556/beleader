@@ -1,13 +1,18 @@
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback } from 'react';
 import { useAppState } from '../context/AppContext';
-import { client } from '../api/client';
 import { t } from '../i18n';
 
-export function InputArea() {
+interface Props {
+  onSendMessage: (body: {
+    message: string; images: string[]; agent_id: number; thread_id?: string;
+  }) => Promise<void>;
+  onStop: () => void;
+}
+
+export function InputArea({ onSendMessage, onStop }: Props) {
   const { state, dispatch } = useAppState();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [statusText] = useState(t('status.ready'));
 
   const sendMsg = useCallback(() => {
     const text = textareaRef.current?.value.trim() || '';
@@ -29,29 +34,13 @@ export function InputArea() {
       textareaRef.current.style.height = 'auto';
     }
 
-    // Show user message
-    if (text) {
-      dispatch({
-        type: 'PUSH_TIMELINE_ITEM',
-        item: { id: '', icon: '👤', type: 'user', label: 'You', content: text, status: 'done', time: Date.now() },
-      });
-    }
-
     const body: { message: string; images: string[]; agent_id: number; thread_id?: string } = {
       message: text, images: imgs, agent_id: state.activeAgentId,
     };
     if (state.activeThreadId) body.thread_id = state.activeThreadId;
 
-    client.sendChat(body).then(d => {
-      if (d.thread_id && !state.activeThreadId) {
-        dispatch({ type: 'SET_ACTIVE_THREAD', threadId: d.thread_id });
-        // Refresh thread list
-        client.listThreads().then(threads => {
-          dispatch({ type: 'SET_THREADS', threads });
-        });
-      }
-    }).catch(err => console.error('chat error:', err));
-  }, [state.activeThreadId, state.activeAgentId, state.hasModels, state.pendingImages]);
+    onSendMessage(body);
+  }, [state.activeThreadId, state.activeAgentId, state.hasModels, state.pendingImages, onSendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -103,21 +92,11 @@ export function InputArea() {
   };
 
   const stopSession = () => {
-    if (!state.activeThreadId) return;
-    client.pauseThread(state.activeThreadId).catch(err => console.error('stop error:', err));
-  };
-
-  const clearContext = () => {
-    if (!state.activeThreadId) return;
-    if (!confirm('Clear the conversation context for this thread?')) return;
-    client.pauseThread(state.activeThreadId).then(() => {
-      dispatch({ type: 'CLEAR_TIMELINE' });
-    }).catch(err => alert('Clear failed: ' + err.message));
+    onStop();
   };
 
   return (
     <footer className="input-area">
-      {/* Image preview */}
       {state.pendingImages.length > 0 && (
         <div className="img-preview">
           {state.pendingImages.map((img, i) => (
@@ -138,12 +117,7 @@ export function InputArea() {
 
       <div className="status-bar">
         <span className="status-indicator" />
-        <span className="status-text">{statusText}</span>
-        {state.activeThreadId && (
-          <button onClick={clearContext} style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 11, marginLeft: 'auto', cursor: 'pointer' }}>
-            {t('ctx.clear')}
-          </button>
-        )}
+        <span className="status-text">{t('status.ready')}</span>
       </div>
 
       <div id="input-capsule">

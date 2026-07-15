@@ -5,7 +5,7 @@ export type TimelineItemType = 'user' | 'agent' | 'tool_call' | 'tool_result' | 
 export interface TimelineItem {
   id: string;
   type: TimelineItemType;
-  icon: string;
+  icon?: string;
   label: string;
   content: string;
   html?: string;
@@ -13,6 +13,7 @@ export interface TimelineItem {
   threadId?: string;
   toolCallId?: string;
   toolName?: string;
+  thinking?: string;
   time: number;
 }
 
@@ -48,16 +49,31 @@ export interface SSETurn {
   item_ids?: string[];
 }
 
+// RuntimeEventRecord matches the Runtime's SSE event envelope.
+export interface RuntimeEventRecord {
+  schema_version: number;
+  seq: number;
+  timestamp: string;
+  thread_id: string;
+  turn_id?: string;
+  item_id?: string;
+  event: SSEEventType;
+  payload: {
+    item?: SSEItem;
+    turn?: SSETurn;
+    delta?: string;
+    kind?: string;
+    message?: string;
+  };
+}
+
+// Legacy SSEEvent — kept for Gateway broadcast compatibility.
 export interface SSEEvent {
   event: SSEEventType;
-  // item.started / item.completed / item.failed
   item?: SSEItem;
-  // item.delta
   delta?: string;
   kind?: string;
-  // turn.started / turn.completed
   turn?: SSETurn;
-  // error
   message?: string;
 }
 
@@ -93,6 +109,7 @@ export interface ModelProfile {
   model: string;
   vision: boolean;
   context_limit: number;
+  reasoning_effort?: string;
 }
 
 // ── Tool def ──
@@ -154,9 +171,11 @@ export interface Settings {
 
 // ── App State ──
 
+export type Page = 'chat' | 'agent' | 'mcp' | 'model';
 export type AppStateName = 'idle' | 'thinking' | 'tool_calls' | 'responding' | 'error';
 
 export interface AppState {
+  page: Page;
   state: AppStateName;
   timeline: TimelineItem[];
   liveItem: TimelineItem | null;
@@ -171,7 +190,5 @@ export interface AppState {
   mcpServers: MCPServer[];
   contextPct: number;
   totalTokens: number;
-  historyOpen: boolean;
-  settingsOpen: boolean;
   pendingImages: string[];
 }

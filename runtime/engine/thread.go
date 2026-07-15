@@ -47,8 +47,9 @@ type ModelConfig struct {
 	BaseURL      string `json:"base_url"`
 	APIKey       string `json:"api_key"`
 	Model        string `json:"model"`
-	ContextLimit int    `json:"context_limit"`
-	Vision       bool   `json:"vision"`
+	ContextLimit    int    `json:"context_limit"`
+	Vision          bool   `json:"vision"`
+	ReasoningEffort string `json:"reasoning_effort"`
 }
 
 // Thread represents a conversation thread.

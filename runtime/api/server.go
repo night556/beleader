@@ -78,6 +78,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && strings.HasPrefix(path, "/threads/") && strings.HasSuffix(path, "/events"):
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/threads/"), "/events")
 		s.handleEvents(w, r, id)
+	case r.Method == "GET" && strings.HasPrefix(path, "/threads/") && strings.HasSuffix(path, "/latest-seq"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/threads/"), "/latest-seq")
+		s.handleLatestSeq(w, r, id)
 	case r.Method == "GET" && strings.HasPrefix(path, "/threads/"):
 		id := strings.TrimPrefix(path, "/threads/")
 		s.handleGetThread(w, r, id)
@@ -155,6 +158,12 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	thread := engine.NewThread(req.SystemPrompt, req.Model, req.Tools, "", req.MaxContextPct, req.Metadata, nil)
 	if err := store.SaveThread(s.dataDir, thread); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "failed to save thread: " + err.Error()})
+		return
+	}
+
+	// Ensure events.jsonl exists so SSE connections can open it immediately.
+	if err := store.InitEvents(s.dataDir, thread.ID); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "failed to init events: " + err.Error()})
 		return
 	}
 
@@ -236,10 +245,10 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		if ev.TurnID == "" {
 			ev.TurnID = turnID
 		}
+		ew.Append(&ev)
 		b, _ := json.Marshal(ev)
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Event, string(b))
 		flusher.Flush()
-		ew.Append(ev)
 	}
 
 	// Emit turn.started.
@@ -346,6 +355,15 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, threadID s
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Event, string(b))
 		flusher.Flush()
 	}
+}
+
+func (s *Server) handleLatestSeq(w http.ResponseWriter, r *http.Request, threadID string) {
+	seq, err := store.EventSeq(s.dataDir, threadID)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]int64{"seq": seq})
 }
 
 func (s *Server) handleDeleteThread(w http.ResponseWriter, r *http.Request, threadID string) {

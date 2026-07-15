@@ -155,8 +155,9 @@ type ModelProfile struct {
 	APIKey       string `gorm:"size:512;default:'';column:api_key" json:"api_key"`
 	Model        string `gorm:"size:128;default:'';column:model" json:"model"`
 	Vision       bool   `gorm:"default:false" json:"vision"`
-	ContextLimit int    `gorm:"default:128000;column:context_limit" json:"context_limit"`
-	IsActive     bool   `gorm:"default:false;column:is_active" json:"-"`
+	ContextLimit    int    `gorm:"default:128000;column:context_limit" json:"context_limit"`
+	ReasoningEffort string `gorm:"size:16;default:'high';column:reasoning_effort" json:"reasoning_effort"`
+	IsActive        bool   `gorm:"default:false;column:is_active" json:"-"`
 }
 
 func (ModelProfile) TableName() string { return "model_profiles" }

@@ -1,11 +1,11 @@
-import { t } from '../i18n';
+import { useState, useEffect } from 'react';
 import { marked } from 'marked';
+import type { AppState, TimelineItem } from '../types';
 
-// Configure marked
 marked.setOptions({ breaks: true, gfm: true });
 
 interface Props {
-  state: import('../types').AppState;
+  state: AppState;
 }
 
 export function Stage({ state }: Props) {
@@ -16,24 +16,18 @@ export function Stage({ state }: Props) {
       <main className="stage">
         <div className="idle-state">
           <div className="idle-glow">✦</div>
-          <div className="idle-text">{t('idle.text')}</div>
+          <div className="idle-text">Start a conversation</div>
           {!hasModels && (
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{t('timeline.no_models_setup_title')}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 10 }}>{t('timeline.no_models_setup_hint')}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No models configured</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Add a model in the Model tab to get started.</div>
             </div>
           )}
-          <div className="idle-hints">
-            <button className="hint-chip" onClick={() => fillInput(t('idle.hint1'))}>{t('idle.hint1')}</button>
-            <button className="hint-chip" onClick={() => fillInput(t('idle.hint2'))}>{t('idle.hint2')}</button>
-            <button className="hint-chip" onClick={() => fillInput(t('idle.hint3'))}>{t('idle.hint3')}</button>
-          </div>
         </div>
       </main>
     );
   }
 
-  // Group timeline items into turns
   const items = [...timeline];
   if (liveItem) items.push(liveItem);
 
@@ -41,42 +35,131 @@ export function Stage({ state }: Props) {
     <main className="stage">
       <div className="timeline">
         {items.map(item => (
-          <TurnItem key={item.id} item={item} />
+          <MessageCard key={item.id} item={item} />
         ))}
       </div>
     </main>
   );
 }
 
-function TurnItem({ item }: { item: import('../types').TimelineItem }) {
-  const content = item.type === 'agent' || item.type === 'user'
+function msgClass(item: TimelineItem): string {
+  const base = 'msg';
+  switch (item.type) {
+    case 'user': return `${base} msg-user`;
+    case 'agent': return `${base} msg-agent`;
+    case 'tool_call': return `${base} msg-tool`;
+    case 'error': return `${base} msg-error`;
+    default: return base;
+  }
+}
+
+function ToolCard({ item }: { item: TimelineItem }) {
+  const isDone = item.status === 'done' || item.status === 'fail';
+  const [collapsed, setCollapsed] = useState(isDone);
+
+  useEffect(() => {
+    if (item.status === 'pending' || item.status === 'streaming') {
+      setCollapsed(false);
+    } else {
+      setCollapsed(true);
+    }
+  }, [item.status]);
+
+  return (
+    <div className={msgClass(item)}>
+      <div className="msg-bubble">
+        <div className="msg-header" onClick={() => setCollapsed(v => !v)} style={{ cursor: 'pointer' }}>
+          <span className="msg-chevron">{collapsed ? '▶' : '▼'}</span>
+          <span className="msg-label">{item.label}</span>
+          {item.status === 'pending' && <span className="msg-badge pending">running</span>}
+          {item.status === 'fail' && <span className="msg-badge error">error</span>}
+        </div>
+        {!collapsed && (
+          <div className="msg-content">
+            <pre>{item.content}</pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MessageCard({ item }: { item: TimelineItem }) {
+  const isTool = item.type === 'tool_call';
+  const isError = item.type === 'error';
+
+  const content = (item.type === 'agent' || item.type === 'user')
     ? renderMarkdown(item.content)
     : item.content;
 
-  const isTool = item.type === 'tool_call';
+  const hasThinking = item.type === 'agent' && item.thinking;
+
+  if (isTool) {
+    return <ToolCard item={item} />;
+  }
+
+  if (isError) {
+    return (
+      <div className={msgClass(item)}>
+        <div className="msg-bubble">
+          <div className="msg-header">
+            <span className="msg-label">{item.label}</span>
+          </div>
+          <div className="msg-content">
+            <pre>{content}</pre>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="turn-item">
-      <span className="turn-icon">{item.icon}</span>
-      <div className="turn-body">
-        <div className="turn-header">
-          <span>{item.label}</span>
-          {item.status === 'streaming' && <span className="agent-tool-chip">...</span>}
-          {item.status === 'pending' && <span className="agent-tool-chip" style={{ color: '#b8840b' }}>pending</span>}
-          {item.status === 'fail' && <span className="agent-tool-chip" style={{ color: 'var(--red)' }}>error</span>}
+    <div className={msgClass(item)}>
+      <div className="msg-bubble">
+        <div className="msg-header">
+          <span className="msg-label">{item.label}</span>
+          {item.status === 'streaming' && <span className="msg-badge streaming">...</span>}
         </div>
+        {hasThinking && <ThinkingBlock thinking={item.thinking!} streaming={item.status === 'streaming'} />}
         <div
-          className="turn-content"
-          {...(isTool ? {} : {})}
-          dangerouslySetInnerHTML={item.type === 'agent' || item.type === 'user' ? { __html: content } : undefined}
+          className="msg-content"
+          dangerouslySetInnerHTML={
+            (item.type === 'agent' || item.type === 'user')
+              ? { __html: content }
+              : undefined
+          }
         >
-          {item.type === 'tool_call' || item.type === 'tool_result' || item.type === 'error' ? (
+          {(item.type !== 'agent' && item.type !== 'user') ? (
             <pre>{content}</pre>
-          ) : !(item.type === 'agent' || item.type === 'user') ? (
-            content
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
+  const [collapsed, setCollapsed] = useState(true);
+
+  useEffect(() => {
+    if (streaming) {
+      setCollapsed(false);
+    } else {
+      setCollapsed(true);
+    }
+  }, [streaming]);
+
+  return (
+    <div className={`thinking-block ${streaming ? 'thinking-streaming' : ''}`}>
+      <div className="thinking-header" onClick={() => setCollapsed(v => !v)}>
+        <span className="thinking-chevron">{collapsed ? '▶' : '▼'}</span>
+        <span>{streaming ? 'Thinking...' : 'Thought Process'}</span>
+      </div>
+      {!collapsed && (
+        <div className="thinking-body">
+          <pre>{thinking}</pre>
+        </div>
+      )}
     </div>
   );
 }
@@ -87,9 +170,4 @@ function renderMarkdown(text: string): string {
   } catch {
     return text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
-}
-
-function fillInput(text: string) {
-  const el = document.getElementById('msg-input') as HTMLTextAreaElement;
-  if (el) { el.value = text; el.focus(); }
 }

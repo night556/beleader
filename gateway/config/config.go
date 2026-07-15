@@ -44,5 +44,6 @@ type ModelProfile struct {
 	APIKey       string `json:"api_key"`
 	Model        string `json:"model"`
 	Vision       bool   `json:"vision"`
-	ContextLimit int    `json:"context_limit"`
+	ContextLimit    int    `json:"context_limit"`
+	ReasoningEffort string `json:"reasoning_effort"`
 }
