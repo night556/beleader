@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"beleader/runtime/llm"
 
+	"github.com/pkoukk/tiktoken-go"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -350,7 +352,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 					label = "Screenshot"
 				}
 				if result.Width > 0 && result.Height > 0 {
-					label = fmt.Sprintf("%s\n\nUse 0-1000 normalized coordinates over this image: (0,0)=top-left, (1000,1000)=bottom-right, (500,500)=center. Position by proportion 鈥?e.g. a button 60%% from left and 10%% from top is (600,100).",
+					label = fmt.Sprintf("%s\n\nUse 0-1000 normalized coordinates over this image: (0,0)=top-left, (1000,1000)=bottom-right, (500,500)=center. Position by proportion — e.g. a button 60%% from left and 10%% from top is (600,100).",
 						label)
 				}
 				e.injectImageMessage(thread, result.Images, label)
@@ -371,11 +373,6 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 		}
 		thread.TotalTokens = currentTotalTokens
 
-		if rounds >= 30 {
-			thread.AddMessage(Message{Kind: "notice",
-				Content: "[System] 30 rounds completed. Briefly summarize progress and remaining work, then continue."})
-			rounds = 0
-		}
 	}
 }
 
@@ -441,18 +438,47 @@ func ToolDefsToOpenAI(defs []ToolDef) []openai.Tool {
 	return tools
 }
 
-func estimateContextPctOpenAI(msgs []openai.ChatCompletionMessage, limit int) int {
+var (
+	tokenEncOnce sync.Once
+	tokenEncoder *tiktoken.Tiktoken
+	tokenEncErr  error
+)
+
+func getTokenEncoder() (*tiktoken.Tiktoken, error) {
+	tokenEncOnce.Do(func() {
+		tokenEncoder, tokenEncErr = tiktoken.GetEncoding("cl100k_base")
+	})
+	return tokenEncoder, tokenEncErr
+}
+
+func countTokens(s string) int {
+	if s == "" {
+		return 0
+	}
+	enc, err := getTokenEncoder()
+	if err != nil {
+		return len(s) / 4
+	}
+	return len(enc.Encode(s, nil, nil))
+}
+
+func countMessagesTokens(msgs []openai.ChatCompletionMessage) int {
 	total := 0
 	for _, m := range msgs {
-		total += len(m.Content)
+		total += countTokens(m.Content)
 		for _, tc := range m.ToolCalls {
-			total += len(tc.Function.Arguments)
+			total += countTokens(tc.Function.Arguments)
 		}
 	}
+	return total
+}
+
+func estimateContextPctOpenAI(msgs []openai.ChatCompletionMessage, limit int) int {
+	total := countMessagesTokens(msgs)
 	if limit == 0 {
 		return 0
 	}
-	pct := total * 100 / (limit * 2)
+	pct := total * 100 / limit
 	if pct > 100 {
 		pct = 100
 	}
@@ -460,16 +486,10 @@ func estimateContextPctOpenAI(msgs []openai.ChatCompletionMessage, limit int) in
 }
 
 func estimateTokensForRoundOpenAI(msgs []openai.ChatCompletionMessage, completion openai.ChatCompletionMessage) int {
-	total := 0
-	for _, m := range msgs {
-		total += len(m.Content)
-		for _, tc := range m.ToolCalls {
-			total += len(tc.Function.Arguments)
-		}
-	}
-	total += len(completion.Content)
+	total := countMessagesTokens(msgs)
+	total += countTokens(completion.Content)
 	for _, tc := range completion.ToolCalls {
-		total += len(tc.Function.Arguments)
+		total += countTokens(tc.Function.Arguments)
 	}
-	return total / 2
+	return total
 }
