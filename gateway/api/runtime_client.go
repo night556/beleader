@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -84,13 +85,13 @@ func (c *RuntimeClient) DeleteThread(id string) error {
 }
 
 // SendTurn sends a user message to a thread and returns the SSE response body.
-func (c *RuntimeClient) SendTurn(threadID string, req TurnRequest) (*http.Response, error) {
+func (c *RuntimeClient) SendTurn(ctx context.Context, threadID string, req TurnRequest) (*http.Response, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
 
-	httpReq, err := http.NewRequest("POST", c.BaseURL+"/v1/threads/"+threadID+"/turns", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/threads/"+threadID+"/turns", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

@@ -155,8 +155,22 @@ func (h *Handler) handleChat(c *gin.Context) {
 		MultiContent: encodeMultiContent(req.Images),
 	})
 
+	// Create cancellable context for this turn so pause/stop can abort the HTTP request.
+	turnCtx, turnCancel := context.WithCancel(context.Background())
+	h.mu.Lock()
+	h.cancelFuncs[threadID] = turnCancel
+	h.pauseChs[threadID] = make(chan struct{}, 1)
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		delete(h.cancelFuncs, threadID)
+		delete(h.pauseChs, threadID)
+		h.mu.Unlock()
+		turnCancel()
+	}()
+
 	// Call Runtime to start the turn and stream SSE back.
-	resp, err := h.Runtime.SendTurn(threadID, TurnRequest{
+	resp, err := h.Runtime.SendTurn(turnCtx, threadID, TurnRequest{
 		Message: req.Message,
 		Images:  req.Images,
 		Model:   h.buildModelMap(),
@@ -350,14 +364,7 @@ func (h *Handler) handleSSE(c *gin.Context) {
 // ── Pause / Resume / Intervene ──
 
 func (h *Handler) handlePause(c *gin.Context) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if ch, ok := h.pauseChs[c.Param("id")]; ok {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
+	h.cancelThread(c.Param("id"))
 	c.JSON(200, gin.H{"status": "paused"})
 }
 

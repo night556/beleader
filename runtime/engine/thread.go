@@ -71,7 +71,7 @@ type Thread struct {
 
 	// OnMessageAppend is called after a message is added to Messages.
 	// Set by the server layer to persist to messages.jsonl.
-	OnMessageAppend func(msg *Message)
+	OnMessageAppend func(msg *Message) `json:"-"`
 
 	mu sync.RWMutex
 }

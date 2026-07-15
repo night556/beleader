@@ -33,7 +33,7 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 	})
 
 	// Send turn to Runtime.
-	resp, err := h.Runtime.SendTurn(threadID, TurnRequest{
+	resp, err := h.Runtime.SendTurn(ctx, threadID, TurnRequest{
 		Message: message,
 		Images:  images,
 		Model:   h.buildModelMap(),
@@ -135,7 +135,6 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 		}
 	})
 
-	_ = ctx
 	log.Printf("[session] %s: done", threadID)
 }
 

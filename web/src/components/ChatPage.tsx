@@ -12,6 +12,7 @@ export function ChatPage() {
   const { activeThreadId, threads, agents, activeAgentId, models, activeModelId, tools, contextPct, totalTokens } = state;
 
   const abortRef = useRef<AbortController | null>(null);
+  const sendingNewRef = useRef(false);
   const activeThreadRef = useRef(activeThreadId);
   activeThreadRef.current = activeThreadId;
 
@@ -28,6 +29,10 @@ export function ChatPage() {
 
   // Thread switch: load history via messages API.
   useEffect(() => {
+    if (sendingNewRef.current) {
+      sendingNewRef.current = false;
+      return;
+    }
     abortRef.current?.abort();
     abortRef.current = null;
     contentAccRef.current = {};
@@ -68,6 +73,9 @@ export function ChatPage() {
     contentAccRef.current = {};
     thinkingAccRef.current = {};
 
+    if (!body.thread_id) {
+      sendingNewRef.current = true;
+    }
     try {
       const res = await client.sendChat(body, ctrl.signal);
       const threadId = res.headers.get('X-Thread-Id');
