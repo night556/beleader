@@ -112,15 +112,45 @@ func setExecWorkDir(dir string) {
 }
 
 // SetExecWorkDir sets the working directory for command execution (public API).
+// ShellName returns the detected shell executable name (e.g. "pwsh", "bash").
+func ShellName() string { return detectShell().exe }
+
 func SetExecWorkDir(dir string) {
 	setExecWorkDir(dir)
 }
 
-func prepareCommandWindows(command string) string {
-	if runtime.GOOS == "windows" {
-		return "chcp 65001 >nul && " + command
-	}
-	return command
+type shellInfo struct {
+	exe    string
+	flag   string
+	prefix string // prepended to every command for encoding/codepage setup
+}
+
+var cachedShell struct {
+	sync.Once
+	info shellInfo
+}
+
+func detectShell() shellInfo {
+	cachedShell.Do(func() {
+		if runtime.GOOS == "windows" {
+			for _, exe := range []string{"pwsh.exe", "powershell.exe"} {
+				if p, err := exec.LookPath(exe); err == nil {
+					cachedShell.info = shellInfo{exe: p, flag: "-Command"}
+					return
+				}
+			}
+			cachedShell.info = shellInfo{exe: "cmd", flag: "/c", prefix: "chcp 65001 >nul && "}
+			return
+		}
+		for _, exe := range []string{"bash", "zsh", "ash"} {
+			if p, err := exec.LookPath(exe); err == nil {
+				cachedShell.info = shellInfo{exe: p, flag: "-c"}
+				return
+			}
+		}
+		cachedShell.info = shellInfo{exe: "sh", flag: "-c"}
+	})
+	return cachedShell.info
 }
 
 func startBackground(ctx context.Context, command, workDir string) *execSession {
@@ -129,18 +159,10 @@ func startBackground(ctx context.Context, command, workDir string) *execSession 
 	id := fmt.Sprintf("e%d", execSeq)
 	execMu.Unlock()
 
-	command = prepareCommandWindows(command)
+	sh := detectShell()
+	command = sh.prefix + command
 
-	var shell, shellFlag string
-	if runtime.GOOS == "windows" {
-		shell = "cmd"
-		shellFlag = "/c"
-	} else {
-		shell = "bash"
-		shellFlag = "-c"
-	}
-
-	cmd := exec.CommandContext(ctx, shell, shellFlag, command)
+	cmd := exec.CommandContext(ctx, sh.exe, sh.flag, command)
 	cmd.Dir = workDir
 
 	stdin, _ := cmd.StdinPipe()
@@ -276,18 +298,10 @@ func execHandler(ctx context.Context, args string) *engine.ToolResult {
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(p.Timeout)*time.Second)
 	defer cancel()
 
-	command := prepareCommandWindows(p.Command)
+	sh := detectShell()
+	command := sh.prefix + p.Command
 
-	var shell, shellFlag string
-	if runtime.GOOS == "windows" {
-		shell = "cmd"
-		shellFlag = "/c"
-	} else {
-		shell = "bash"
-		shellFlag = "-c"
-	}
-
-	cmd := exec.CommandContext(timeoutCtx, shell, shellFlag, command)
+	cmd := exec.CommandContext(timeoutCtx, sh.exe, sh.flag, command)
 	cmd.Dir = execWorkDir
 
 	stdout, err := cmd.StdoutPipe()

@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"fmt"
+
 	"beleader/runtime/engine"
 
 	"github.com/sashabaranov/go-openai"
@@ -101,8 +103,10 @@ var editFileTool = mkTool("edit_file",
 	[]string{"path", "old_string", "new_string"},
 )
 
-var runCommandTool = mkTool("run_command",
-	`Execute a shell command in the workspace directory.
+func runCommandTool() openai.Tool {
+	return mkTool("run_command",
+		fmt.Sprintf("[Shell: %s] Execute a shell command in the workspace directory.", ShellName())+`
+
 
 Two modes - choose correctly:
 
@@ -139,7 +143,8 @@ If background cmd produces no output for 30s, stop polling - check log and decid
 		"limit":      map[string]any{"type": "integer", "description": "Max bytes to read for log action. Default 5000."},
 	},
 	nil,
-)
+	)
+}
 
 var runHTTPRequestTool = mkTool("run_http_request",
 	"Send an HTTP request. Use for testing APIs or fetching data.",
@@ -188,7 +193,7 @@ var updateStatusTool = mkTool("update_status",
 func BaseTools(vision bool) []openai.Tool {
 	return []openai.Tool{
 		readFileToolForVision(vision), readDirTool, searchContentTool, searchFilesTool, writeFileTool, editFileTool,
-		runCommandTool, runHTTPRequestTool,
+		runCommandTool(), runHTTPRequestTool,
 		webSearchTool, webFetchTool,
 	}
 }
