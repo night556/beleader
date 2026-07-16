@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"beleader/gateway/config"
 	"beleader/gateway/db"
@@ -24,10 +25,9 @@ type Handler struct {
 	MCPMgr  *mcp.Manager
 	Runtime *RuntimeClient
 
-	pauseChs     map[string]chan struct{}
-	interveneChs map[string]chan struct{}
-	cancelFuncs  map[string]context.CancelFunc
-	mu           sync.Mutex
+	cancelFuncs map[string]context.CancelFunc
+	turnTokens  map[string]int64
+	mu          sync.Mutex
 
 	observers []SessionObserver
 }
@@ -40,9 +40,8 @@ func NewHandler(database *db.DB, llmClient *llm.Client, cfg *config.Config) *Han
 		Config:       cfg,
 		SSE:          broker,
 		Runtime:      NewRuntimeClient(cfg.RuntimeURL),
-		pauseChs:     make(map[string]chan struct{}),
-		interveneChs: make(map[string]chan struct{}),
-		cancelFuncs:  make(map[string]context.CancelFunc),
+		cancelFuncs: make(map[string]context.CancelFunc),
+		turnTokens:  make(map[string]int64),
 	}
 	h.RegisterObserver(broker)
 	return h
@@ -158,13 +157,16 @@ func (h *Handler) handleChat(c *gin.Context) {
 	// Create cancellable context for this turn so pause/stop can abort the HTTP request.
 	turnCtx, turnCancel := context.WithCancel(context.Background())
 	h.mu.Lock()
+	token := time.Now().UnixNano()
 	h.cancelFuncs[threadID] = turnCancel
-	h.pauseChs[threadID] = make(chan struct{}, 1)
+	h.turnTokens[threadID] = token
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
-		delete(h.cancelFuncs, threadID)
-		delete(h.pauseChs, threadID)
+		if h.turnTokens[threadID] == token {
+			delete(h.cancelFuncs, threadID)
+			delete(h.turnTokens, threadID)
+		}
 		h.mu.Unlock()
 		turnCancel()
 	}()
@@ -286,6 +288,7 @@ func (h *Handler) cancelThread(threadID string) {
 	if cancel, ok := h.cancelFuncs[threadID]; ok {
 		cancel()
 		delete(h.cancelFuncs, threadID)
+		delete(h.turnTokens, threadID)
 	}
 }
 

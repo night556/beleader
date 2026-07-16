@@ -334,13 +334,13 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		})
 	}
 
-	// Sync messages.jsonl with pruned in-memory state after compression.
+	// Save final thread state first (so PinnedIDs/ContextStartID are on disk).
+	store.SaveThread(s.dataDir, thread)
+
+	// Then sync messages.jsonl with pruned in-memory state after compression.
 	if len(thread.PinnedIDs) > 0 {
 		store.TruncateMessages(s.dataDir, threadID, thread.Messages)
 	}
-
-	// Save final thread state.
-	store.SaveThread(s.dataDir, thread)
 	log.Printf("[turn] %s: done (rounds=%d)", threadID, result.Rounds)
 }
 

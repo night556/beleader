@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { marked } from 'marked';
 import type { AppState, TimelineItem } from '../types';
 
@@ -10,6 +10,41 @@ interface Props {
 
 export function Stage({ state }: Props) {
   const { timeline, liveItem, hasModels } = state;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+  const prevLenRef = useRef(timeline.length);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    atBottomRef.current = true;
+    setShowScrollBtn(false);
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    atBottomRef.current = dist < 50;
+    setShowScrollBtn(dist >= 50);
+  }, []);
+
+  // Auto-scroll when content changes.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    if (timeline.length > prevLenRef.current) {
+      // New message was added → always scroll to bottom.
+      scrollToBottom();
+    } else if (atBottomRef.current) {
+      // Streaming update + already at bottom → auto-scroll.
+      el.scrollTop = el.scrollHeight;
+    }
+    prevLenRef.current = timeline.length;
+  }, [timeline, liveItem, scrollToBottom]);
 
   if (timeline.length === 0 && !liveItem) {
     return (
@@ -32,12 +67,17 @@ export function Stage({ state }: Props) {
   if (liveItem) items.push(liveItem);
 
   return (
-    <main className="stage">
+    <main className="stage" ref={scrollRef} onScroll={handleScroll}>
       <div className="timeline">
         {items.map(item => (
           <MessageCard key={item.id} item={item} />
         ))}
       </div>
+      {showScrollBtn && (
+        <button className="scroll-bottom-btn" onClick={scrollToBottom} title="Scroll to bottom">
+          ↓
+        </button>
+      )}
     </main>
   );
 }

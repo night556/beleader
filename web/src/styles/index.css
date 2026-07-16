@@ -363,6 +363,32 @@ a { color: var(--accent); }
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.scroll-bottom-btn {
+  position: sticky;
+  bottom: 12px;
+  align-self: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  opacity: 0.9;
+  margin-top: -48px;
+  z-index: 10;
+}
+.scroll-bottom-btn:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 
 /* ─── Chat Column (stage + input) ─── */

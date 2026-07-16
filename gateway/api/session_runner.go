@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"time"
 
 	"beleader/gateway/db"
 )
@@ -12,15 +13,16 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 	ctx, cancel := context.WithCancel(context.Background())
 	h.mu.Lock()
 	h.cancelFuncs[threadID] = cancel
-	h.pauseChs[threadID] = make(chan struct{}, 1)
-	h.interveneChs[threadID] = make(chan struct{}, 1)
+	token := time.Now().UnixNano()
+	h.turnTokens[threadID] = token
 	h.mu.Unlock()
 
 	defer func() {
 		h.mu.Lock()
-		delete(h.cancelFuncs, threadID)
-		delete(h.pauseChs, threadID)
-		delete(h.interveneChs, threadID)
+		if h.turnTokens[threadID] == token {
+			delete(h.cancelFuncs, threadID)
+			delete(h.turnTokens, threadID)
+		}
 		h.mu.Unlock()
 	}()
 
@@ -45,6 +47,8 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 	}
 	defer resp.Body.Close()
 
+	thinkingAcc := map[string]string{}
+
 	// Parse SSE events from Runtime and relay.
 	ParseSSEStream(resp.Body, func(eventType string, envelope map[string]any) {
 		// Extract inner payload from the RuntimeEventRecord envelope.
@@ -62,6 +66,9 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 		case "item.started":
 			item, _ := payload["item"].(map[string]any)
 			if item != nil {
+				if id, _ := item["id"].(string); id != "" {
+					delete(thinkingAcc, id)
+				}
 				kind, _ := item["kind"].(string)
 				if kind == "tool_call" {
 					metadata, _ := item["metadata"].(map[string]any)
@@ -84,6 +91,12 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 			h.Notify(ev)
 
 		case "item.delta":
+			itemID, _ := envelope["item_id"].(string)
+			kind, _ := payload["kind"].(string)
+			delta, _ := payload["delta"].(string)
+			if itemID != "" && kind == "thinking" {
+				thinkingAcc[itemID] += delta
+			}
 			h.Notify(ev)
 
 		case "item.completed":
@@ -91,17 +104,19 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 			if item != nil {
 				kind, _ := item["kind"].(string)
 				detail, _ := item["detail"].(string)
+				itemID, _ := item["id"].(string)
 				switch kind {
 				case "agent_message":
 					h.DB.InsertMessage(&db.Message{
-						ThreadID: threadID,
-						Kind:     "agent_message",
-						Content:  detail,
+						ThreadID:         threadID,
+						Kind:             "agent_message",
+						Content:          detail,
+						ReasoningContent: thinkingAcc[itemID],
 					})
+					delete(thinkingAcc, itemID)
 				case "tool_call":
 					metadata, _ := item["metadata"].(map[string]any)
 					toolUseID, _ := metadata["tool_use_id"].(string)
-					// Only persist individual tool execution results (skip batch completions).
 					if toolUseID != "" {
 						dbContent := detail
 						if m, ok := parseJSONMap(detail); ok {
