@@ -1,0 +1,38 @@
+services:
+  runtime:
+    build: ./runtime
+    ports:
+      - "8083:8083"
+    environment:
+      - PORT=8083
+      - DATA_DIR=/app/data
+      - HEADLESS=true
+    volumes:
+      - runtime-data:/app/data
+    restart: unless-stopped
+
+  gateway:
+    build: ./gateway
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - RUNTIME_URL=http://runtime:8083
+      - DB_PATH=/app/data/gateway.db
+    volumes:
+      - gateway-data:/app/data
+    depends_on:
+      - runtime
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+volumes:
+  runtime-data:
+  gateway-data:

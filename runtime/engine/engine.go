@@ -189,7 +189,10 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 	afterID := thread.ContextStartID
 
 	if userContent != "" {
+		itemID := NewItemID()
+		emit(StartItem(itemID, turnID, ItemKindUserMessage, abbreviate(userContent, 200), nil))
 		thread.AddMessage(Message{Kind: "user_message", Content: userContent})
+		emit(CompleteItem(itemID, turnID, ItemKindUserMessage, userContent, nil))
 	}
 
 	for {
@@ -203,6 +206,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 
 		select {
 		case msg := <-interveneCh:
+			itemID := NewItemID()
 			if len(msg.Images) > 0 {
 				parts := []MultiContentPart{}
 				if msg.Message != "" {
@@ -215,6 +219,8 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 			} else {
 				thread.AddMessage(Message{Kind: "user_message", Content: msg.Message})
 			}
+			emit(StartItem(itemID, turnID, ItemKindUserMessage, abbreviate(msg.Message, 200), nil))
+			emit(CompleteItem(itemID, turnID, ItemKindUserMessage, msg.Message, nil))
 		default:
 		}
 
