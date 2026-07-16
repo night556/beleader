@@ -24,6 +24,10 @@ func NewRuntimeClient(baseURL string) *RuntimeClient {
 	}
 }
 
+func (c *RuntimeClient) SetBaseURL(url string) {
+	c.BaseURL = url
+}
+
 // CreateThreadRequest is the JSON body for POST /v1/threads.
 type CreateThreadRequest struct {
 	SystemPrompt  string         `json:"system_prompt"`

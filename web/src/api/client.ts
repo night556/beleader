@@ -1,4 +1,4 @@
-import type { Thread, Agent, ModelProfile, ToolDef, MCPServer, Knowledge, Settings } from '../types';
+import type { Thread, Agent, ModelProfile, ToolDef, MCPServer, Knowledge, Settings, Runtime } from '../types';
 
 const SERVER_URL = window.location.origin;
 
@@ -61,6 +61,9 @@ export const client = {
   updateKnowledge: (id: number, body: { title?: string; content?: string }) => api<Knowledge>(`/api/knowledge/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteKnowledge: (id: number) => api<{ status: string }>(`/api/knowledge/${id}`, { method: 'DELETE' }),
 
+  // Runtime
+  listRuntimes: () => api<Runtime[]>('/api/runtimes'),
+  deleteRuntime: (id: number) => api<{ status: string }>(`/api/runtimes/${id}`, { method: 'DELETE' }),
   // Bookmarks
   getBookmarks: (threadId: string) => api<Message[]>(`/api/messages/bookmarked?thread_id=${encodeURIComponent(threadId)}`),
   toggleBookmark: (msgId: number, bookmarked: boolean) => api<{ status: string }>(`/api/messages/${msgId}/bookmark`, { method: 'PUT', body: JSON.stringify({ bookmarked }) }),

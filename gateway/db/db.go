@@ -44,7 +44,7 @@ func (db *DB) Close() error {
 }
 
 func (db *DB) autoMigrate() error {
-	if err := db.GORM.AutoMigrate(&Thread{}, &Message{}, &Agent{}, &Knowledge{}, &MCPServer{}, &ModelProfile{}); err != nil {
+	if err := db.GORM.AutoMigrate(&Thread{}, &Message{}, &Agent{}, &Knowledge{}, &MCPServer{}, &ModelProfile{}, &Runtime{}); err != nil {
 		return err
 	}
 
@@ -73,13 +73,12 @@ func (db *DB) autoMigrate() error {
 // ── Thread ──
 
 type Thread struct {
-	ID         string    `gorm:"primaryKey;size:64" json:"id"`
-	RuntimeURL string    `gorm:"size:256;default:''" json:"runtime_url"`
-	Title      string    `gorm:"default:''" json:"title"`
-	AgentID    int64     `gorm:"default:0" json:"agent_id"`
-	ModelID    string    `gorm:"size:64;default:''" json:"model_id"`
-	CreatedAt  time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt  time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID        string    `gorm:"primaryKey;size:64" json:"id"`
+	Title     string    `gorm:"default:''" json:"title"`
+	AgentID   int64     `gorm:"default:0" json:"agent_id"`
+	ModelID   string    `gorm:"size:64;default:''" json:"model_id"`
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func (Thread) TableName() string { return "threads" }
@@ -162,6 +161,20 @@ type ModelProfile struct {
 
 func (ModelProfile) TableName() string { return "model_profiles" }
 
+// ── Runtime ──
+
+type Runtime struct {
+	ID            int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name          string    `gorm:"size:128;uniqueIndex" json:"name"`
+	URL           string    `gorm:"size:256" json:"url"`
+	Status        string    `gorm:"size:16;default:'active'" json:"status"`
+	LastHeartbeat time.Time `gorm:"autoCreateTime" json:"last_heartbeat"`
+	CreatedAt     time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt     time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+func (Runtime) TableName() string { return "runtimes" }
+
 func (db *DB) ListModels() ([]ModelProfile, error) {
 	var models []ModelProfile
 	err := db.GORM.Order("id ASC").Find(&models).Error
@@ -220,9 +233,9 @@ func (db *DB) seedDefaultAgent() {
 
 // ── Thread methods ──
 
-func (db *DB) CreateThread(id, title string, agentID int64, modelID, runtimeURL string) error {
+func (db *DB) CreateThread(id, title string, agentID int64, modelID string) error {
 	return db.GORM.Create(&Thread{
-		ID: id, Title: title, AgentID: agentID, ModelID: modelID, RuntimeURL: runtimeURL,
+		ID: id, Title: title, AgentID: agentID, ModelID: modelID,
 	}).Error
 }
 
@@ -468,4 +481,51 @@ func (db *DB) ListEnabledMCPServers() ([]MCPServer, error) {
 	var servers []MCPServer
 	err := db.GORM.Where("enabled = 1").Order("name ASC").Find(&servers).Error
 	return servers, err
+}
+
+// ── Runtime methods ──
+
+func (db *DB) UpsertRuntime(name, url string) (*Runtime, error) {
+	var r Runtime
+	err := db.GORM.Where("name = ?", name).First(&r).Error
+	if err != nil {
+		r = Runtime{Name: name, URL: url, Status: "active", LastHeartbeat: time.Now()}
+		if createErr := db.GORM.Create(&r).Error; createErr != nil {
+			return nil, createErr
+		}
+		return &r, nil
+	}
+	r.URL = url
+	r.Status = "active"
+	r.LastHeartbeat = time.Now()
+	if updateErr := db.GORM.Save(&r).Error; updateErr != nil {
+		return nil, updateErr
+	}
+	return &r, nil
+}
+
+func (db *DB) UpdateRuntimeHeartbeat(id int64, status string) error {
+	updates := map[string]any{"last_heartbeat": time.Now()}
+	if status != "" {
+		updates["status"] = status
+	}
+	return db.GORM.Model(&Runtime{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (db *DB) ListRuntimes() ([]Runtime, error) {
+	var runtimes []Runtime
+	err := db.GORM.Order("name ASC").Find(&runtimes).Error
+	return runtimes, err
+}
+
+func (db *DB) GetRuntime(id int64) (*Runtime, error) {
+	var r Runtime
+	if err := db.GORM.First(&r, id).Error; err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (db *DB) DeleteRuntime(id int64) error {
+	return db.GORM.Where("id = ?", id).Delete(&Runtime{}).Error
 }

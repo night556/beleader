@@ -25,6 +25,8 @@ type Handler struct {
 	MCPMgr  *mcp.Manager
 	Runtime *RuntimeClient
 
+	RegToken   string // shared secret for runtime registration, from GATEWAY_TOKEN env var
+
 	cancelFuncs map[string]context.CancelFunc
 	turnTokens  map[string]int64
 	mu          sync.Mutex
@@ -39,7 +41,8 @@ func NewHandler(database *db.DB, llmClient *llm.Client, cfg *config.Config) *Han
 		LLM:          llmClient,
 		Config:       cfg,
 		SSE:          broker,
-		Runtime:      NewRuntimeClient(cfg.RuntimeURL),
+		Runtime:      NewRuntimeClient(""),
+		RegToken:     cfg.RegToken,
 		cancelFuncs: make(map[string]context.CancelFunc),
 		turnTokens:  make(map[string]int64),
 	}
@@ -93,6 +96,11 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.POST("/mcp/servers/:id/test", h.handleTestMCPServer)
 		api.POST("/mcp/servers/:id/connect", h.handleConnectMCPServer)
 		api.POST("/mcp/servers/:id/disconnect", h.handleDisconnectMCPServer)
+
+		api.POST("/runtimes/register", h.handleRuntimeRegister)
+		api.POST("/runtimes/heartbeat", h.handleRuntimeHeartbeat)
+		api.GET("/runtimes", h.handleListRuntimes)
+		api.DELETE("/runtimes/:id", h.handleDeleteRuntime)
 	}
 }
 
@@ -111,6 +119,10 @@ func (h *Handler) handleChat(c *gin.Context) {
 	}
 	if req.Message == "" {
 		c.JSON(400, gin.H{"error": "message required"})
+		return
+	}
+	if h.Runtime.BaseURL == "" {
+		c.JSON(503, gin.H{"error": "no runtime available — wait for a runtime to register"})
 		return
 	}
 
@@ -138,7 +150,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 		if model != nil {
 			modelID = model.ModelID
 		}
-		if err := h.DB.CreateThread(threadID, title, agent.ID, modelID, h.Config.RuntimeURL); err != nil {
+		if err := h.DB.CreateThread(threadID, title, agent.ID, modelID); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}

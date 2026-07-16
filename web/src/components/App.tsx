@@ -6,6 +6,7 @@ import { ChatPage } from './ChatPage';
 import { AgentPage } from './AgentPage';
 import { MCPPage } from './MCPPage';
 import { ModelPage } from './ModelPage';
+import { RuntimePage } from './RuntimePage';
 import { Toaster } from './Toaster';
 import type { Page } from '../types';
 
@@ -48,6 +49,7 @@ function AppInner() {
         {page === 'agent' && <AgentPage />}
         {page === 'mcp' && <MCPPage />}
         {page === 'model' && <ModelPage />}
+        {page === 'runtime' && <RuntimePage />}
       </div>
       <Toaster />
     </div>

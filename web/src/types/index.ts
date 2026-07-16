@@ -158,6 +158,18 @@ export interface Knowledge {
   created_at: string;
 }
 
+// ── Runtime ──
+
+export interface Runtime {
+  id: number;
+  name: string;
+  url: string;
+  status: 'active' | 'inactive';
+  last_heartbeat: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── Settings ──
 
 export interface Settings {
@@ -171,7 +183,7 @@ export interface Settings {
 
 // ── App State ──
 
-export type Page = 'chat' | 'agent' | 'mcp' | 'model';
+export type Page = 'chat' | 'agent' | 'mcp' | 'model' | 'runtime';
 export type AppStateName = 'idle' | 'thinking' | 'tool_calls' | 'responding' | 'error';
 
 export interface AppState {

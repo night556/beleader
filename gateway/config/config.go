@@ -7,12 +7,12 @@ import (
 
 // Config holds runtime-only settings. Model configs are stored in the DB.
 type Config struct {
-	RuntimeURL string `json:"runtime_url"`
+	RegToken string `json:"-"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		RuntimeURL: "http://127.0.0.1:8081",
+		RegToken: os.Getenv("GATEWAY_TOKEN"),
 	}
 }
 

@@ -48,18 +48,12 @@ func main() {
 	loadEnvFile(".env")
 
 	port := flag.Int("port", 0, "HTTP server port (0=default: PORT env or 8080)")
-	runtimeURL := flag.String("runtime-url", "", "Runtime service URL (default: RUNTIME_URL env or http://127.0.0.1:8081)")
 	logDir := flag.String("log-dir", "", "Log directory for rotating file logs (default: LOG_DIR env or stdout)")
 	flag.Parse()
 
 	os.MkdirAll(config.ConfigDir(), 0755)
 
 	cfg := config.DefaultConfig()
-	if *runtimeURL != "" {
-		cfg.RuntimeURL = *runtimeURL
-	} else if u := os.Getenv("RUNTIME_URL"); u != "" {
-		cfg.RuntimeURL = u
-	}
 
 	dbPath := config.DBPath()
 	os.MkdirAll(filepath.Dir(dbPath), 0755)
@@ -133,7 +127,6 @@ func main() {
 
 	go func() {
 		fmt.Printf("Gateway listening on http://127.0.0.1:%d\n", listenPort)
-		fmt.Printf("Runtime URL: %s\n", cfg.RuntimeURL)
 		if err := r.Run(fmt.Sprintf(":%d", listenPort)); err != nil {
 			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		}

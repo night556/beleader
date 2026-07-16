@@ -7,8 +7,14 @@ services:
       - PORT=8083
       - DATA_DIR=/app/data
       - HEADLESS=true
+      - GATEWAY_URL=http://gateway:8082
+      - GATEWAY_TOKEN=${GATEWAY_TOKEN:-rt_dev_xxx}
+      - RUNTIME_URL=http://runtime:8083
+      - RUNTIME_NAME=${RUNTIME_NAME:-runtime}
     volumes:
       - runtime-data:/app/data
+    depends_on:
+      - gateway
     restart: unless-stopped
 
   gateway:
@@ -17,12 +23,10 @@ services:
       - "8082:8082"
     environment:
       - PORT=8082
-      - RUNTIME_URL=http://runtime:8083
       - DB_PATH=/app/data/gateway.db
+      - GATEWAY_TOKEN=${GATEWAY_TOKEN:-rt_dev_xxx}
     volumes:
       - gateway-data:/app/data
-    depends_on:
-      - runtime
     restart: unless-stopped
 
   web:
