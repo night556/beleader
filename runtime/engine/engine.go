@@ -348,6 +348,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 			toolCtx = context.WithValue(toolCtx, CtxKeyItemID, toolItemID)
 			toolCtx = context.WithValue(toolCtx, CtxKeyWorkDir, thread.WorkspaceDir)
 			toolCtx = context.WithValue(toolCtx, CtxKeyThreadDir, thread.DataDir)
+			toolCtx = context.WithValue(toolCtx, CtxKeyRestrictWorkspace, thread.RestrictWorkspace)
 
 			result := e.executeTool(toolCtx, ToolCall{
 				ID:   tc.ID,

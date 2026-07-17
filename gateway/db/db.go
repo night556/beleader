@@ -165,13 +165,14 @@ func (ModelProfile) TableName() string { return "model_profiles" }
 // ── Runtime ──
 
 type Runtime struct {
-	ID            int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name          string    `gorm:"size:128;uniqueIndex" json:"name"`
-	URL           string    `gorm:"size:256" json:"url"`
-	Status        string    `gorm:"size:16;default:'active'" json:"status"`
-	LastHeartbeat time.Time `gorm:"autoCreateTime" json:"last_heartbeat"`
-	CreatedAt     time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt     time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID                int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name              string    `gorm:"size:128;uniqueIndex" json:"name"`
+	URL               string    `gorm:"size:256" json:"url"`
+	RestrictWorkspace bool      `gorm:"default:false;column:restrict_workspace" json:"restrict_workspace"`
+	Status            string    `gorm:"size:16;default:'active'" json:"status"`
+	LastHeartbeat     time.Time `gorm:"autoCreateTime" json:"last_heartbeat"`
+	CreatedAt         time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt         time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func (Runtime) TableName() string { return "runtimes" }
@@ -495,17 +496,18 @@ func (db *DB) ListEnabledMCPServers() ([]MCPServer, error) {
 
 // ── Runtime methods ──
 
-func (db *DB) UpsertRuntime(name, url string) (*Runtime, error) {
+func (db *DB) UpsertRuntime(name, url string, restrictWorkspace bool) (*Runtime, error) {
 	var r Runtime
 	err := db.GORM.Where("name = ?", name).First(&r).Error
 	if err != nil {
-		r = Runtime{Name: name, URL: url, Status: "active", LastHeartbeat: time.Now()}
+		r = Runtime{Name: name, URL: url, RestrictWorkspace: restrictWorkspace, Status: "active", LastHeartbeat: time.Now()}
 		if createErr := db.GORM.Create(&r).Error; createErr != nil {
 			return nil, createErr
 		}
 		return &r, nil
 	}
 	r.URL = url
+	r.RestrictWorkspace = restrictWorkspace
 	r.Status = "active"
 	r.LastHeartbeat = time.Now()
 	if updateErr := db.GORM.Save(&r).Error; updateErr != nil {

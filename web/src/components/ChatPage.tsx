@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useAppState, processSSEEvent, messagesToTimeline } from '../context/AppContext';
 import { client } from '../api/client';
 import { Stage } from './Stage';
@@ -26,7 +26,14 @@ export function ChatPage() {
   const thinkingAccRef = useRef<Record<string, string>>({});
 
   const activeModel = models.find(m => m.id === activeModelId);
-  const effortLabel = activeModel?.reasoning_effort || 'off';
+
+  // Per-conversation effort override. Defaults to the model's setting, cycles locally.
+  const [effort, setEffort] = useState<string>(() => activeModel?.reasoning_effort || 'off');
+
+  // Reset effort when model changes.
+  useEffect(() => {
+    setEffort(activeModel?.reasoning_effort || 'off');
+  }, [activeModelId]);
 
   // Thread switch: load history via messages API.
   useEffect(() => {
@@ -77,8 +84,9 @@ export function ChatPage() {
     if (!body.thread_id) {
       sendingNewRef.current = true;
     }
+    const fullBody = { ...body, reasoning_effort: effort };
     try {
-      const res = await client.sendChat(body, ctrl.signal);
+      const res = await client.sendChat(fullBody, ctrl.signal);
       const threadId = res.headers.get('X-Thread-Id');
       if (!threadId) return;
 
@@ -160,15 +168,9 @@ export function ChatPage() {
     dispatch({ type: 'SET_ACTIVE_MODEL', modelId });
   };
 
-  const handleEffortChange = async () => {
-    const current = activeModel?.reasoning_effort || 'off';
-    const idx = EFFORT_CYCLE.indexOf(current);
-    const next = EFFORT_CYCLE[(idx + 1) % EFFORT_CYCLE.length];
-    const updated = models.map(m =>
-      m.id === activeModelId ? { ...m, reasoning_effort: next } : m
-    );
-    dispatch({ type: 'SET_MODELS', models: updated });
-    await client.updateSettings({ llm: { models: updated } }).catch(() => {});
+  const handleEffortChange = () => {
+    const idx = EFFORT_CYCLE.indexOf(effort);
+    setEffort(EFFORT_CYCLE[(idx + 1) % EFFORT_CYCLE.length]);
   };
 
   return (
@@ -201,10 +203,10 @@ export function ChatPage() {
             <button
               className="chat-top-effort"
               onClick={handleEffortChange}
-              title={`Reasoning effort: ${effortLabel}`}
+              title={`Reasoning effort: ${effort}`}
             >
-              <span className="chat-top-effort-icon">{EFFORT_ICON[effortLabel] || EFFORT_ICON.off}</span>
-              {effortLabel}
+              <span className="chat-top-effort-icon">{EFFORT_ICON[effort] || EFFORT_ICON.off}</span>
+              {effort}
             </button>
           </div>
         </div>

@@ -14,14 +14,23 @@ import (
 
 // resolvePath joins the given path with the workspace directory from context.
 // If the path is already absolute (per the host OS), it is used as-is.
-func resolvePath(ctx context.Context, p string) string {
+// When RestrictWorkspace is set, absolute paths outside the workspace are rejected.
+func resolvePath(ctx context.Context, p string) (string, error) {
 	if filepath.IsAbs(p) {
-		return p
+		wd, _ := ctx.Value(engine.CtxKeyWorkDir).(string)
+		if restrict, _ := ctx.Value(engine.CtxKeyRestrictWorkspace).(bool); restrict && wd != "" {
+			clean := filepath.Clean(p)
+			cleanWd := filepath.Clean(wd)
+			if !strings.HasPrefix(clean, cleanWd+string(filepath.Separator)) && clean != cleanWd {
+				return "", fmt.Errorf("access denied: path is outside workspace (%s)", wd)
+			}
+		}
+		return p, nil
 	}
 	if wd, _ := ctx.Value(engine.CtxKeyWorkDir).(string); wd != "" {
-		return filepath.Join(wd, p)
+		return filepath.Join(wd, p), nil
 	}
-	return p
+	return p, nil
 }
 
 // ── File tool handlers ──
@@ -36,7 +45,11 @@ func readFileHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.Path == "" {
 		return &engine.ToolResult{Error: "path is required"}
 	}
-	p.Path = resolvePath(ctx, p.Path)
+	var err error
+	p.Path, err = resolvePath(ctx, p.Path)
+	if err != nil {
+		return &engine.ToolResult{Error: err.Error()}
+	}
 	data, err := os.ReadFile(p.Path)
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
@@ -87,7 +100,11 @@ func readDirHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.Path == "" {
 		return &engine.ToolResult{Error: "path is required"}
 	}
-	p.Path = resolvePath(ctx, p.Path)
+	var err error
+	p.Path, err = resolvePath(ctx, p.Path)
+	if err != nil {
+		return &engine.ToolResult{Error: err.Error()}
+	}
 	entries, err := os.ReadDir(p.Path)
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
@@ -120,7 +137,11 @@ func searchContentHandler(ctx context.Context, args string) *engine.ToolResult {
 	if searchPath == "" {
 		searchPath, _ = ctx.Value(engine.CtxKeyWorkDir).(string)
 	} else {
-		searchPath = resolvePath(ctx, searchPath)
+		var err error
+		searchPath, err = resolvePath(ctx, searchPath)
+		if err != nil {
+			return &engine.ToolResult{Error: err.Error()}
+		}
 	}
 	if fi, err := os.Stat(searchPath); err != nil {
 		return &engine.ToolResult{Error: fmt.Sprintf("path not found: %s", searchPath)}
@@ -178,7 +199,11 @@ func searchFilesHandler(ctx context.Context, args string) *engine.ToolResult {
 	if searchPath == "" {
 		searchPath, _ = ctx.Value(engine.CtxKeyWorkDir).(string)
 	} else {
-		searchPath = resolvePath(ctx, searchPath)
+		var err error
+		searchPath, err = resolvePath(ctx, searchPath)
+		if err != nil {
+			return &engine.ToolResult{Error: err.Error()}
+		}
 	}
 	var matches []string
 	filepath.Walk(searchPath, func(fp string, fi os.FileInfo, err error) error {
@@ -228,7 +253,11 @@ func writeFileHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.Path == "" {
 		return &engine.ToolResult{Error: "path is required"}
 	}
-	p.Path = resolvePath(ctx, p.Path)
+	var err error
+	p.Path, err = resolvePath(ctx, p.Path)
+	if err != nil {
+		return &engine.ToolResult{Error: err.Error()}
+	}
 	dir := filepath.Dir(p.Path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return &engine.ToolResult{Error: err.Error()}
@@ -252,7 +281,11 @@ func editFileHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.OldString == "" {
 		return &engine.ToolResult{Error: "old_string is required"}
 	}
-	p.Path = resolvePath(ctx, p.Path)
+	var err error
+	p.Path, err = resolvePath(ctx, p.Path)
+	if err != nil {
+		return &engine.ToolResult{Error: err.Error()}
+	}
 	data, err := os.ReadFile(p.Path)
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
@@ -292,8 +325,12 @@ func deleteFileHandler(ctx context.Context, args string) *engine.ToolResult {
 	}
 
 	var moved, skipped, failed []string
-	for _, path := range p.Paths {
-		path = resolvePath(ctx, filepath.Clean(path))
+	for _, rawPath := range p.Paths {
+		path, err := resolvePath(ctx, filepath.Clean(rawPath))
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", rawPath, err))
+			continue
+		}
 		if path == "" {
 			skipped = append(skipped, "(empty)")
 			continue

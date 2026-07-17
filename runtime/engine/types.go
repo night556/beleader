@@ -30,14 +30,15 @@ type LoopResult struct {
 type ctxKey string
 
 const (
-	CtxKeyVisionEnabled ctxKey = "vision_enabled"
-	CtxKeyProgress      ctxKey = "progress"
-	CtxKeyToolCallID    ctxKey = "tool_call_id"
-	CtxKeyThreadID      ctxKey = "thread_id"
-	CtxKeyTurnID        ctxKey = "turn_id"
-	CtxKeyItemID        ctxKey = "item_id"
-	CtxKeyWorkDir       ctxKey = "work_dir"
-	CtxKeyThreadDir     ctxKey = "thread_dir"
+	CtxKeyVisionEnabled     ctxKey = "vision_enabled"
+	CtxKeyProgress          ctxKey = "progress"
+	CtxKeyToolCallID        ctxKey = "tool_call_id"
+	CtxKeyThreadID          ctxKey = "thread_id"
+	CtxKeyTurnID            ctxKey = "turn_id"
+	CtxKeyItemID            ctxKey = "item_id"
+	CtxKeyWorkDir           ctxKey = "work_dir"
+	CtxKeyThreadDir         ctxKey = "thread_dir"
+	CtxKeyRestrictWorkspace ctxKey = "restrict_workspace"
 )
 
 // EmitEvent sends an event through the progress callback in ctx.

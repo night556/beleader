@@ -40,11 +40,12 @@ func NewServer(dataDir string) *Server {
 
 // CreateThreadRequest is the JSON body for POST /v1/threads.
 type CreateThreadRequest struct {
-	SystemPrompt  string             `json:"system_prompt"`
-	Model         engine.ModelConfig `json:"model"`
-	Tools         []engine.ToolDef   `json:"tools"`
-	MaxContextPct int                `json:"max_context_pct"`
-	Metadata      map[string]any     `json:"metadata,omitempty"`
+	SystemPrompt      string             `json:"system_prompt"`
+	Model             engine.ModelConfig `json:"model"`
+	Tools             []engine.ToolDef   `json:"tools"`
+	MaxContextPct     int                `json:"max_context_pct"`
+	RestrictWorkspace bool               `json:"restrict_workspace"`
+	Metadata          map[string]any     `json:"metadata,omitempty"`
 }
 
 // CreateThreadResponse is the JSON response for POST /v1/threads.
@@ -156,6 +157,7 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	thread := engine.NewThread(req.SystemPrompt, req.Model, req.Tools, "", req.MaxContextPct, req.Metadata, nil)
+	thread.RestrictWorkspace = req.RestrictWorkspace
 	thread.OnMessageAppend = func(msg *engine.Message) {
 		store.AppendMessage(s.dataDir, thread.ID, msg)
 	}
@@ -274,11 +276,13 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	})
 
 	log.Printf("[turn] %s: %s", threadID, truncate(req.Message, 100))
-	enrichedPrompt := engine.BuildSystemPrompt(thread.SystemPrompt, engine.Environment{
+	enrichedPrompt := engine.BuildSystemPrompt(thread.SystemPrompt)
+	env := engine.Environment{
 		Shell:   tools.ShellName(),
 		WorkDir: thread.WorkspaceDir,
-	})
-	result, err := s.eng.RunLoop(ctx, thread, turnID, enrichedPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit)
+	}
+	enrichedMessage := req.Message + engine.BuildTurnMeta(env)
+	result, err := s.eng.RunLoop(ctx, thread, turnID, enrichedPrompt, enrichedMessage, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit)
 	if err != nil {
 		emit(engine.FailItem("item_error", turnID, engine.ItemKindError, err.Error()))
 

@@ -13,8 +13,9 @@ import (
 
 // RuntimeClient is the HTTP client for the Runtime service.
 type RuntimeClient struct {
-	BaseURL    string
-	HTTPClient *http.Client
+	BaseURL           string
+	RestrictWorkspace bool
+	HTTPClient        *http.Client
 }
 
 func NewRuntimeClient(baseURL string) *RuntimeClient {
@@ -30,11 +31,12 @@ func (c *RuntimeClient) SetBaseURL(url string) {
 
 // CreateThreadRequest is the JSON body for POST /v1/threads.
 type CreateThreadRequest struct {
-	SystemPrompt  string         `json:"system_prompt"`
-	Model         map[string]any `json:"model"`
-	Tools         []map[string]any `json:"tools"`
-	MaxContextPct int            `json:"max_context_pct"`
-	Metadata      map[string]any `json:"metadata,omitempty"`
+	SystemPrompt      string           `json:"system_prompt"`
+	Model             map[string]any   `json:"model"`
+	Tools             []map[string]any `json:"tools"`
+	MaxContextPct     int              `json:"max_context_pct"`
+	RestrictWorkspace bool             `json:"restrict_workspace"`
+	Metadata          map[string]any   `json:"metadata,omitempty"`
 }
 
 // CreateThreadResponse is the JSON response for POST /v1/threads.

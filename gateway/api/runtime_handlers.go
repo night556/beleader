@@ -13,9 +13,10 @@ import (
 
 func (h *Handler) handleRuntimeRegister(c *gin.Context) {
 	var req struct {
-		Name  string `json:"name" binding:"required"`
-		URL   string `json:"url" binding:"required"`
-		Token string `json:"token" binding:"required"`
+		Name              string `json:"name" binding:"required"`
+		URL               string `json:"url" binding:"required"`
+		Token             string `json:"token" binding:"required"`
+		RestrictWorkspace bool   `json:"restrict_workspace"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -27,13 +28,14 @@ func (h *Handler) handleRuntimeRegister(c *gin.Context) {
 		return
 	}
 
-	runtime, err := h.DB.UpsertRuntime(req.Name, req.URL)
+	runtime, err := h.DB.UpsertRuntime(req.Name, req.URL, req.RestrictWorkspace)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
 	h.Runtime.SetBaseURL(req.URL)
+	h.Runtime.RestrictWorkspace = req.RestrictWorkspace
 
 	c.JSON(200, runtime)
 }

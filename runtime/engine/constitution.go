@@ -15,9 +15,10 @@ type Environment struct {
 }
 
 // BuildSystemPrompt assembles the full system prompt by wrapping the agent's
-// configured prompt with the static constitution, language rules, and
-// environment info.
-func BuildSystemPrompt(agentPrompt string, env Environment) string {
+// configured prompt with the static constitution and language rules.
+// Per-turn environment info is NOT included here — it goes into <turn_meta>
+// appended to the user message, so the system prompt prefix stays cache-stable.
+func BuildSystemPrompt(agentPrompt string) string {
 	var b strings.Builder
 
 	// Layer 1: Constitution.
@@ -33,14 +34,13 @@ func BuildSystemPrompt(agentPrompt string, env Environment) string {
 	b.WriteString("\n\n")
 	b.WriteString(strings.TrimSpace(LanguageRules))
 
-	// Layer 4: Environment.
-	b.WriteString("\n\n")
-	b.WriteString(buildEnvBlock(env))
-
 	return b.String()
 }
 
-func buildEnvBlock(env Environment) string {
+// BuildTurnMeta returns a <turn_meta> block with per-turn environment info.
+// This is appended to the latest user message so the system prompt stays
+// byte-stable across turns and across different runtimes.
+func BuildTurnMeta(env Environment) string {
 	if env.Platform == "" {
 		env.Platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 	}
@@ -48,11 +48,7 @@ func buildEnvBlock(env Environment) string {
 		env.GoVersion = runtime.Version()
 	}
 
-	return fmt.Sprintf("## Environment\n"+
-		"- Shell: %s\n"+
-		"- Platform: %s\n"+
-		"- Workspace: %s\n"+
-		"- Runtime: Go %s",
+	return fmt.Sprintf("\n\n<turn_meta>\nShell: %s\nPlatform: %s\nWorkspace: %s\nRuntime: Go %s\n</turn_meta>",
 		env.Shell, env.Platform, env.WorkDir, env.GoVersion)
 }
 

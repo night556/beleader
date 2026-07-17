@@ -55,14 +55,15 @@ type ModelConfig struct {
 
 // Thread represents a conversation thread.
 type Thread struct {
-	ID             string         `json:"id"`
-	SystemPrompt   string         `json:"system_prompt"`
-	Model          ModelConfig    `json:"model"`
-	ToolDefs       []ToolDef      `json:"tools"`
-	DataDir        string         `json:"-"` // thread data directory: {dataDir}/threads/{id}/
-	WorkspaceDir   string         `json:"workspace_dir"`
-	Metadata       map[string]any `json:"metadata"`
-	MaxContextPct  int            `json:"max_context_pct"`
+	ID                string         `json:"id"`
+	SystemPrompt      string         `json:"system_prompt"`
+	Model             ModelConfig    `json:"model"`
+	ToolDefs          []ToolDef      `json:"tools"`
+	DataDir           string         `json:"-"` // thread data directory: {dataDir}/threads/{id}/
+	WorkspaceDir      string         `json:"workspace_dir"`
+	RestrictWorkspace bool           `json:"restrict_workspace"`
+	Metadata          map[string]any `json:"metadata"`
+	MaxContextPct     int            `json:"max_context_pct"`
 	Messages       []Message      `json:"-"` // persisted in messages.jsonl
 	ContextStartID int64          `json:"context_start_id"`
 	PinnedIDs      []int64        `json:"pinned_ids"`

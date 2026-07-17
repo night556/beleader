@@ -25,7 +25,7 @@ export const client = {
 
   // Chat
   // Returns raw Response for SSE streaming. Thread ID via X-Thread-Id header.
-  sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string }, signal?: AbortSignal) =>
+  sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string; reasoning_effort?: string }, signal?: AbortSignal) =>
     fetch(`${SERVER_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

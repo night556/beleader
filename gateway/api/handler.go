@@ -108,11 +108,12 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 
 func (h *Handler) handleChat(c *gin.Context) {
 	var req struct {
-		ThreadID string   `json:"thread_id"`
-		AgentID  int64    `json:"agent_id"`
-		ModelID  string   `json:"model_id"`
-		Message  string   `json:"message"`
-		Images   []string `json:"images"`
+		ThreadID        string   `json:"thread_id"`
+		AgentID         int64    `json:"agent_id"`
+		ModelID         string   `json:"model_id"`
+		ReasoningEffort string   `json:"reasoning_effort"`
+		Message         string   `json:"message"`
+		Images          []string `json:"images"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -135,6 +136,9 @@ func (h *Handler) handleChat(c *gin.Context) {
 
 	// Resolve model: request override > agent default > first available.
 	model := h.resolveModel(agent.ID, req.ModelID)
+	if model != nil && req.ReasoningEffort != "" {
+		model = overrideEffort(model, req.ReasoningEffort)
+	}
 
 	threadID := req.ThreadID
 	if threadID == "" {
@@ -555,6 +559,12 @@ func (h *Handler) resolveModel(agentID int64, overrideModelID string) *db.ModelP
 	return nil
 }
 
+func overrideEffort(m *db.ModelProfile, effort string) *db.ModelProfile {
+	copy := *m
+	copy.ReasoningEffort = effort
+	return &copy
+}
+
 func (h *Handler) buildModelMap(m *db.ModelProfile) map[string]any {
 	if m == nil {
 		return map[string]any{"context_limit": 128000}
@@ -577,9 +587,10 @@ func (h *Handler) createRuntimeThread(agent *db.Agent, model *db.ModelProfile) (
 	}
 
 	req := CreateThreadRequest{
-		SystemPrompt: agent.SystemPrompt,
-		Model:        h.buildModelMap(model),
-		Tools:        baseToolDefsFiltered(toolNames),
+		SystemPrompt:      agent.SystemPrompt,
+		Model:             h.buildModelMap(model),
+		Tools:             baseToolDefsFiltered(toolNames),
+		RestrictWorkspace: h.Runtime.RestrictWorkspace,
 		Metadata: map[string]any{
 			"agent_id": agent.ID,
 		},
