@@ -86,8 +86,10 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.PUT("/knowledge/:id", h.handleUpdateKnowledge)
 		api.DELETE("/knowledge/:id", h.handleDeleteKnowledge)
 
-		api.GET("/settings", h.handleGetSettings)
-		api.PUT("/settings", h.handleUpdateSettings)
+		api.GET("/models", h.handleListModels)
+		api.POST("/models", h.handleCreateModel)
+		api.PUT("/models/:id", h.handleUpdateModel)
+		api.DELETE("/models/:id", h.handleDeleteModel)
 
 		api.GET("/mcp/servers", h.handleListMCPServers)
 		api.POST("/mcp/servers", h.handleCreateMCPServer)
@@ -435,28 +437,17 @@ func (h *Handler) handleIntervene(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "intervened"})
 }
 
-// ── Settings ──
+// ── Models ──
 
-func (h *Handler) handleGetSettings(c *gin.Context) {
-	mcpServers, _ := h.DB.ListMCPServers()
-	if mcpServers == nil {
-		mcpServers = []db.MCPServer{}
+func (h *Handler) handleListModels(c *gin.Context) {
+	dbModels, err := h.DB.ListModels()
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
 	}
-	if h.MCPMgr != nil {
-		statuses := h.MCPMgr.Statuses()
-		for i := range mcpServers {
-			if s, ok := statuses[mcpServers[i].Name]; ok {
-				mcpServers[i].Status = s.Status
-				mcpServers[i].Error = s.Error
-			}
-		}
+	if dbModels == nil {
+		dbModels = []db.ModelProfile{}
 	}
-	agents, _ := h.DB.ListAgents()
-	if agents == nil {
-		agents = []db.Agent{}
-	}
-
-	dbModels, _ := h.DB.ListModels()
 	models := make([]config.ModelProfile, len(dbModels))
 	for i, m := range dbModels {
 		models[i] = config.ModelProfile{
@@ -469,46 +460,76 @@ func (h *Handler) handleGetSettings(c *gin.Context) {
 			ReasoningEffort: m.ReasoningEffort,
 		}
 	}
-	if models == nil {
-		models = []config.ModelProfile{}
-	}
-
-	c.JSON(200, gin.H{
-		"llm":         gin.H{"models": models},
-		"mcp_servers": mcpServers,
-		"agents":      agents,
-	})
+	c.JSON(200, models)
 }
 
-func (h *Handler) handleUpdateSettings(c *gin.Context) {
-	var req struct {
-		LLM *struct {
-			Models []config.ModelProfile `json:"models"`
-			Active string                `json:"active"`
-		} `json:"llm"`
-	}
+
+func (h *Handler) handleCreateModel(c *gin.Context) {
+	var req config.ModelProfile
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	if req.LLM != nil {
-		dbModels := make([]db.ModelProfile, len(req.LLM.Models))
-		for i, m := range req.LLM.Models {
-			dbModels[i] = db.ModelProfile{
-				ModelID:      m.ID,
-				BaseURL:      m.BaseURL,
-				APIKey:       m.APIKey,
-				Model:        m.Model,
-				Vision:       m.Vision,
-				ContextLimit: m.ContextLimit,
-			}
-		}
-		if err := h.DB.SetModels(dbModels); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
+	if req.ID == "" {
+		c.JSON(400, gin.H{"error": "id is required"})
+		return
+	}
+	m := &db.ModelProfile{
+		ModelID:         req.ID,
+		BaseURL:         req.BaseURL,
+		APIKey:          req.APIKey,
+		Model:           req.Model,
+		Vision:          req.Vision,
+		ContextLimit:    req.ContextLimit,
+		ReasoningEffort: req.ReasoningEffort,
+	}
+	if err := h.DB.CreateModel(m); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, modelToConfig(m))
+}
+
+func (h *Handler) handleUpdateModel(c *gin.Context) {
+	modelID := c.Param("id")
+	var req config.ModelProfile
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	m := &db.ModelProfile{
+		BaseURL:         req.BaseURL,
+		APIKey:          req.APIKey,
+		Model:           req.Model,
+		Vision:          req.Vision,
+		ContextLimit:    req.ContextLimit,
+		ReasoningEffort: req.ReasoningEffort,
+	}
+	if err := h.DB.UpdateModel(modelID, m); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
 	}
 	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func (h *Handler) handleDeleteModel(c *gin.Context) {
+	if err := h.DB.DeleteModel(c.Param("id")); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
+}
+
+func modelToConfig(m *db.ModelProfile) config.ModelProfile {
+	return config.ModelProfile{
+		ID:              m.ModelID,
+		BaseURL:         m.BaseURL,
+		APIKey:          m.APIKey,
+		Model:           m.Model,
+		Vision:          m.Vision,
+		ContextLimit:    m.ContextLimit,
+		ReasoningEffort: m.ReasoningEffort,
+	}
 }
 
 // ── Helpers ──

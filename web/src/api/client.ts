@@ -1,4 +1,4 @@
-import type { Thread, Agent, ModelProfile, ToolDef, MCPServer, Knowledge, Settings, Runtime } from '../types';
+import type { Thread, Agent, ModelProfile, ToolDef, MCPServer, Knowledge, Runtime } from '../types';
 
 const SERVER_URL = window.location.origin;
 
@@ -42,9 +42,11 @@ export const client = {
   // Tools
   listTools: () => api<ToolDef[]>('/api/tools'),
 
-  // Settings
-  getSettings: () => api<Settings>('/api/settings'),
-  updateSettings: (body: { llm: { models: ModelProfile[] } }) => api<{ status: string }>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  // Models
+  listModels: () => api<ModelProfile[]>('/api/models'),
+  createModel: (body: ModelProfile) => api<ModelProfile>('/api/models', { method: 'POST', body: JSON.stringify(body) }),
+  updateModel: (id: string, body: ModelProfile) => api<{ status: string }>(`/api/models/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteModel: (id: string) => api<{ status: string }>(`/api/models/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   // MCP
   listMCPServers: () => api<MCPServer[]>('/api/mcp/servers'),

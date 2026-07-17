@@ -172,16 +172,6 @@ export interface Runtime {
   updated_at: string;
 }
 
-// ── Settings ──
-
-export interface Settings {
-  llm: {
-    models: ModelProfile[];
-  };
-  mcp_servers: MCPServer[];
-  agents: Agent[];
-}
-
 // ── App State ──
 
 export type Page = 'chat' | 'agent' | 'mcp' | 'model' | 'runtime';

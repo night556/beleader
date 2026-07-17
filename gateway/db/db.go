@@ -199,22 +199,25 @@ func (db *DB) GetModelByID(modelID string) (*ModelProfile, error) {
 	return &m, nil
 }
 
-func (db *DB) SetModels(models []ModelProfile) error {
-	return db.GORM.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("1=1").Delete(&ModelProfile{}).Error; err != nil {
-			return err
-		}
-		for i := range models {
-			models[i].ID = 0 // force insert
-			models[i].IsActive = false
-		}
-		if len(models) > 0 {
-			if err := tx.Create(&models).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+func (db *DB) CreateModel(m *ModelProfile) error {
+	m.ID = 0
+	m.IsActive = false
+	return db.GORM.Create(m).Error
+}
+
+func (db *DB) UpdateModel(modelID string, m *ModelProfile) error {
+	return db.GORM.Model(&ModelProfile{}).Where("model_id = ?", modelID).Updates(map[string]any{
+		"base_url":         m.BaseURL,
+		"api_key":          m.APIKey,
+		"model":            m.Model,
+		"vision":           m.Vision,
+		"context_limit":    m.ContextLimit,
+		"reasoning_effort": m.ReasoningEffort,
+	}).Error
+}
+
+func (db *DB) DeleteModel(modelID string) error {
+	return db.GORM.Where("model_id = ?", modelID).Delete(&ModelProfile{}).Error
 }
 
 func (db *DB) SetActiveModel(modelID string) error {

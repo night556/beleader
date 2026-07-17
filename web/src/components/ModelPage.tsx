@@ -29,32 +29,33 @@ export function ModelPage() {
   };
 
   const save = async () => {
-    let updated: ModelProfile[];
+    if (!form.id.trim()) return;
     if (editingId) {
-      updated = models.map(m => m.id === editingId ? form : m);
+      await client.updateModel(editingId, form);
+      const updated = models.map(m => m.id === editingId ? form : m);
+      dispatch({ type: 'SET_MODELS', models: updated });
     } else {
-      if (!form.id.trim()) return;
       if (models.find(m => m.id === form.id)) {
         alert('A model with this ID already exists.');
         return;
       }
-      updated = [...models, form];
+      await client.createModel(form);
+      const updated = [...models, form];
+      dispatch({ type: 'SET_MODELS', models: updated });
+      if (!activeModelId) {
+        dispatch({ type: 'SET_ACTIVE_MODEL', modelId: form.id });
+      }
+      dispatch({ type: 'SET_HAS_MODELS', has: true });
     }
-    dispatch({ type: 'SET_MODELS', models: updated });
-    if (!activeModelId && updated.length > 0) {
-      dispatch({ type: 'SET_ACTIVE_MODEL', modelId: updated[0].id });
-    }
-    dispatch({ type: 'SET_HAS_MODELS', has: updated.length > 0 });
-    await client.updateSettings({ llm: { models: updated } });
     setShowForm(false);
   };
 
   const remove = async (id: string) => {
     if (!confirm(`Delete model "${id}"?`)) return;
+    await client.deleteModel(id);
     const updated = models.filter(m => m.id !== id);
     dispatch({ type: 'SET_MODELS', models: updated });
     dispatch({ type: 'SET_HAS_MODELS', has: updated.length > 0 });
-    await client.updateSettings({ llm: { models: updated } });
   };
 
   return (
