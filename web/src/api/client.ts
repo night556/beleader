@@ -25,7 +25,7 @@ export const client = {
 
   // Chat
   // Returns raw Response for SSE streaming. Thread ID via X-Thread-Id header.
-  sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string }, signal?: AbortSignal) =>
+  sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string }, signal?: AbortSignal) =>
     fetch(`${SERVER_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -35,8 +35,8 @@ export const client = {
 
   // Agents
   listAgents: () => api<Agent[]>('/api/agents'),
-  createAgent: (body: { name: string; desc: string; system_prompt: string; tools: string }) => api<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(body) }),
-  updateAgent: (id: number, body: { name: string; desc: string; system_prompt: string; tools: string }) => api<Agent>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  createAgent: (body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string }) => api<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(body) }),
+  updateAgent: (id: number, body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string }) => api<Agent>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAgent: (id: number) => api<{ status: string }>(`/api/agents/${id}`, { method: 'DELETE' }),
 
   // Tools
@@ -44,7 +44,7 @@ export const client = {
 
   // Settings
   getSettings: () => api<Settings>('/api/settings'),
-  updateSettings: (body: { llm: { models: ModelProfile[]; active: string } }) => api<{ status: string }>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  updateSettings: (body: { llm: { models: ModelProfile[] } }) => api<{ status: string }>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
 
   // MCP
   listMCPServers: () => api<MCPServer[]>('/api/mcp/servers'),

@@ -6,11 +6,11 @@ import { t } from '../i18n';
 
 export function AgentPage() {
   const { state, dispatch } = useAppState();
-  const { agents, tools } = state;
+  const { agents, tools, models } = state;
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
-  const [form, setForm] = useState({ name: '', desc: '', system_prompt: '', tools: '[]' });
+  const [form, setForm] = useState({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '' });
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [toolSearch, setToolSearch] = useState('');
 
@@ -20,14 +20,14 @@ export function AgentPage() {
 
   const openNew = () => {
     setEditId(null);
-    setForm({ name: '', desc: '', system_prompt: '', tools: '[]' });
+    setForm({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '' });
     setSelectedTools([]);
     setShowForm(true);
   };
 
   const openEdit = (a: Agent) => {
     setEditId(a.id);
-    setForm({ name: a.name, desc: a.desc, system_prompt: a.system_prompt, tools: a.tools });
+    setForm({ name: a.name, desc: a.desc, system_prompt: a.system_prompt, tools: a.tools, default_model_id: a.default_model_id || '' });
     try {
       setSelectedTools(JSON.parse(a.tools || '[]'));
     } catch {
@@ -133,6 +133,19 @@ export function AgentPage() {
                 <div className="form-group">
                   <label className="form-label">{t('agents.system_prompt')}</label>
                   <textarea className="form-textarea" value={form.system_prompt} onChange={e => setForm({ ...form, system_prompt: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Default Model</label>
+                  <select
+                    className="form-select"
+                    value={form.default_model_id}
+                    onChange={e => setForm({ ...form, default_model_id: e.target.value })}
+                  >
+                    <option value="">— First available —</option>
+                    {models.map(m => (
+                      <option key={m.id} value={m.id}>{m.id}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('agents.tools')}</label>

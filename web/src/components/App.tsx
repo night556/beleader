@@ -28,11 +28,13 @@ function AppInner() {
       const models = settings.llm?.models || [];
       dispatch({ type: 'SET_MODELS', models });
       dispatch({ type: 'SET_HAS_MODELS', has: models.length > 0 });
-      const active = settings.llm?.active || (models.length > 0 ? models[0].id : '');
-      dispatch({ type: 'SET_ACTIVE_MODEL', modelId: active });
       const defaultAgent = agents.find(a => a.name === 'Default') || agents[0];
       if (defaultAgent) {
+        // SET_ACTIVE_AGENT now also sets activeModelId from agent's default.
         dispatch({ type: 'SET_ACTIVE_AGENT', agentId: defaultAgent.id });
+      } else {
+        // No agent — just pick the first model.
+        dispatch({ type: 'SET_ACTIVE_MODEL', modelId: models.length > 0 ? models[0].id : '' });
       }
     }).catch(err => console.error('startup error:', err));
   }, []);

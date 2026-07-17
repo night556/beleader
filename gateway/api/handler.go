@@ -110,6 +110,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 	var req struct {
 		ThreadID string   `json:"thread_id"`
 		AgentID  int64    `json:"agent_id"`
+		ModelID  string   `json:"model_id"`
 		Message  string   `json:"message"`
 		Images   []string `json:"images"`
 	}
@@ -132,9 +133,17 @@ func (h *Handler) handleChat(c *gin.Context) {
 		return
 	}
 
+	// Resolve model: request override > agent default > first available.
+	model := h.resolveModel(agent.ID, req.ModelID)
+
 	threadID := req.ThreadID
 	if threadID == "" {
-		rtID, err := h.createRuntimeThread(agent)
+		modelID := ""
+		if model != nil {
+			modelID = model.ModelID
+		}
+
+		rtID, err := h.createRuntimeThread(agent, model)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -144,11 +153,6 @@ func (h *Handler) handleChat(c *gin.Context) {
 		title := req.Message
 		if len(title) > 80 {
 			title = title[:80]
-		}
-		model := h.resolveModel()
-		modelID := ""
-		if model != nil {
-			modelID = model.ModelID
 		}
 		if err := h.DB.CreateThread(threadID, title, agent.ID, modelID); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
@@ -187,7 +191,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 	resp, err := h.Runtime.SendTurn(turnCtx, threadID, TurnRequest{
 		Message: req.Message,
 		Images:  req.Images,
-		Model:   h.buildModelMap(),
+		Model:   h.buildModelMap(model),
 	})
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -395,7 +399,8 @@ func (h *Handler) handleResume(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "agent not found"})
 		return
 	}
-	go h.runSession(threadID, agent, "[System] Please continue.", nil)
+	model := h.resolveModel(agent.ID, "")
+	go h.runSession(threadID, agent, model, "[System] Please continue.", nil)
 	c.JSON(200, gin.H{"status": "resumed"})
 }
 
@@ -421,7 +426,8 @@ func (h *Handler) handleIntervene(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "agent not found"})
 		return
 	}
-	go h.runSession(threadID, agent, req.Message, req.Images)
+	model := h.resolveModel(agent.ID, "")
+	go h.runSession(threadID, agent, model, req.Message, req.Images)
 	c.JSON(200, gin.H{"status": "intervened"})
 }
 
@@ -448,7 +454,6 @@ func (h *Handler) handleGetSettings(c *gin.Context) {
 
 	dbModels, _ := h.DB.ListModels()
 	models := make([]config.ModelProfile, len(dbModels))
-	active := ""
 	for i, m := range dbModels {
 		models[i] = config.ModelProfile{
 			ID:              m.ModelID,
@@ -459,16 +464,13 @@ func (h *Handler) handleGetSettings(c *gin.Context) {
 			ContextLimit:    m.ContextLimit,
 			ReasoningEffort: m.ReasoningEffort,
 		}
-		if m.IsActive {
-			active = m.ModelID
-		}
 	}
 	if models == nil {
 		models = []config.ModelProfile{}
 	}
 
 	c.JSON(200, gin.H{
-		"llm":         gin.H{"models": models, "active": active},
+		"llm":         gin.H{"models": models},
 		"mcp_servers": mcpServers,
 		"agents":      agents,
 	})
@@ -501,9 +503,6 @@ func (h *Handler) handleUpdateSettings(c *gin.Context) {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-		if req.LLM.Active != "" {
-			h.DB.SetActiveModel(req.LLM.Active)
-		}
 	}
 	c.JSON(200, gin.H{"status": "ok"})
 }
@@ -532,20 +531,31 @@ func (h *Handler) handleListTools(c *gin.Context) {
 	c.JSON(200, tools)
 }
 
-func (h *Handler) resolveModel() *db.ModelProfile {
-	m, err := h.DB.ActiveModel()
-	if err != nil {
-		models, _ := h.DB.ListModels()
-		if len(models) > 0 {
-			return &models[0]
+func (h *Handler) resolveModel(agentID int64, overrideModelID string) *db.ModelProfile {
+	// 1. Use explicit override if provided (per-conversation model switch).
+	if overrideModelID != "" {
+		if m, err := h.DB.GetModelByID(overrideModelID); err == nil {
+			return m
 		}
-		return nil
 	}
-	return m
+	// 2. Use agent's default model if set.
+	if agentID != 0 {
+		agent, err := h.DB.GetAgent(agentID)
+		if err == nil && agent.DefaultModelID != "" {
+			if m, err := h.DB.GetModelByID(agent.DefaultModelID); err == nil {
+				return m
+			}
+		}
+	}
+	// 3. Fall back to first available model.
+	models, _ := h.DB.ListModels()
+	if len(models) > 0 {
+		return &models[0]
+	}
+	return nil
 }
 
-func (h *Handler) buildModelMap() map[string]any {
-	m := h.resolveModel()
+func (h *Handler) buildModelMap(m *db.ModelProfile) map[string]any {
 	if m == nil {
 		return map[string]any{"context_limit": 128000}
 	}
@@ -559,7 +569,7 @@ func (h *Handler) buildModelMap() map[string]any {
 	}
 }
 
-func (h *Handler) createRuntimeThread(agent *db.Agent) (string, error) {
+func (h *Handler) createRuntimeThread(agent *db.Agent, model *db.ModelProfile) (string, error) {
 	var toolNames []string
 	json.Unmarshal([]byte(agent.Tools), &toolNames)
 	if len(toolNames) == 0 {
@@ -568,7 +578,7 @@ func (h *Handler) createRuntimeThread(agent *db.Agent) (string, error) {
 
 	req := CreateThreadRequest{
 		SystemPrompt: agent.SystemPrompt,
-		Model:        h.buildModelMap(),
+		Model:        h.buildModelMap(model),
 		Tools:        baseToolDefsFiltered(toolNames),
 		Metadata: map[string]any{
 			"agent_id": agent.ID,

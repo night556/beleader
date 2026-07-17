@@ -64,7 +64,7 @@ export function ChatPage() {
 
   // Send message via POST /api/chat, which returns SSE stream directly.
   const handleSendMessage = useCallback(async (body: {
-    message: string; images: string[]; agent_id: number; thread_id?: string;
+    message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string;
   }) => {
     abortRef.current?.abort();
 
@@ -156,9 +156,8 @@ export function ChatPage() {
     dispatch({ type: 'SET_ACTIVE_AGENT', agentId });
   };
 
-  const handleModelChange = async (modelId: string) => {
+  const handleModelChange = (modelId: string) => {
     dispatch({ type: 'SET_ACTIVE_MODEL', modelId });
-    await client.updateSettings({ llm: { models, active: modelId } }).catch(() => {});
   };
 
   const handleEffortChange = async () => {
@@ -169,7 +168,7 @@ export function ChatPage() {
       m.id === activeModelId ? { ...m, reasoning_effort: next } : m
     );
     dispatch({ type: 'SET_MODELS', models: updated });
-    await client.updateSettings({ llm: { models: updated, active: activeModelId } }).catch(() => {});
+    await client.updateSettings({ llm: { models: updated } }).catch(() => {});
   };
 
   return (

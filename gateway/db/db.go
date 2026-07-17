@@ -102,13 +102,14 @@ func (Message) TableName() string { return "messages" }
 // ── Agent ──
 
 type Agent struct {
-	ID           int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name         string    `gorm:"size:128;uniqueIndex" json:"name"`
-	Desc         string    `gorm:"size:512;default:''" json:"desc"`
-	SystemPrompt string    `gorm:"column:system_prompt;default:''" json:"system_prompt"`
-	Tools        string    `gorm:"type:text;default:'[]'" json:"tools"`
-	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt    time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID             int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name           string    `gorm:"size:128;uniqueIndex" json:"name"`
+	Desc           string    `gorm:"size:512;default:''" json:"desc"`
+	SystemPrompt   string    `gorm:"column:system_prompt;default:''" json:"system_prompt"`
+	Tools          string    `gorm:"type:text;default:'[]'" json:"tools"`
+	DefaultModelID string    `gorm:"size:64;default:'';column:default_model_id" json:"default_model_id"`
+	CreatedAt      time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt      time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func (Agent) TableName() string { return "agents" }
@@ -184,6 +185,14 @@ func (db *DB) ListModels() ([]ModelProfile, error) {
 func (db *DB) ActiveModel() (*ModelProfile, error) {
 	var m ModelProfile
 	if err := db.GORM.Where("is_active = 1").First(&m).Error; err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (db *DB) GetModelByID(modelID string) (*ModelProfile, error) {
+	var m ModelProfile
+	if err := db.GORM.Where("model_id = ?", modelID).First(&m).Error; err != nil {
 		return nil, err
 	}
 	return &m, nil
@@ -304,18 +313,19 @@ func (db *DB) SearchMessages(query string, limit int) ([]Message, error) {
 
 // ── Agent methods ──
 
-func (db *DB) CreateAgent(name, desc, systemPrompt, tools string) error {
+func (db *DB) CreateAgent(name, desc, systemPrompt, tools, defaultModelID string) error {
 	return db.GORM.Create(&Agent{
-		Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools,
+		Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools, DefaultModelID: defaultModelID,
 	}).Error
 }
 
-func (db *DB) UpdateAgent(id int64, name, desc, systemPrompt, tools string) error {
+func (db *DB) UpdateAgent(id int64, name, desc, systemPrompt, tools, defaultModelID string) error {
 	return db.GORM.Model(&Agent{}).Where("id = ?", id).Updates(map[string]any{
-		"name":          name,
-		"desc":          desc,
-		"system_prompt": systemPrompt,
-		"tools":         tools,
+		"name":             name,
+		"desc":             desc,
+		"system_prompt":    systemPrompt,
+		"tools":            tools,
+		"default_model_id": defaultModelID,
 	}).Error
 }
 

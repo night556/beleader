@@ -96,6 +96,7 @@ export interface Agent {
   desc: string;
   system_prompt: string;
   tools: string;  // JSON array
+  default_model_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -175,7 +176,6 @@ export interface Runtime {
 export interface Settings {
   llm: {
     models: ModelProfile[];
-    active: string;
   };
   mcp_servers: MCPServer[];
   agents: Agent[];

@@ -4,7 +4,7 @@ import { t } from '../i18n';
 
 interface Props {
   onSendMessage: (body: {
-    message: string; images: string[]; agent_id: number; thread_id?: string;
+    message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string;
   }) => Promise<void>;
   onStop: () => void;
 }
@@ -34,13 +34,13 @@ export function InputArea({ onSendMessage, onStop }: Props) {
       textareaRef.current.style.height = 'auto';
     }
 
-    const body: { message: string; images: string[]; agent_id: number; thread_id?: string } = {
-      message: text, images: imgs, agent_id: state.activeAgentId,
+    const body: { message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string } = {
+      message: text, images: imgs, agent_id: state.activeAgentId, model_id: state.activeModelId,
     };
     if (state.activeThreadId) body.thread_id = state.activeThreadId;
 
     onSendMessage(body);
-  }, [state.activeThreadId, state.activeAgentId, state.hasModels, state.pendingImages, onSendMessage]);
+  }, [state.activeThreadId, state.activeAgentId, state.activeModelId, state.hasModels, state.pendingImages, onSendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

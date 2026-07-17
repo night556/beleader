@@ -9,7 +9,7 @@ import (
 	"beleader/gateway/db"
 )
 
-func (h *Handler) runSession(threadID string, agent *db.Agent, message string, images []string) {
+func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelProfile, message string, images []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.mu.Lock()
 	h.cancelFuncs[threadID] = cancel
@@ -38,7 +38,7 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, message string, i
 	resp, err := h.Runtime.SendTurn(ctx, threadID, TurnRequest{
 		Message: message,
 		Images:  images,
-		Model:   h.buildModelMap(),
+		Model:   h.buildModelMap(model),
 	})
 	if err != nil {
 		log.Printf("[session] %s: send turn error: %v", threadID, err)

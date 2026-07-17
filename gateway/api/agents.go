@@ -19,10 +19,11 @@ func (h *Handler) handleListAgents(c *gin.Context) {
 
 func (h *Handler) handleCreateAgent(c *gin.Context) {
 	var req struct {
-		Name         string `json:"name"`
-		Desc         string `json:"desc"`
-		SystemPrompt string `json:"system_prompt"`
-		Tools        string `json:"tools"`
+		Name           string `json:"name"`
+		Desc           string `json:"desc"`
+		SystemPrompt   string `json:"system_prompt"`
+		Tools          string `json:"tools"`
+		DefaultModelID string `json:"default_model_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -35,7 +36,7 @@ func (h *Handler) handleCreateAgent(c *gin.Context) {
 	if req.Tools == "" {
 		req.Tools = "[]"
 	}
-	if err := h.DB.CreateAgent(req.Name, req.Desc, req.SystemPrompt, req.Tools); err != nil {
+	if err := h.DB.CreateAgent(req.Name, req.Desc, req.SystemPrompt, req.Tools, req.DefaultModelID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -49,10 +50,11 @@ func (h *Handler) handleUpdateAgent(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name         string `json:"name"`
-		Desc         string `json:"desc"`
-		SystemPrompt string `json:"system_prompt"`
-		Tools        string `json:"tools"`
+		Name           string `json:"name"`
+		Desc           string `json:"desc"`
+		SystemPrompt   string `json:"system_prompt"`
+		Tools          string `json:"tools"`
+		DefaultModelID string `json:"default_model_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -62,7 +64,7 @@ func (h *Handler) handleUpdateAgent(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "name and system_prompt required"})
 		return
 	}
-	if err := h.DB.UpdateAgent(id, req.Name, req.Desc, req.SystemPrompt, req.Tools); err != nil {
+	if err := h.DB.UpdateAgent(id, req.Name, req.Desc, req.SystemPrompt, req.Tools, req.DefaultModelID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}

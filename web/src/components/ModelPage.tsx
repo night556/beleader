@@ -41,30 +41,20 @@ export function ModelPage() {
       updated = [...models, form];
     }
     dispatch({ type: 'SET_MODELS', models: updated });
-    const active = activeModelId || (updated.length > 0 ? updated[0].id : '');
     if (!activeModelId && updated.length > 0) {
       dispatch({ type: 'SET_ACTIVE_MODEL', modelId: updated[0].id });
     }
     dispatch({ type: 'SET_HAS_MODELS', has: updated.length > 0 });
-    await client.updateSettings({ llm: { models: updated, active } });
+    await client.updateSettings({ llm: { models: updated } });
     setShowForm(false);
   };
 
   const remove = async (id: string) => {
-    if (id === activeModelId) {
-      alert(t('error.cannot_delete_active'));
-      return;
-    }
     if (!confirm(`Delete model "${id}"?`)) return;
     const updated = models.filter(m => m.id !== id);
     dispatch({ type: 'SET_MODELS', models: updated });
     dispatch({ type: 'SET_HAS_MODELS', has: updated.length > 0 });
-    await client.updateSettings({ llm: { models: updated, active: activeModelId } });
-  };
-
-  const setActive = async (id: string) => {
-    dispatch({ type: 'SET_ACTIVE_MODEL', modelId: id });
-    await client.updateSettings({ llm: { models, active: id } });
+    await client.updateSettings({ llm: { models: updated } });
   };
 
   return (
@@ -83,12 +73,8 @@ export function ModelPage() {
               <div className="card-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span className="card-title">{m.id}</span>
-                  {m.id === activeModelId && <span className="card-badge active">Active</span>}
                 </div>
                 <div className="card-actions">
-                  {m.id !== activeModelId && (
-                    <button className="card-btn green" onClick={() => setActive(m.id)}>Set Active</button>
-                  )}
                   <button className="card-btn" onClick={() => openEdit(m)}>{t('agents.edit')}</button>
                   <button className="card-btn danger" onClick={() => remove(m.id)}>{t('agents.delete')}</button>
                 </div>
