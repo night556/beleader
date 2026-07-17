@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useAppState, processSSEEvent, messagesToTimeline } from '../context/AppContext';
 import { client } from '../api/client';
 import { Stage } from './Stage';
 import { InputArea } from './InputArea';
-import { t } from '../i18n';
 
 const EFFORT_CYCLE: string[] = ['off', 'low', 'medium', 'high', 'max'];
 
+const EFFORT_ICON: Record<string, string> = {
+  off: '⊇', low: '◢', medium: '◈', high: '◉', max: '●',
+};
+
 export function ChatPage() {
   const { state, dispatch } = useAppState();
-  const { activeThreadId, threads, agents, activeAgentId, models, activeModelId, tools, contextPct, totalTokens } = state;
+  const { activeThreadId, threads, agents, activeAgentId, models, activeModelId, contextPct, totalTokens } = state;
 
   const abortRef = useRef<AbortController | null>(null);
   const sendingNewRef = useRef(false);
@@ -22,10 +25,8 @@ export function ChatPage() {
   const contentAccRef = useRef<Record<string, string>>({});
   const thinkingAccRef = useRef<Record<string, string>>({});
 
-  const [configOpen, setConfigOpen] = useState(false);
-
-  const activeAgent = agents.find(a => a.id === activeAgentId);
   const activeModel = models.find(m => m.id === activeModelId);
+  const effortLabel = activeModel?.reasoning_effort || 'off';
 
   // Thread switch: load history via messages API.
   useEffect(() => {
@@ -155,8 +156,9 @@ export function ChatPage() {
     dispatch({ type: 'SET_ACTIVE_AGENT', agentId });
   };
 
-  const handleModelChange = (modelId: string) => {
+  const handleModelChange = async (modelId: string) => {
     dispatch({ type: 'SET_ACTIVE_MODEL', modelId });
+    await client.updateSettings({ llm: { models, active: modelId } }).catch(() => {});
   };
 
   const handleEffortChange = async () => {
@@ -170,153 +172,62 @@ export function ChatPage() {
     await client.updateSettings({ llm: { models: updated, active: activeModelId } }).catch(() => {});
   };
 
-  const updateSystemPrompt = async (prompt: string) => {
-    if (!activeAgent) return;
-    const updated = agents.map(a =>
-      a.id === activeAgent.id ? { ...a, system_prompt: prompt } : a
-    );
-    dispatch({ type: 'SET_AGENTS', agents: updated });
-    await client.updateAgent(activeAgent.id, {
-      name: activeAgent.name,
-      desc: activeAgent.desc,
-      system_prompt: prompt,
-      tools: activeAgent.tools,
-    }).catch(() => {});
-  };
-
-  const toggleTool = async (toolName: string) => {
-    if (!activeAgent) return;
-    let toolList: string[] = [];
-    try { toolList = JSON.parse(activeAgent.tools || '[]'); } catch {}
-    const newTools = toolList.includes(toolName)
-      ? toolList.filter(t => t !== toolName)
-      : [...toolList, toolName];
-    const toolsJson = JSON.stringify(newTools);
-    const updated = agents.map(a =>
-      a.id === activeAgent.id ? { ...a, tools: toolsJson } : a
-    );
-    dispatch({ type: 'SET_AGENTS', agents: updated });
-    await client.updateAgent(activeAgent.id, {
-      name: activeAgent.name,
-      desc: activeAgent.desc,
-      system_prompt: activeAgent.system_prompt,
-      tools: toolsJson,
-    }).catch(() => {});
-  };
-
-  const agentTools: string[] = (() => {
-    try { return JSON.parse(activeAgent?.tools || '[]'); } catch { return []; }
-  })();
-
-  const effortLabel = activeModel?.reasoning_effort || 'off';
-
-  const clearContext = () => {
-    if (!activeThreadId) return;
-    if (!confirm('Clear the conversation context for this thread?')) return;
-    client.pauseThread(activeThreadId).then(() => {
-      dispatch({ type: 'CLEAR_TIMELINE' });
-    }).catch(err => alert('Clear failed: ' + err.message));
-  };
-
   return (
     <div className="chat-page">
       <div className="chat-top">
-        <select
-          className="chat-agent-select"
-          value={activeAgentId ?? ''}
-          onChange={e => handleAgentChange(Number(e.target.value))}
-        >
-          {agents.map(a => (
-            <option key={a.id} value={a.id}>{a.name}</option>
-          ))}
-        </select>
-        <button className="chat-new-thread" onClick={newThread}>+ New Thread</button>
-        <button
-          className={`chat-config-toggle ${configOpen ? 'open' : ''}`}
-          onClick={() => setConfigOpen(v => !v)}
-        >
-          {configOpen ? 'Hide Config' : 'Config'}
-        </button>
-      </div>
-
-      <div className={`chat-config ${configOpen ? 'open' : ''}`}>
-        <div className="chat-config-row">
-          <div className="chat-config-field chat-config-prompt">
-            <label>System Prompt</label>
-            <textarea
-              value={activeAgent?.system_prompt || ''}
-              onChange={e => updateSystemPrompt(e.target.value)}
-            />
+        <div className="chat-top-controls">
+          <div className="chat-top-field">
+            <select
+              className="chat-top-select"
+              value={activeAgentId ?? ''}
+              onChange={e => handleAgentChange(Number(e.target.value))}
+            >
+              {agents.map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
           </div>
-        </div>
-        <div className="chat-config-row">
-          <div className="chat-config-field chat-config-model">
-            <label>Model</label>
-            <select value={activeModelId} onChange={e => handleModelChange(e.target.value)}>
+          <div className="chat-top-field">
+            <select
+              className="chat-top-select"
+              value={activeModelId}
+              onChange={e => handleModelChange(e.target.value)}
+            >
               {models.map(m => (
                 <option key={m.id} value={m.id}>{m.id}</option>
               ))}
             </select>
           </div>
-          <div className="chat-config-field chat-config-effort">
-            <label>Reasoning</label>
+          <div className="chat-top-field">
             <button
-              className="card-btn"
+              className="chat-top-effort"
               onClick={handleEffortChange}
               title={`Reasoning effort: ${effortLabel}`}
-              style={{ padding: '6px 10px', fontFamily: 'var(--font-mono)', fontSize: 11, textTransform: 'uppercase' }}
             >
-              {effortLabel === 'off' ? '⊇' : '◈'} {effortLabel}
+              <span className="chat-top-effort-icon">{EFFORT_ICON[effortLabel] || EFFORT_ICON.off}</span>
+              {effortLabel}
             </button>
           </div>
-          <div className="chat-config-field" style={{ flex: 1 }}>
-            <label>Context ({contextPct}% / {totalTokens} tokens)</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28 }}>
-              <div style={{ flex: 1, height: 3, background: 'var(--border)', borderRadius: 2 }}>
-                <div style={{ width: `${contextPct}%`, height: '100%', background: 'var(--accent)', borderRadius: 2, transition: 'width 0.3s' }} />
-              </div>
-              <button className="card-btn" onClick={clearContext} style={{ fontSize: 10 }}>
-                {t('ctx.clear')}
-              </button>
-            </div>
-          </div>
         </div>
-        <div className="chat-config-row">
-          <div className="chat-config-field chat-config-tools">
-            <label>Tools</label>
-            <div className="tools-chips">
-              {agentTools.map(tn => (
-                <span key={tn} className="tool-chip">
-                  {tn}
-                  <button className="tool-chip-remove" onClick={() => toggleTool(tn)}>×</button>
-                </span>
-              ))}
-              {agentTools.length === 0 && <span style={{ fontSize: 10, color: 'var(--faint)' }}>No tools selected</span>}
+
+        <div className="chat-top-spacer" />
+
+        {activeThreadId && (
+          <div className="chat-top-context" title={`${contextPct}% / ${totalTokens} tokens`}>
+            <div className="chat-top-context-bar">
+              <div className="chat-top-context-fill" style={{ width: `${Math.min(contextPct, 100)}%` }} />
             </div>
-            <details style={{ marginTop: 4 }}>
-              <summary style={{ fontSize: 10, color: 'var(--muted)', cursor: 'pointer' }}>Add tools</summary>
-              <div className="tools-picker" style={{ marginTop: 4 }}>
-                {tools.filter(t => !agentTools.includes(t.name)).map(t => (
-                  <div
-                    key={t.name}
-                    className="tool-pick-item"
-                    onClick={() => toggleTool(t.name)}
-                  >
-                    <span className="tool-pick-name">
-                      {t.name}
-                      <span className={`tool-source-badge ${t.source}`}>{t.source}</span>
-                    </span>
-                    <span className="tool-pick-desc">{t.description}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
+            <span className="chat-top-context-pct">{contextPct}%</span>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="chat-body">
         <div className="thread-list">
+          <div className="thread-list-head">
+            <span className="thread-list-title">Threads</span>
+            <button className="thread-new-btn" onClick={newThread} title="New Thread">+</button>
+          </div>
           {threads.length === 0 ? (
             <div className="thread-list-empty">No threads yet</div>
           ) : (
