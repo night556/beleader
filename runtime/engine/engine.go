@@ -164,6 +164,17 @@ func BuildMessages(thread *Thread, afterID int64, pinnedIDs []int64, sysPrompt s
 		}
 	}
 	reordered = append(reordered, deferred...)
+
+	// Append turn_meta to the latest user message (LLM only, not stored).
+	if thread.TurnMeta != "" {
+		for i := len(reordered) - 1; i >= 0; i-- {
+			if reordered[i].Role == "user" {
+				reordered[i].Content += thread.TurnMeta
+				break
+			}
+		}
+	}
+
 	return reordered, nil
 }
 

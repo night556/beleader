@@ -70,6 +70,11 @@ type Thread struct {
 	TotalTokens    int            `json:"total_tokens"`
 	CreatedAt      time.Time      `json:"created_at"`
 
+	// TurnMeta is the per-turn <turn_meta> block (shell, platform, workspace).
+	// It is appended to the latest user message only in the LLM request,
+	// never stored or displayed. Set by the server before each turn.
+	TurnMeta string `json:"-"`
+
 	// OnMessageAppend is called after a message is added to Messages.
 	// Set by the server layer to persist to messages.jsonl.
 	OnMessageAppend func(msg *Message) `json:"-"`

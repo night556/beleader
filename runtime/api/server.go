@@ -281,8 +281,8 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		Shell:   tools.ShellName(),
 		WorkDir: thread.WorkspaceDir,
 	}
-	enrichedMessage := req.Message + engine.BuildTurnMeta(env)
-	result, err := s.eng.RunLoop(ctx, thread, turnID, enrichedPrompt, enrichedMessage, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit)
+	thread.TurnMeta = engine.BuildTurnMeta(env)
+	result, err := s.eng.RunLoop(ctx, thread, turnID, enrichedPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit)
 	if err != nil {
 		emit(engine.FailItem("item_error", turnID, engine.ItemKindError, err.Error()))
 
