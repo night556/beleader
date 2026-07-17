@@ -28,13 +28,25 @@ func (c *RuntimeClient) SetBaseURL(url string) {
 	c.BaseURL = url
 }
 
+// MCPConfig is the config for a single MCP server passed to Runtime.
+type MCPConfig struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Command string `json:"command,omitempty"`
+	Args    string `json:"args,omitempty"`
+	Env     string `json:"env,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Headers string `json:"headers,omitempty"`
+}
+
 // CreateThreadRequest is the JSON body for POST /v1/threads.
 type CreateThreadRequest struct {
 	SystemPrompt      string           `json:"system_prompt"`
 	Model             map[string]any   `json:"model"`
 	Tools             []map[string]any `json:"tools"`
 	MaxContextPct     int              `json:"max_context_pct"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	MCPServers        []MCPConfig      `json:"mcp_servers,omitempty"`
+	Metadata          map[string]any   `json:"metadata,omitempty"`
 }
 
 // CreateThreadResponse is the JSON response for POST /v1/threads.

@@ -11,7 +11,6 @@ import (
 	"beleader/gateway/config"
 	"beleader/gateway/db"
 	"beleader/gateway/llm"
-	"beleader/gateway/mcp"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,7 +21,6 @@ type Handler struct {
 	LLM     *llm.Client
 	Config  *config.Config
 	SSE     *SSEBroker
-	MCPMgr  *mcp.Manager
 	Runtime *RuntimeClient
 
 	RegToken   string // shared secret for runtime registration, from GATEWAY_TOKEN env var
@@ -96,8 +94,6 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.PUT("/mcp/servers/:id", h.handleUpdateMCPServer)
 		api.DELETE("/mcp/servers/:id", h.handleDeleteMCPServer)
 		api.POST("/mcp/servers/:id/test", h.handleTestMCPServer)
-		api.POST("/mcp/servers/:id/connect", h.handleConnectMCPServer)
-		api.POST("/mcp/servers/:id/disconnect", h.handleDisconnectMCPServer)
 
 		api.POST("/runtimes/register", h.handleRuntimeRegister)
 		api.POST("/runtimes/heartbeat", h.handleRuntimeHeartbeat)
@@ -536,18 +532,6 @@ func modelToConfig(m *db.ModelProfile) config.ModelProfile {
 
 func (h *Handler) handleListTools(c *gin.Context) {
 	tools := baseToolDefs()
-	// Add MCP tools
-	if h.MCPMgr != nil {
-		for _, t := range h.MCPMgr.ListTools() {
-			tools = append(tools, map[string]any{
-				"name":        t.Name,
-				"description": t.Description,
-				"source":      "mcp",
-				"parameters":  t.InputSchema,
-			})
-		}
-	}
-	// Tag builtin tools
 	for i := range tools {
 		if tools[i]["source"] == nil {
 			tools[i]["source"] = "builtin"
@@ -607,10 +591,36 @@ func (h *Handler) createRuntimeThread(agent *db.Agent, model *db.ModelProfile) (
 		toolNames = defaultToolNames()
 	}
 
+	// Build MCP server configs from agent's mcp_servers list.
+	var mcpConfigs []MCPConfig
+	if agent.MCPServers != "" {
+		var serverNames []string
+		if err := json.Unmarshal([]byte(agent.MCPServers), &serverNames); err == nil {
+			for _, name := range serverNames {
+				allServers, _ := h.DB.ListMCPServers()
+				for _, s := range allServers {
+					if s.Name == name && s.Enabled {
+						mcpConfigs = append(mcpConfigs, MCPConfig{
+							Name:    s.Name,
+							Type:    s.Type,
+							Command: s.Command,
+							Args:    s.Args,
+							Env:     s.Env,
+							URL:     s.URL,
+							Headers: s.Headers,
+						})
+						break
+					}
+				}
+			}
+		}
+	}
+
 	req := CreateThreadRequest{
 		SystemPrompt:      agent.SystemPrompt,
 		Model:             h.buildModelMap(model),
 		Tools:             baseToolDefsFiltered(toolNames),
+		MCPServers:        mcpConfigs,
 		Metadata: map[string]any{
 			"agent_id": agent.ID,
 		},

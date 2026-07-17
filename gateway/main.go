@@ -14,7 +14,6 @@ import (
 	"beleader/gateway/config"
 	"beleader/gateway/db"
 	"beleader/gateway/llm"
-	"beleader/gateway/mcp"
 
 	"github.com/gin-gonic/gin"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -93,10 +92,6 @@ func main() {
 
 	h := api.NewHandler(database, llmClient, cfg)
 
-	mcpMgr := mcp.NewManager(database)
-	mcpMgr.Start()
-	h.MCPMgr = mcpMgr
-
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
@@ -136,5 +131,4 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	fmt.Println("\nShutting down...")
-	mcpMgr.Stop()
 }

@@ -9,24 +9,27 @@ import (
 	"strings"
 	"sync"
 
-	"beleader/gateway/db"
-
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// ToolResult is a local copy to avoid depending on the runtime engine package.
+// Config holds the connection parameters for an MCP server.
+type Config struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Command string `json:"command,omitempty"`
+	Args    string `json:"args,omitempty"`
+	Env     string `json:"env,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Headers string `json:"headers,omitempty"`
+}
+
+// ToolResult mirrors engine.ToolResult to avoid circular imports.
 type ToolResult struct {
 	Content string   `json:"content,omitempty"`
 	Error   string   `json:"error,omitempty"`
 	Images  []string `json:"images,omitempty"`
-}
-
-// ServerStatus holds the connection status of an MCP server.
-type ServerStatus struct {
-	Status string
-	Error  string
 }
 
 // ToolEntry describes a registered MCP tool.
@@ -37,39 +40,23 @@ type ToolEntry struct {
 	InputSchema map[string]any
 }
 
-// Manager manages MCP client lifecycle.
+// Manager manages MCP client lifecycle on the Runtime.
 type Manager struct {
-	db      *db.DB
 	mu      sync.RWMutex
 	clients map[string]*clientEntry
-	tools   map[string]*ToolEntry // fullName → entry
+	tools   map[string]*ToolEntry
 }
 
 type clientEntry struct {
 	client *client.Client
-	config db.MCPServer
+	config Config
 }
 
 // NewManager creates a new MCP Manager.
-func NewManager(d *db.DB) *Manager {
+func NewManager() *Manager {
 	return &Manager{
-		db:      d,
 		clients: make(map[string]*clientEntry),
 		tools:   make(map[string]*ToolEntry),
-	}
-}
-
-// Start loads all enabled MCP servers and connects to them.
-func (m *Manager) Start() {
-	servers, err := m.db.ListEnabledMCPServers()
-	if err != nil {
-		log.Printf("[MCP] list enabled servers: %v", err)
-		return
-	}
-	for _, s := range servers {
-		if err := m.Connect(s); err != nil {
-			log.Printf("[MCP] connect %s: %v", s.Name, err)
-		}
 	}
 }
 
@@ -83,12 +70,13 @@ func (m *Manager) Stop() {
 }
 
 // Connect establishes a connection to an MCP server and records its tools.
-func (m *Manager) Connect(cfg db.MCPServer) error {
+// Idempotent: if already connected, returns immediately.
+func (m *Manager) Connect(cfg Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, ok := m.clients[cfg.Name]; ok {
-		m.disconnectLocked(cfg.Name)
+		return nil // already connected
 	}
 
 	var c *client.Client
@@ -96,18 +84,14 @@ func (m *Manager) Connect(cfg db.MCPServer) error {
 
 	switch cfg.Type {
 	case "stdio":
-		c, err = m.connectStdio(cfg)
+		c, err = connectStdio(cfg)
 	case "http":
-		c, err = m.connectHTTP(cfg)
+		c, err = connectHTTP(cfg)
 	default:
 		return fmt.Errorf("unknown MCP server type: %s", cfg.Type)
 	}
 	if err != nil {
-		m.db.UpdateMCPServer(&db.MCPServer{
-			ID: cfg.ID, Name: cfg.Name, Type: cfg.Type, Enabled: cfg.Enabled,
-			Command: cfg.Command, Args: cfg.Args, Env: cfg.Env,
-			URL: cfg.URL, Headers: cfg.Headers, Status: "error", Error: err.Error(),
-		})
+		log.Printf("[MCP] connect %s: %v", cfg.Name, err)
 		return err
 	}
 
@@ -123,26 +107,15 @@ func (m *Manager) Connect(cfg db.MCPServer) error {
 	}
 	if _, err := c.Initialize(ctx, initReq); err != nil {
 		c.Close()
-		m.db.UpdateMCPServer(&db.MCPServer{
-			ID: cfg.ID, Name: cfg.Name, Type: cfg.Type, Enabled: cfg.Enabled,
-			Command: cfg.Command, Args: cfg.Args, Env: cfg.Env,
-			URL: cfg.URL, Headers: cfg.Headers, Status: "error", Error: "initialize: " + err.Error(),
-		})
 		return fmt.Errorf("initialize: %w", err)
 	}
 
 	listResult, err := c.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		c.Close()
-		m.db.UpdateMCPServer(&db.MCPServer{
-			ID: cfg.ID, Name: cfg.Name, Type: cfg.Type, Enabled: cfg.Enabled,
-			Command: cfg.Command, Args: cfg.Args, Env: cfg.Env,
-			URL: cfg.URL, Headers: cfg.Headers, Status: "error", Error: "list tools: " + err.Error(),
-		})
 		return fmt.Errorf("list tools: %w", err)
 	}
 
-	// Record tools
 	for _, t := range listResult.Tools {
 		fullName := "mcp__" + cfg.Name + "__" + t.Name
 		desc := t.Description
@@ -164,19 +137,8 @@ func (m *Manager) Connect(cfg db.MCPServer) error {
 		log.Printf("[MCP] connection lost: %s: %v", cfg.Name, err)
 		m.mu.Lock()
 		delete(m.clients, cfg.Name)
-		m.removeToolsForServer(cfg.Name)
+		removeToolsForServer(m.tools, cfg.Name)
 		m.mu.Unlock()
-		m.db.UpdateMCPServer(&db.MCPServer{
-			ID: cfg.ID, Name: cfg.Name, Type: cfg.Type, Enabled: true,
-			Command: cfg.Command, Args: cfg.Args, Env: cfg.Env,
-			URL: cfg.URL, Headers: cfg.Headers, Status: "error", Error: err.Error(),
-		})
-	})
-
-	m.db.UpdateMCPServer(&db.MCPServer{
-		ID: cfg.ID, Name: cfg.Name, Type: cfg.Type, Enabled: true,
-		Command: cfg.Command, Args: cfg.Args, Env: cfg.Env,
-		URL: cfg.URL, Headers: cfg.Headers, Status: "connected", Error: "",
 	})
 
 	log.Printf("[MCP] connected %s: %d tools", cfg.Name, len(listResult.Tools))
@@ -199,17 +161,12 @@ func (m *Manager) disconnectLocked(name string) error {
 		entry.client.Close()
 	}
 	delete(m.clients, name)
-	m.removeToolsForServer(name)
-	m.db.UpdateMCPServer(&db.MCPServer{
-		ID: entry.config.ID, Name: name, Type: entry.config.Type, Enabled: entry.config.Enabled,
-		Command: entry.config.Command, Args: entry.config.Args, Env: entry.config.Env,
-		URL: entry.config.URL, Headers: entry.config.Headers, Status: "disconnected", Error: "",
-	})
+	removeToolsForServer(m.tools, name)
 	log.Printf("[MCP] disconnected %s", name)
 	return nil
 }
 
-// CallTool bridges a tool call to the MCP server.
+// CallTool routes a tool call to the appropriate MCP server.
 func (m *Manager) CallTool(ctx context.Context, fullName, args string) *ToolResult {
 	server, tool, ok := parseMCPToolName(fullName)
 	if !ok {
@@ -239,11 +196,6 @@ func (m *Manager) CallTool(ctx context.Context, fullName, args string) *ToolResu
 	})
 	if err != nil {
 		log.Printf("[MCP] call tool %s/%s: %v", server, tool, err)
-		m.db.UpdateMCPServer(&db.MCPServer{
-			ID: entry.config.ID, Name: entry.config.Name, Type: entry.config.Type, Enabled: true,
-			Command: entry.config.Command, Args: entry.config.Args, Env: entry.config.Env,
-			URL: entry.config.URL, Headers: entry.config.Headers, Status: "error", Error: err.Error(),
-		})
 		return &ToolResult{Error: err.Error()}
 	}
 
@@ -273,16 +225,16 @@ func (m *Manager) CallTool(ctx context.Context, fullName, args string) *ToolResu
 	return &ToolResult{Content: strings.Join(contents, "\n"), Images: images}
 }
 
-// TestConnection connects, lists tools, and disconnects without persisting state.
-func (m *Manager) TestConnection(cfg db.MCPServer) (int, []string, error) {
+// TestConnection connects, lists tools, and disconnects without keeping state.
+func (m *Manager) TestConnection(cfg Config) (int, []string, error) {
 	var c *client.Client
 	var err error
 
 	switch cfg.Type {
 	case "stdio":
-		c, err = m.connectStdio(cfg)
+		c, err = connectStdio(cfg)
 	case "http":
-		c, err = m.connectHTTP(cfg)
+		c, err = connectHTTP(cfg)
 	default:
 		return 0, nil, fmt.Errorf("unknown MCP server type: %s", cfg.Type)
 	}
@@ -317,31 +269,6 @@ func (m *Manager) TestConnection(cfg db.MCPServer) (int, []string, error) {
 	return len(names), names, nil
 }
 
-// Statuses returns the current status of all connected MCP servers.
-func (m *Manager) Statuses() map[string]ServerStatus {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]ServerStatus, len(m.clients))
-	for name, entry := range m.clients {
-		result[name] = ServerStatus{
-			Status: entry.config.Status,
-			Error:  entry.config.Error,
-		}
-	}
-	return result
-}
-
-// GetConnectedServers returns names of currently connected servers.
-func (m *Manager) GetConnectedServers() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var names []string
-	for name := range m.clients {
-		names = append(names, name)
-	}
-	return names
-}
-
 // ListTools returns all registered MCP tools.
 func (m *Manager) ListTools() []ToolEntry {
 	m.mu.RLock()
@@ -355,7 +282,7 @@ func (m *Manager) ListTools() []ToolEntry {
 
 // ── internal helpers ──
 
-func (m *Manager) connectStdio(cfg db.MCPServer) (*client.Client, error) {
+func connectStdio(cfg Config) (*client.Client, error) {
 	var args []string
 	if cfg.Args != "" {
 		json.Unmarshal([]byte(cfg.Args), &args)
@@ -391,7 +318,7 @@ func (m *Manager) connectStdio(cfg db.MCPServer) (*client.Client, error) {
 	return c, nil
 }
 
-func (m *Manager) connectHTTP(cfg db.MCPServer) (*client.Client, error) {
+func connectHTTP(cfg Config) (*client.Client, error) {
 	var headers map[string]string
 	if cfg.Headers != "" {
 		json.Unmarshal([]byte(cfg.Headers), &headers)
@@ -416,11 +343,11 @@ func (m *Manager) connectHTTP(cfg db.MCPServer) (*client.Client, error) {
 	return c, nil
 }
 
-func (m *Manager) removeToolsForServer(name string) {
+func removeToolsForServer(tools map[string]*ToolEntry, name string) {
 	prefix := "mcp__" + name + "__"
-	for k := range m.tools {
+	for k := range tools {
 		if strings.HasPrefix(k, prefix) {
-			delete(m.tools, k)
+			delete(tools, k)
 		}
 	}
 }

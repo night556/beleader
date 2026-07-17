@@ -24,6 +24,7 @@ func (h *Handler) handleCreateAgent(c *gin.Context) {
 		SystemPrompt   string `json:"system_prompt"`
 		Tools          string `json:"tools"`
 		DefaultModelID string `json:"default_model_id"`
+		MCPServers     string `json:"mcp_servers"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -36,7 +37,10 @@ func (h *Handler) handleCreateAgent(c *gin.Context) {
 	if req.Tools == "" {
 		req.Tools = "[]"
 	}
-	if err := h.DB.CreateAgent(req.Name, req.Desc, req.SystemPrompt, req.Tools, req.DefaultModelID); err != nil {
+	if req.MCPServers == "" {
+		req.MCPServers = "[]"
+	}
+	if err := h.DB.CreateAgent(req.Name, req.Desc, req.SystemPrompt, req.Tools, req.DefaultModelID, req.MCPServers); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -55,6 +59,7 @@ func (h *Handler) handleUpdateAgent(c *gin.Context) {
 		SystemPrompt   string `json:"system_prompt"`
 		Tools          string `json:"tools"`
 		DefaultModelID string `json:"default_model_id"`
+		MCPServers     string `json:"mcp_servers"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -64,7 +69,7 @@ func (h *Handler) handleUpdateAgent(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "name and system_prompt required"})
 		return
 	}
-	if err := h.DB.UpdateAgent(id, req.Name, req.Desc, req.SystemPrompt, req.Tools, req.DefaultModelID); err != nil {
+	if err := h.DB.UpdateAgent(id, req.Name, req.Desc, req.SystemPrompt, req.Tools, req.DefaultModelID, req.MCPServers); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}

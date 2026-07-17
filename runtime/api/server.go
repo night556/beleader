@@ -13,6 +13,7 @@ import (
 
 	"beleader/runtime/engine"
 	"beleader/runtime/llm"
+	"beleader/runtime/mcp"
 	"beleader/runtime/store"
 	"beleader/runtime/tools"
 )
@@ -24,6 +25,7 @@ type Server struct {
 	mu                sync.RWMutex
 	dataDir           string
 	restrictWorkspace bool
+	mcpMgr            *mcp.Manager
 }
 
 // NewServer creates a new Runtime server.
@@ -35,6 +37,7 @@ func NewServer(dataDir string, restrictWorkspace bool) *Server {
 		threads:           make(map[string]*engine.Thread),
 		dataDir:           dataDir,
 		restrictWorkspace: restrictWorkspace,
+		mcpMgr:            mcp.NewManager(),
 	}
 	tools.SetWorkerGlobals(eng, s.threads)
 	return s
@@ -46,7 +49,8 @@ type CreateThreadRequest struct {
 	Model             engine.ModelConfig `json:"model"`
 	Tools             []engine.ToolDef   `json:"tools"`
 	MaxContextPct     int                `json:"max_context_pct"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	MCPServers        []mcp.Config       `json:"mcp_servers,omitempty"`
+	Metadata          map[string]any     `json:"metadata,omitempty"`
 }
 
 // CreateThreadResponse is the JSON response for POST /v1/threads.
@@ -159,6 +163,35 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 
 	thread := engine.NewThread(req.SystemPrompt, req.Model, req.Tools, "", req.MaxContextPct, req.Metadata, nil)
 	thread.RestrictWorkspace = s.restrictWorkspace
+
+	// Connect MCP servers and register their tools.
+	for _, cfg := range req.MCPServers {
+		if err := s.mcpMgr.Connect(cfg); err != nil {
+			log.Printf("[MCP] connect %s: %v", cfg.Name, err)
+			continue
+		}
+		// Register tool handlers and add tool defs for this thread.
+		for _, t := range s.mcpMgr.ListTools() {
+			if t.Server != cfg.Name {
+				continue
+			}
+			fullName := t.Name
+			s.eng.RegisterTool(fullName, func(ctx context.Context, args string) *engine.ToolResult {
+				result := s.mcpMgr.CallTool(ctx, fullName, args)
+				return &engine.ToolResult{
+					Content: result.Content,
+					Error:   result.Error,
+					Images:  result.Images,
+				}
+			})
+			thread.ToolDefs = append(thread.ToolDefs, engine.ToolDef{
+				Name:        fullName,
+				Description: t.Description,
+				Parameters:  t.InputSchema,
+			})
+		}
+	}
+
 	thread.OnMessageAppend = func(msg *engine.Message) {
 		store.AppendMessage(s.dataDir, thread.ID, msg)
 	}

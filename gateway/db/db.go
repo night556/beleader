@@ -108,6 +108,7 @@ type Agent struct {
 	SystemPrompt   string    `gorm:"column:system_prompt;default:''" json:"system_prompt"`
 	Tools          string    `gorm:"type:text;default:'[]'" json:"tools"`
 	DefaultModelID string    `gorm:"size:64;default:'';column:default_model_id" json:"default_model_id"`
+	MCPServers     string    `gorm:"type:text;default:'[]';column:mcp_servers" json:"mcp_servers"`
 	CreatedAt      time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt      time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
@@ -317,19 +318,20 @@ func (db *DB) SearchMessages(query string, limit int) ([]Message, error) {
 
 // ── Agent methods ──
 
-func (db *DB) CreateAgent(name, desc, systemPrompt, tools, defaultModelID string) error {
+func (db *DB) CreateAgent(name, desc, systemPrompt, tools, defaultModelID, mcpServers string) error {
 	return db.GORM.Create(&Agent{
-		Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools, DefaultModelID: defaultModelID,
+		Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools, DefaultModelID: defaultModelID, MCPServers: mcpServers,
 	}).Error
 }
 
-func (db *DB) UpdateAgent(id int64, name, desc, systemPrompt, tools, defaultModelID string) error {
+func (db *DB) UpdateAgent(id int64, name, desc, systemPrompt, tools, defaultModelID, mcpServers string) error {
 	return db.GORM.Model(&Agent{}).Where("id = ?", id).Updates(map[string]any{
 		"name":             name,
 		"desc":             desc,
 		"system_prompt":    systemPrompt,
 		"tools":            tools,
 		"default_model_id": defaultModelID,
+		"mcp_servers":      mcpServers,
 	}).Error
 }
 

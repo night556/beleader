@@ -35,8 +35,8 @@ export const client = {
 
   // Agents
   listAgents: () => api<Agent[]>('/api/agents'),
-  createAgent: (body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string }) => api<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(body) }),
-  updateAgent: (id: number, body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string }) => api<Agent>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  createAgent: (body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string; mcp_servers?: string }) => api<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(body) }),
+  updateAgent: (id: number, body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string; mcp_servers?: string }) => api<Agent>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAgent: (id: number) => api<{ status: string }>(`/api/agents/${id}`, { method: 'DELETE' }),
 
   // Tools
@@ -54,8 +54,6 @@ export const client = {
   updateMCPServer: (id: number, body: Record<string, unknown>) => api<MCPServer>(`/api/mcp/servers/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteMCPServer: (id: number) => api<{ status: string }>(`/api/mcp/servers/${id}`, { method: 'DELETE' }),
   testMCPServer: (id: number) => api<{ success: boolean; tool_count: number; tools: string[]; error?: string }>(`/api/mcp/servers/${id}/test`, { method: 'POST' }),
-  connectMCPServer: (id: number) => api<{ status: string }>(`/api/mcp/servers/${id}/connect`, { method: 'POST' }),
-  disconnectMCPServer: (id: number) => api<{ status: string }>(`/api/mcp/servers/${id}/disconnect`, { method: 'POST' }),
 
   // Knowledge
   listKnowledge: (limit = 20, offset = 0) => api<Knowledge[]>(`/api/knowledge?limit=${limit}&offset=${offset}`),

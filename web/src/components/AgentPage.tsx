@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppState } from '../context/AppContext';
 import { client } from '../api/client';
-import type { Agent } from '../types';
+import type { Agent, MCPServer } from '../types';
 import { t } from '../i18n';
 
 export function AgentPage() {
@@ -10,9 +10,11 @@ export function AgentPage() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
-  const [form, setForm] = useState({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '' });
+  const [form, setForm] = useState({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '', mcp_servers: '[]' });
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
+  const [selectedMCPServers, setSelectedMCPServers] = useState<string[]>([]);
   const [toolSearch, setToolSearch] = useState('');
+  const [mcpServers, setMCPServers] = useState<MCPServer[]>([]);
 
   const filtered = agents.filter(a =>
     !search || a.name.toLowerCase().includes(search.toLowerCase())
@@ -20,24 +22,30 @@ export function AgentPage() {
 
   const openNew = () => {
     setEditId(null);
-    setForm({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '' });
+    setForm({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '', mcp_servers: '[]' });
     setSelectedTools([]);
+    setSelectedMCPServers([]);
     setShowForm(true);
   };
 
   const openEdit = (a: Agent) => {
     setEditId(a.id);
-    setForm({ name: a.name, desc: a.desc, system_prompt: a.system_prompt, tools: a.tools, default_model_id: a.default_model_id || '' });
+    setForm({ name: a.name, desc: a.desc, system_prompt: a.system_prompt, tools: a.tools, default_model_id: a.default_model_id || '', mcp_servers: a.mcp_servers || '[]' });
     try {
       setSelectedTools(JSON.parse(a.tools || '[]'));
     } catch {
       setSelectedTools([]);
     }
+    try {
+      setSelectedMCPServers(JSON.parse(a.mcp_servers || '[]'));
+    } catch {
+      setSelectedMCPServers([]);
+    }
     setShowForm(true);
   };
 
   const save = async () => {
-    const body = { ...form, tools: JSON.stringify(selectedTools) };
+    const body = { ...form, tools: JSON.stringify(selectedTools), mcp_servers: JSON.stringify(selectedMCPServers) };
     if (editId) {
       const updated = await client.updateAgent(editId, body);
       dispatch({ type: 'SET_AGENTS', agents: agents.map(a => a.id === editId ? updated : a) });
@@ -60,12 +68,19 @@ export function AgentPage() {
     );
   };
 
+  const toggleMCPServer = (name: string) => {
+    setSelectedMCPServers(prev =>
+      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
+    );
+  };
+
   const filteredTools = tools.filter(t =>
     !toolSearch || t.name.toLowerCase().includes(toolSearch.toLowerCase())
   );
 
   useEffect(() => {
     client.listTools().then(t => dispatch({ type: 'SET_TOOLS', tools: t })).catch(() => {});
+    client.listMCPServers().then(s => setMCPServers(s)).catch(() => {});
   }, []);
 
   return (
@@ -101,11 +116,16 @@ export function AgentPage() {
               {(() => {
                 let toolNames: string[] = [];
                 try { toolNames = JSON.parse(a.tools || '[]'); } catch {}
-                if (toolNames.length === 0) return null;
+                let mcpNames: string[] = [];
+                try { mcpNames = JSON.parse(a.mcp_servers || '[]'); } catch {}
+                if (toolNames.length === 0 && mcpNames.length === 0) return null;
                 return (
                   <div className="card-chips">
                     {toolNames.map(tn => (
                       <span key={tn} className="card-chip">{tn}</span>
+                    ))}
+                    {mcpNames.map(mn => (
+                      <span key={`mcp_${mn}`} className="card-chip mcp-chip">mcp: {mn}</span>
                     ))}
                   </div>
                 );
@@ -146,6 +166,39 @@ export function AgentPage() {
                       <option key={m.id} value={m.id}>{m.id}</option>
                     ))}
                   </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">MCP Servers</label>
+                  {mcpServers.length === 0 ? (
+                    <span className="form-hint">No MCP servers configured. Add them in the MCP page.</span>
+                  ) : (
+                    <div className="tools-chips">
+                      {selectedMCPServers.map(mn => (
+                        <span key={mn} className="tool-chip">
+                          {mn}
+                          <button className="tool-chip-remove" onClick={() => toggleMCPServer(mn)}>×</button>
+                        </span>
+                      ))}
+                      {selectedMCPServers.length === 0 && <span className="form-hint">None selected</span>}
+                    </div>
+                  )}
+                  {mcpServers.length > 0 && (
+                    <div className="tools-picker">
+                      {mcpServers.map(s => (
+                        <div
+                          key={s.name}
+                          className={`tool-pick-item ${selectedMCPServers.includes(s.name) ? 'selected' : ''}`}
+                          onClick={() => toggleMCPServer(s.name)}
+                        >
+                          <span className="tool-pick-name">
+                            {s.name}
+                            <span className="tool-source-badge mcp">{s.type}</span>
+                          </span>
+                          <span className="tool-pick-desc">{s.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('agents.tools')}</label>

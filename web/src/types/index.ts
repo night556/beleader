@@ -97,6 +97,7 @@ export interface Agent {
   system_prompt: string;
   tools: string;  // JSON array
   default_model_id: string;
+  mcp_servers: string;  // JSON array
   created_at: string;
   updated_at: string;
 }

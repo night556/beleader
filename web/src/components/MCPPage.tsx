@@ -79,15 +79,6 @@ export function MCPPage() {
     }
   };
 
-  const toggle = async (id: number, connect: boolean) => {
-    if (connect) {
-      await client.connectMCPServer(id);
-    } else {
-      await client.disconnectMCPServer(id);
-    }
-    load();
-  };
-
   return (
     <div className="mgmt-page">
       <div className="mgmt-page-inner">
@@ -120,11 +111,6 @@ export function MCPPage() {
                   </span>
                 </div>
                 <div className="card-actions">
-                  {s.status === 'connected' ? (
-                    <button className="card-btn amber" onClick={() => toggle(s.id, false)}>{t('mcp.disconnect')}</button>
-                  ) : (
-                    <button className="card-btn green" onClick={() => toggle(s.id, true)}>{t('mcp.connect')}</button>
-                  )}
                   <button className="card-btn primary" onClick={() => testServer(s.id)} disabled={testing === s.id}>
                     {testing === s.id ? '...' : t('mcp.test')}
                   </button>
