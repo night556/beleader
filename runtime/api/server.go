@@ -54,8 +54,8 @@ type CreateThreadResponse struct {
 
 // TurnRequest is the JSON body for POST /v1/threads/{id}/turns.
 type TurnRequest struct {
-	Message string             `json:"message"`
-	Images  []string           `json:"images,omitempty"`
+	Message string              `json:"message"`
+	Images  []string            `json:"images,omitempty"`
 	Model   *engine.ModelConfig `json:"model,omitempty"`
 }
 
@@ -274,9 +274,13 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	})
 
 	log.Printf("[turn] %s: %s", threadID, truncate(req.Message, 100))
-	result, err := s.eng.RunLoop(ctx, thread, turnID, thread.SystemPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit)
+	enrichedPrompt := engine.BuildSystemPrompt(thread.SystemPrompt, engine.Environment{
+		Shell:   tools.ShellName(),
+		WorkDir: thread.WorkspaceDir,
+	})
+	result, err := s.eng.RunLoop(ctx, thread, turnID, enrichedPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit)
 	if err != nil {
-				emit(engine.FailItem("item_error", turnID, engine.ItemKindError, err.Error()))
+		emit(engine.FailItem("item_error", turnID, engine.ItemKindError, err.Error()))
 
 		return
 	}
@@ -287,9 +291,9 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		emit(engine.RuntimeEventRecord{
 			Event: engine.EventTurnCompleted,
 			Payload: map[string]any{"turn": engine.TurnRecord{
-				ID:        turnID,
-				ThreadID:  threadID,
-				Status:    engine.TurnStatusCompleted,
+				ID:           turnID,
+				ThreadID:     threadID,
+				Status:       engine.TurnStatusCompleted,
 				InputSummary: truncate(req.Message, 100),
 				StartedAt:    now,
 				EndedAt:      now,
@@ -299,9 +303,9 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		emit(engine.RuntimeEventRecord{
 			Event: engine.EventTurnCompleted,
 			Payload: map[string]any{"turn": engine.TurnRecord{
-				ID:        turnID,
-				ThreadID:  threadID,
-				Status:    engine.TurnStatusInterrupted,
+				ID:           turnID,
+				ThreadID:     threadID,
+				Status:       engine.TurnStatusInterrupted,
 				InputSummary: truncate(req.Message, 100),
 				StartedAt:    now,
 				EndedAt:      now,
@@ -311,9 +315,9 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		emit(engine.RuntimeEventRecord{
 			Event: engine.EventTurnCompleted,
 			Payload: map[string]any{"turn": engine.TurnRecord{
-				ID:        turnID,
-				ThreadID:  threadID,
-				Status:    engine.TurnStatusInterrupted,
+				ID:           turnID,
+				ThreadID:     threadID,
+				Status:       engine.TurnStatusInterrupted,
 				InputSummary: truncate(req.Message, 100),
 				StartedAt:    now,
 				EndedAt:      now,
@@ -324,9 +328,9 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		emit(engine.RuntimeEventRecord{
 			Event: engine.EventTurnCompleted,
 			Payload: map[string]any{"turn": engine.TurnRecord{
-				ID:        turnID,
-				ThreadID:  threadID,
-				Status:    engine.TurnStatusInterrupted,
+				ID:           turnID,
+				ThreadID:     threadID,
+				Status:       engine.TurnStatusInterrupted,
 				InputSummary: truncate(req.Message, 100),
 				StartedAt:    now,
 				EndedAt:      now,
