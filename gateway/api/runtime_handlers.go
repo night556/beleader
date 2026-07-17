@@ -35,7 +35,6 @@ func (h *Handler) handleRuntimeRegister(c *gin.Context) {
 	}
 
 	h.Runtime.SetBaseURL(req.URL)
-	h.Runtime.RestrictWorkspace = req.RestrictWorkspace
 
 	c.JSON(200, runtime)
 }

@@ -590,7 +590,6 @@ func (h *Handler) createRuntimeThread(agent *db.Agent, model *db.ModelProfile) (
 		SystemPrompt:      agent.SystemPrompt,
 		Model:             h.buildModelMap(model),
 		Tools:             baseToolDefsFiltered(toolNames),
-		RestrictWorkspace: h.Runtime.RestrictWorkspace,
 		Metadata: map[string]any{
 			"agent_id": agent.ID,
 		},

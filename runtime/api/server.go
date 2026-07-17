@@ -19,20 +19,22 @@ import (
 
 // Server is the Runtime HTTP server.
 type Server struct {
-	eng     *engine.Engine
-	threads map[string]*engine.Thread
-	mu      sync.RWMutex
-	dataDir string
+	eng               *engine.Engine
+	threads           map[string]*engine.Thread
+	mu                sync.RWMutex
+	dataDir           string
+	restrictWorkspace bool
 }
 
 // NewServer creates a new Runtime server.
-func NewServer(dataDir string) *Server {
+func NewServer(dataDir string, restrictWorkspace bool) *Server {
 	eng := engine.NewEngine()
 	tools.RegisterAll(eng)
 	s := &Server{
-		eng:     eng,
-		threads: make(map[string]*engine.Thread),
-		dataDir: dataDir,
+		eng:               eng,
+		threads:           make(map[string]*engine.Thread),
+		dataDir:           dataDir,
+		restrictWorkspace: restrictWorkspace,
 	}
 	tools.SetWorkerGlobals(eng, s.threads)
 	return s
@@ -44,8 +46,7 @@ type CreateThreadRequest struct {
 	Model             engine.ModelConfig `json:"model"`
 	Tools             []engine.ToolDef   `json:"tools"`
 	MaxContextPct     int                `json:"max_context_pct"`
-	RestrictWorkspace bool               `json:"restrict_workspace"`
-	Metadata          map[string]any     `json:"metadata,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // CreateThreadResponse is the JSON response for POST /v1/threads.
@@ -157,7 +158,7 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	thread := engine.NewThread(req.SystemPrompt, req.Model, req.Tools, "", req.MaxContextPct, req.Metadata, nil)
-	thread.RestrictWorkspace = req.RestrictWorkspace
+	thread.RestrictWorkspace = s.restrictWorkspace
 	thread.OnMessageAppend = func(msg *engine.Message) {
 		store.AppendMessage(s.dataDir, thread.ID, msg)
 	}

@@ -48,10 +48,18 @@ export function RuntimePage() {
               <div className="card-body">
                 <div className="card-kv">
                   <span className="card-kv-key">URL</span>
-                  <span className="card-kv-val" style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.url}</span>
+                  <span className="card-kv-val" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.url}</span>
                 </div>
                 <div className="card-kv">
-                  <span className="card-kv-key">Last Heartbeat</span>
+                  <span className="card-kv-key">Workspace</span>
+                  <span className="card-kv-val">
+                    {r.restrict_workspace
+                      ? <span style={{ color: 'var(--amber, #d97706)', fontWeight: 500 }}>Restricted</span>
+                      : <span style={{ color: 'var(--green)', fontWeight: 500 }}>Open</span>}
+                  </span>
+                </div>
+                <div className="card-kv">
+                  <span className="card-kv-key">Heartbeat</span>
                   <span className="card-kv-val">{new Date(r.last_heartbeat).toLocaleString()}</span>
                 </div>
                 <div className="card-kv">

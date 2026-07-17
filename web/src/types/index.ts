@@ -166,6 +166,7 @@ export interface Runtime {
   name: string;
   url: string;
   status: 'active' | 'inactive';
+  restrict_workspace: boolean;
   last_heartbeat: string;
   created_at: string;
   updated_at: string;

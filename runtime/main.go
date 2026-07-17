@@ -49,6 +49,7 @@ func main() {
 	gatewayToken := flag.String("gateway-token", "", "Registration token for gateway auth (default: GATEWAY_TOKEN env)")
 	runtimeURL := flag.String("runtime-url", "", "Public URL of this runtime for Gateway to reach it (default: RUNTIME_URL env or http://127.0.0.1:{port})")
 	runtimeName := flag.String("runtime-name", "", "Name for this runtime instance (default: RUNTIME_NAME env or hostname)")
+	restrictWorkspace := flag.Bool("restrict-workspace", false, "Restrict file operations to workspace (default: RESTRICT_WORKSPACE env or false)")
 	flag.Parse()
 
 	if *port == "" {
@@ -74,6 +75,12 @@ func main() {
 		}
 	}
 	tools.BrowserHeadless = *headless
+
+	if r := os.Getenv("RESTRICT_WORKSPACE"); r != "" {
+		if v, err := strconv.ParseBool(r); err == nil {
+			*restrictWorkspace = v
+		}
+	}
 
 	if *gatewayURL == "" {
 		if u := os.Getenv("GATEWAY_URL"); u != "" {
@@ -103,7 +110,7 @@ func main() {
 
 	os.MkdirAll(*dataDir, 0755)
 
-	srv := api.NewServer(*dataDir)
+	srv := api.NewServer(*dataDir, *restrictWorkspace)
 
 	// Run server in goroutine so main can handle signals.
 	go func() {
