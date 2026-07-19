@@ -327,29 +327,13 @@ func detectProvider(baseURL string) string {
 }
 
 func applyReasoningEffort(body map[string]any, effort, provider string) {
-	switch provider {
-	case "deepseek":
-		if effort == "" || effort == "off" {
-			body["thinking"] = map[string]string{"type": "disabled"}
-			return
-		}
-		body["reasoning_effort"] = effort
-		body["thinking"] = map[string]string{"type": "enabled"}
-	case "openai":
-		if effort == "" || effort == "off" {
-			return
-		}
-		if effort == "max" {
-			body["reasoning_effort"] = "high"
-		} else {
-			body["reasoning_effort"] = effort
-		}
-	default:
-		if effort == "" || effort == "off" {
-			return
-		}
-		body["reasoning_effort"] = effort
+	if effort == "" || effort == "off" {
+		// Disable thinking. DeepSeek defaults to thinking enabled; other
+		// providers silently ignore this parameter.
+		body["thinking"] = map[string]string{"type": "disabled"}
+		return
 	}
+	body["reasoning_effort"] = effort
 }
 
 func truncate(s string, n int) string {
