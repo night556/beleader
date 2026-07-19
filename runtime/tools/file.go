@@ -50,6 +50,18 @@ func readFileHandler(ctx context.Context, args string) *engine.ToolResult {
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
 	}
+	info, err := os.Stat(p.Path)
+	if err != nil {
+		return &engine.ToolResult{Error: err.Error()}
+	}
+	if info.IsDir() {
+		return &engine.ToolResult{Error: "is a directory, use read_dir instead"}
+	}
+	const maxSize = 2 * 1024 * 1024 // 2 MB
+	if info.Size() > maxSize {
+		return &engine.ToolResult{Error: fmt.Sprintf("file too large (%s), use offset/limit or a different tool", formatFileSize(info.Size()))}
+	}
+
 	data, err := os.ReadFile(p.Path)
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
@@ -70,6 +82,10 @@ func readFileHandler(ctx context.Context, args string) *engine.ToolResult {
 			Content: fmt.Sprintf("Image: %s (%s%s)", fname, formatSizeForImage(len(data)), dims),
 			Images:  []string{uri},
 		}
+	}
+
+	if isBinary(data) {
+		return &engine.ToolResult{Error: fmt.Sprintf("binary file (%s) — cannot display as text", formatFileSize(int64(len(data))))}
 	}
 
 	if p.Offset > 0 || p.Limit > 0 {
@@ -434,4 +450,30 @@ func searchFiles(root, pattern, query string, ctxLines int) ([]string, error) {
 		return nil
 	})
 	return results, nil
+}
+
+// isBinary returns true if the data looks binary (contains null bytes
+// in the first 8KB).
+func isBinary(data []byte) bool {
+	n := len(data)
+	if n > 8192 {
+		n = 8192
+	}
+	for i := 0; i < n; i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// formatFileSize formats a byte count for error messages.
+func formatFileSize(n int64) string {
+	if n < 1024 {
+		return fmt.Sprintf("%dB", n)
+	}
+	if n < 1024*1024 {
+		return fmt.Sprintf("%.1fKB", float64(n)/1024)
+	}
+	return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
 }
