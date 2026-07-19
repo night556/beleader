@@ -19,6 +19,8 @@ import (
 	"beleader/runtime/tools"
 )
 
+const maxThreads = 100
+
 // Server is the Runtime HTTP server.
 type Server struct {
 	eng     *engine.Engine
@@ -221,6 +223,7 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
+	s.evictLRU()
 	s.threads[thread.ID] = thread
 	s.mu.Unlock()
 
@@ -252,9 +255,11 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		msgs, _ := store.LoadMessages(threadDir, threadID)
 		thread.Messages = msgs
 		s.mu.Lock()
+		s.evictLRU()
 		s.threads[threadID] = thread
 		s.mu.Unlock()
 	}
+	thread.LastAccess = time.Now()
 
 	thread.OnMessageAppend = func(msg *engine.Message) {
 		store.AppendMessage(threadDir, threadID, msg)
@@ -417,7 +422,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, threadID s
 	flusher.Flush()
 
 	ch := make(chan engine.RuntimeEventRecord, 100)
-	go store.ReadEvents(s.threadDir(r, threadID), threadID, sinceSeq, ch)
+	go store.ReadEvents(r.Context(), s.threadDir(r, threadID), threadID, sinceSeq, ch)
 
 	for ev := range ch {
 		b, _ := json.Marshal(ev)
@@ -447,6 +452,37 @@ func (s *Server) handleDeleteThread(w http.ResponseWriter, r *http.Request, thre
 	log.Printf("[thread] deleted %s", threadID)
 	writeJSON(w, 200, map[string]string{"status": "deleted"})
 }
+	// touchThread updates LastAccess for the given thread in the in-memory map.
+	func (s *Server) touchThread(threadID string) {
+		s.mu.RLock()
+		t, ok := s.threads[threadID]
+		s.mu.RUnlock()
+		if ok {
+		t.LastAccess = time.Now()
+		}
+	}
+
+	// evictLRU removes the least recently accessed thread from the in-memory map.
+	// Must be called with s.mu held (write lock). Returns true if evicted.
+	func (s *Server) evictLRU() bool {
+		if len(s.threads) < maxThreads {
+		return false
+		}
+		var oldestID string
+		var oldestTime time.Time
+		for id, t := range s.threads {
+		if oldestID == "" || t.LastAccess.Before(oldestTime) {
+			oldestID = id
+			oldestTime = t.LastAccess
+		}
+		}
+		if oldestID != "" {
+		delete(s.threads, oldestID)
+		return true
+		}
+		return false
+	}
+
 
 // threadDir resolves the thread directory from the request query param.
 func (s *Server) threadDir(r *http.Request, threadID string) string {

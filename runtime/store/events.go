@@ -2,6 +2,7 @@ package store
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -94,7 +95,8 @@ func EventSeq(threadDir, threadID string) (int64, error) {
 }
 
 // ReadEvents reads events from events.jsonl under threadDir starting at sinceSeq.
-func ReadEvents(threadDir, threadID string, sinceSeq int64, ch chan<- engine.RuntimeEventRecord) error {
+// It polls for new events until ctx is cancelled.
+func ReadEvents(ctx context.Context, threadDir, threadID string, sinceSeq int64, ch chan<- engine.RuntimeEventRecord) error {
 	defer close(ch)
 
 	path := filepath.Join(threadDir, "events.jsonl")
@@ -121,7 +123,12 @@ func ReadEvents(threadDir, threadID string, sinceSeq int64, ch chan<- engine.Run
 	}
 
 	for {
-		time.Sleep(200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(200 * time.Millisecond):
+		}
+
 		f2, err := os.Open(path)
 		if err != nil {
 			return err

@@ -70,6 +70,10 @@ type Thread struct {
 	TotalTokens    int            `json:"total_tokens"`
 	CreatedAt      time.Time      `json:"created_at"`
 
+	// LastAccess is the last time this thread was accessed.
+	// Used by the server for LRU eviction of the in-memory thread map.
+	LastAccess time.Time `json:"-"`
+
 	// TurnMeta is the per-turn <turn_meta> block (shell, platform, workspace).
 	// It is appended to the latest user message only in the LLM request,
 	// never stored or displayed. Set by the server before each turn.
