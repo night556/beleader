@@ -13,6 +13,8 @@ import (
 	"beleader/runtime/engine"
 )
 
+var bingUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
 var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
 var whitespaceRe = regexp.MustCompile(`\s+`)
 

@@ -13,9 +13,12 @@ import (
 
 // RuntimeClient is the HTTP client for the Runtime service.
 type RuntimeClient struct {
-	Name       string
-	BaseURL    string
+	Name     string
+	BaseURL  string
 	HTTPClient *http.Client
+
+	toolDefs []map[string]any
+	toolsMu  sync.RWMutex
 }
 
 func NewRuntimeClient(name, baseURL string) *RuntimeClient {
@@ -241,6 +244,39 @@ func ParseAndForwardSSE(body io.ReadCloser, w io.Writer, flusher http.Flusher, o
 	return scanner.Err()
 }
 
+// ToolDefs returns cached tool definitions, fetching from Runtime on first call.
+func (c *RuntimeClient) ToolDefs() ([]map[string]any, error) {
+	c.toolsMu.RLock()
+	if c.toolDefs != nil {
+		defer c.toolsMu.RUnlock()
+		return c.toolDefs, nil
+	}
+	c.toolsMu.RUnlock()
+
+	c.toolsMu.Lock()
+	defer c.toolsMu.Unlock()
+	if c.toolDefs != nil {
+		return c.toolDefs, nil
+	}
+
+	resp, err := c.HTTPClient.Get(c.BaseURL + "/v1/tools")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("fetch tools: %s", resp.Status)
+	}
+	var result struct {
+		Tools []map[string]any `json:"tools"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	c.toolDefs = result.Tools
+	return c.toolDefs, nil
+}
+
 // ── Runtime client pool ──
 
 // RuntimeClientPool manages connections to multiple equivalent Runtimes.
@@ -287,6 +323,15 @@ func (p *RuntimeClientPool) Remove(name string) {
 			return
 		}
 	}
+}
+
+// ToolDefs returns cached tool definitions fetched from any available Runtime.
+func (p *RuntimeClientPool) ToolDefs() ([]map[string]any, error) {
+	c, ok := p.Pick()
+	if !ok {
+		return nil, fmt.Errorf("no runtime available")
+	}
+	return c.ToolDefs()
 }
 
 // HasAny returns whether at least one runtime is registered.

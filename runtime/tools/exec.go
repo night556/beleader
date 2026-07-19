@@ -372,6 +372,22 @@ func GetUndeliveredResults() []engine.BackgroundResult {
 	return results
 }
 
+// Cleanup kills all background processes.
+func Cleanup() {
+	bgMu.Lock()
+	defer bgMu.Unlock()
+	for id, sess := range bgSessions {
+		select {
+		case <-sess.done:
+		default:
+			if sess.cmd.Process != nil {
+				sess.cmd.Process.Kill()
+			}
+		}
+		_ = id
+	}
+}
+
 // RegisterExecTools registers run_command, task_output, and task_stop handlers.
 func RegisterExecTools(eng *engine.Engine) {
 	eng.RegisterTool("run_command", execHandler)

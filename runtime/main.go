@@ -47,7 +47,7 @@ func main() {
 
 	port := flag.String("port", "", "listen port (default: PORT env or 8081)")
 	dataDir := flag.String("data-dir", "", "data directory (default: DATA_DIR env or ~/.beleader/runtime)")
-	headless := flag.Bool("headless", true, "run browser in headless mode")
+	_ = flag.Bool("headless", true, "run browser in headless mode")
 	gatewayURL := flag.String("gateway-url", "", "Gateway URL for auto-registration (default: GATEWAY_URL env)")
 	gatewayToken := flag.String("gateway-token", "", "Registration token for gateway auth (default: GATEWAY_TOKEN env)")
 	runtimeURL := flag.String("runtime-url", "", "Public URL of this runtime for Gateway to reach it (default: RUNTIME_URL env or http://127.0.0.1:{port})")
@@ -71,13 +71,6 @@ func main() {
 			*dataDir = filepath.Join(home, ".beleader", "runtime")
 		}
 	}
-
-	if h := os.Getenv("HEADLESS"); h != "" {
-		if v, err := strconv.ParseBool(h); err == nil {
-			*headless = v
-		}
-	}
-	tools.BrowserHeadless = *headless
 
 	if r := os.Getenv("RESTRICT_WORKSPACE"); r != "" {
 		if v, err := strconv.ParseBool(r); err == nil {

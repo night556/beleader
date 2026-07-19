@@ -4,14 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"beleader/runtime/engine"
 
-	"github.com/go-rod/rod/lib/input"
-	"github.com/go-rod/rod/lib/proto"
-	"github.com/go-rod/stealth"
 	"golang.org/x/net/html"
 )
 
@@ -21,13 +21,18 @@ func webSearchHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.Query == "" {
 		return &engine.ToolResult{Error: "query required"}
 	}
-	results, err := searchBing(ctx, p.Query)
+
+	results, err := searchBingHTTP(ctx, p.Query)
+	if err != nil {
+		results, err = searchDDG(ctx, p.Query)
+	}
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
 	}
 	if len(results) == 0 {
 		return &engine.ToolResult{Content: "No results found."}
 	}
+
 	var out strings.Builder
 	for i, r := range results {
 		fmt.Fprintf(&out, "%d. %s\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Snippet)
@@ -41,72 +46,41 @@ type searchResult struct {
 	Snippet string
 }
 
-func searchBing(ctx context.Context, query string) ([]searchResult, error) {
-	bs, err := getOrCreateBrowser()
+func searchBingHTTP(ctx context.Context, query string) ([]searchResult, error) {
+	reqURL := "https://www.bing.com/search?" + url.Values{"q": {query}}.Encode()
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("browser: %w", err)
+		return nil, err
 	}
+	httpReq.Header.Set("User-Agent", bingUA)
+	httpReq.Header.Set("Accept", "text/html")
+	httpReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
-	page, err := stealth.Page(bs.browser)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("create page: %w", err)
+		return nil, fmt.Errorf("bing request failed: %w", err)
 	}
-	defer func() {
-		bmu.Lock()
-		if bState != nil {
-			killBrowserLocked()
-			bState = nil
-		}
-		bmu.Unlock()
-	}()
-	defer page.Close()
+	defer resp.Body.Close()
 
-	page = page.Timeout(30 * time.Second).Context(ctx)
-
-	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
-		Width:             1920,
-		Height:            1080,
-		DeviceScaleFactor: 1,
-		Mobile:            false,
-	}); err != nil {
-		return nil, fmt.Errorf("viewport: %w", err)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("bing returned status %d", resp.StatusCode)
 	}
 
-	if err := page.Navigate("https://cn.bing.com/"); err != nil {
-		return nil, fmt.Errorf("navigate: %w", err)
-	}
-	if err := page.WaitLoad(); err != nil {
-		return nil, fmt.Errorf("wait load: %w", err)
-	}
-
-	el, err := page.Element("#sb_form_q")
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 200*1024))
 	if err != nil {
-		return nil, fmt.Errorf("find search box: %w", err)
-	}
-	if err := el.Input(query); err != nil {
-		return nil, fmt.Errorf("type query: %w", err)
-	}
-	if err := page.Keyboard.Press(input.Enter); err != nil {
-		return nil, fmt.Errorf("press enter: %w", err)
+		return nil, err
 	}
 
-	if err := page.WaitLoad(); err != nil {
-		return nil, fmt.Errorf("wait search results: %w", err)
+	results := parseBingHTML(string(body))
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no results parsed from Bing")
 	}
-
-	if _, err := page.Element("li.b_algo"); err != nil {
-		return nil, fmt.Errorf("wait results: %w", err)
-	}
-
-	htmlContent, err := page.HTML()
-	if err != nil {
-		return nil, fmt.Errorf("get html: %w", err)
-	}
-
-	return parseBingResults(htmlContent), nil
+	return results, nil
 }
 
-func parseBingResults(htmlContent string) []searchResult {
+func parseBingHTML(htmlContent string) []searchResult {
 	var results []searchResult
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
@@ -118,11 +92,10 @@ func parseBingResults(htmlContent string) []searchResult {
 		if n.Type == html.ElementNode && n.Data == "li" {
 			for _, attr := range n.Attr {
 				if attr.Key == "class" && strings.Contains(attr.Val, "b_algo") {
-					r := extractResult(n)
+					r := extractBingResult(n)
 					if r.Title != "" && r.URL != "" {
 						results = append(results, r)
 					}
-					return
 				}
 			}
 		}
@@ -138,7 +111,7 @@ func parseBingResults(htmlContent string) []searchResult {
 	return results
 }
 
-func extractResult(li *html.Node) searchResult {
+func extractBingResult(li *html.Node) searchResult {
 	var r searchResult
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
@@ -154,7 +127,7 @@ func extractResult(li *html.Node) searchResult {
 				}
 			}
 		}
-		if n.Data == "p" && r.Snippet == "" {
+		if n.Type == html.ElementNode && n.Data == "p" && r.Snippet == "" {
 			t := strings.TrimSpace(textContent(n))
 			if len(t) > 20 {
 				r.Snippet = t
@@ -166,6 +139,101 @@ func extractResult(li *html.Node) searchResult {
 	}
 	walk(li)
 	return r
+}
+
+func searchDDG(ctx context.Context, query string) ([]searchResult, error) {
+	reqURL := "https://lite.duckduckgo.com/lite/?" + url.Values{"q": {query}}.Encode()
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("User-Agent", bingUA)
+	httpReq.Header.Set("Accept", "text/html")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("ddg request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("ddg returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 200*1024))
+	if err != nil {
+		return nil, err
+	}
+
+	results := parseDDGLite(string(body))
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no results parsed from DuckDuckGo")
+	}
+	return results, nil
+}
+
+func parseDDGLite(htmlContent string) []searchResult {
+	var results []searchResult
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return results
+	}
+
+	var f func(*html.Node)
+	f = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "a" {
+			for _, attr := range n.Attr {
+				if attr.Key == "href" && strings.Contains(attr.Val, "uddg=") {
+					href := extractDDGURL(attr.Val)
+					if href == "" {
+						continue
+					}
+					snippet := nextSiblingText(n)
+					results = append(results, searchResult{
+						Title:   strings.TrimSpace(textContent(n)),
+						URL:     href,
+						Snippet: strings.TrimSpace(snippet),
+					})
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			f(c)
+		}
+	}
+	f(doc)
+
+	if len(results) > 10 {
+		results = results[:10]
+	}
+	return results
+}
+
+func nextSiblingText(n *html.Node) string {
+	for s := n.NextSibling; s != nil; s = s.NextSibling {
+		if s.Type == html.ElementNode && (s.Data == "br" || s.Data == "span") {
+			continue
+		}
+		t := strings.TrimSpace(textContent(s))
+		if t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+func extractDDGURL(raw string) string {
+	if strings.HasPrefix(raw, "//") {
+		raw = "https:" + raw
+	}
+	if u, err := url.Parse(raw); err == nil {
+		if uddg := u.Query().Get("uddg"); uddg != "" {
+			return uddg
+		}
+	}
+	return raw
 }
 
 func textContent(n *html.Node) string {

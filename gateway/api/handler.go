@@ -557,7 +557,11 @@ func modelToConfig(m *db.ModelProfile) config.ModelProfile {
 // ── Helpers ──
 
 func (h *Handler) handleListTools(c *gin.Context) {
-	tools := baseToolDefs()
+	tools, err := h.Runtimes.ToolDefs()
+	if err != nil {
+		c.JSON(503, gin.H{"error": "no runtime available: " + err.Error()})
+		return
+	}
 	for i := range tools {
 		if tools[i]["source"] == nil {
 			tools[i]["source"] = "builtin"
@@ -611,10 +615,17 @@ func (h *Handler) buildModelMap(m *db.ModelProfile) map[string]any {
 }
 
 func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, model *db.ModelProfile) (string, error) {
+	allTools, err := runtime.ToolDefs()
+	if err != nil {
+		return "", fmt.Errorf("fetch tools: %w", err)
+	}
+
 	var toolNames []string
 	json.Unmarshal([]byte(agent.Tools), &toolNames)
 	if len(toolNames) == 0 {
-		toolNames = defaultToolNames()
+		for _, t := range allTools {
+			toolNames = append(toolNames, t["name"].(string))
+		}
 	}
 
 	// Build MCP server configs from agent's mcp_servers list.
@@ -653,7 +664,7 @@ func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, m
 		RestrictWorkspace: h.Config.RestrictWorkspace,
 		SystemPrompt:      agent.SystemPrompt,
 		Model:             h.buildModelMap(model),
-		Tools:             baseToolDefsFiltered(toolNames),
+		Tools:             filterToolsByName(allTools, toolNames),
 		MCPServers:        mcpConfigs,
 		Metadata: map[string]any{
 			"agent_id": agent.ID,
@@ -666,6 +677,16 @@ func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, m
 	return threadID, nil
 }
 
-func defaultToolNames() []string {
-	return []string{"read_file", "read_dir", "write_file", "edit_file", "delete_file", "search_content", "search_files", "read_status", "update_status", "run_command", "task_output", "task_stop", "web_search", "web_fetch", "run_http_request", "spawn_worker"}
+func filterToolsByName(allTools []map[string]any, names []string) []map[string]any {
+	nameSet := make(map[string]bool, len(names))
+	for _, n := range names {
+		nameSet[n] = true
+	}
+	var filtered []map[string]any
+	for _, t := range allTools {
+		if nameSet[t["name"].(string)] {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
 }

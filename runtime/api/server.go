@@ -101,6 +101,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "DELETE" && strings.HasPrefix(path, "/threads/"):
 		id := strings.TrimPrefix(path, "/threads/")
 		s.handleDeleteThread(w, r, id)
+	case r.Method == "GET" && path == "/tools":
+		s.handleGetTools(w, r)
 	case r.Method == "GET" && path == "/health":
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -109,6 +111,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 		json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
 	}
+}
+
+func (s *Server) handleGetTools(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"tools": tools.AllToolDefs()})
 }
 
 func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
