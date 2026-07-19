@@ -30,10 +30,14 @@ export function ChatPage() {
 
   // Per-conversation effort override. Defaults to the model's setting, cycles locally.
   const [effort, setEffort] = useState<string>(() => activeModel?.reasoning_effort || 'off');
+  const effortRef = useRef(effort);
+  effortRef.current = effort;
 
   // Reset effort when model changes.
   useEffect(() => {
-    setEffort(activeModel?.reasoning_effort || 'off');
+    const v = activeModel?.reasoning_effort || 'off';
+    setEffort(v);
+    effortRef.current = v;
   }, [activeModelId]);
 
   // Thread switch: load history via messages API.
@@ -83,7 +87,7 @@ export function ChatPage() {
     if (!body.thread_id) {
       sendingNewRef.current = true;
     }
-    const fullBody = { ...body, reasoning_effort: effort };
+    const fullBody = { ...body, reasoning_effort: effortRef.current };
     try {
       const res = await client.sendChat(fullBody, ctrl.signal);
       const threadId = res.headers.get('X-Thread-Id');
