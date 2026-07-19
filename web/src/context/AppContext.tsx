@@ -24,6 +24,7 @@ type Action =
   | { type: 'ADD_TOKENS'; n: number }
   | { type: 'LOAD_TIMELINE'; items: TimelineItem[] }
   | { type: 'CLEAR_TIMELINE' }
+  | { type: 'PRUNE_TIMELINE' }
   | { type: 'SET_PENDING_IMAGES'; images: string[] }
   | { type: 'ADD_PENDING_IMAGE'; image: string }
   | { type: 'CLEAR_PENDING_IMAGES' };
@@ -124,6 +125,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, timeline: action.items.slice(-200), liveItem: null };
     case 'CLEAR_TIMELINE':
       return { ...state, timeline: [], liveItem: null };
+    case 'PRUNE_TIMELINE':
+      return { ...state, timeline: state.timeline.filter(ti => ti.status === 'done' || ti.status === 'fail'), liveItem: null };
     case 'SET_PENDING_IMAGES':
       return { ...state, pendingImages: action.images };
     case 'ADD_PENDING_IMAGE':
@@ -153,7 +156,7 @@ export function processSSEEvent(
   if (eventType === 'turn.started') {
     const turn = (data.payload as any)?.turn;
     turnIdRef.current = turn?.id || turnId;
-    dispatch({ type: 'CLEAR_TIMELINE' });
+    dispatch({ type: 'PRUNE_TIMELINE' });
     dispatch({ type: 'SET_STATE', state: 'thinking' });
     return false;
   }
