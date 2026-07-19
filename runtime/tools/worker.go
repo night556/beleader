@@ -79,7 +79,7 @@ func spawnWorkerHandler(ctx context.Context, args string) *engine.ToolResult {
 	noopEmit := func(ev engine.RuntimeEventRecord) {}
 
 	// Run the sub-agent.
-	result, _ := eng.RunLoop(ctx, subThread, "sub_"+engine.NewTurnID(), p.SystemPrompt, p.Task, toolList, llmClient, subThread.Model.ContextLimit, visionEnabled, make(chan struct{}), make(chan engine.InterveneMsg, 1), noopEmit, nil)
+	result, _ := eng.RunLoop(ctx, subThread, "sub_"+engine.NewTurnID(), p.SystemPrompt, p.Task, toolList, llmClient, subThread.Model.ContextLimit, visionEnabled, noopEmit, nil)
 
 	if result != nil {
 		if result.Error != "" {

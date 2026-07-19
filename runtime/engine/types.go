@@ -20,7 +20,6 @@ type ToolResult struct {
 // LoopResult is the outcome of a RunLoop invocation.
 type LoopResult struct {
 	Completed bool
-	Paused    bool
 	Stopped   bool
 	Rounds    int
 	Content   string
@@ -182,12 +181,6 @@ func ValidateRequired(args string, required []string) *ToolResult {
 		}
 	}
 	return nil
-}
-
-// InterveneMsg is a message injected into a running loop.
-type InterveneMsg struct {
-	Message string   `json:"message"`
-	Images  []string `json:"images"`
 }
 
 // ProgressCallback is the callback type for emitting events during RunLoop.

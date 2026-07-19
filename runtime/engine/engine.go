@@ -193,7 +193,7 @@ func messageRole(kind string) string {
 
 // RunLoop runs the LLM agent loop on the thread.
 // turnID is the current turn identifier for item lifecycle events.
-func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sysPrompt string, userContent string, toolList []openai.Tool, llmClient *llm.Client, modelContextLimit int, visionEnabled bool, pauseCh <-chan struct{}, interveneCh <-chan InterveneMsg, emit ProgressCallback, bgCheck func() []BackgroundResult) (*LoopResult, error) {
+func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sysPrompt string, userContent string, toolList []openai.Tool, llmClient *llm.Client, modelContextLimit int, visionEnabled bool, emit ProgressCallback, bgCheck func() []BackgroundResult) (*LoopResult, error) {
 	rounds := 0
 	lastPromptTokens := 0
 	currentTotalTokens := thread.TotalTokens
@@ -208,30 +208,8 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 
 	for {
 		select {
-		case <-pauseCh:
-			return &LoopResult{Paused: true, Rounds: rounds}, nil
 		case <-ctx.Done():
 			return &LoopResult{Stopped: true, Rounds: rounds}, nil
-		default:
-		}
-
-		select {
-		case msg := <-interveneCh:
-			itemID := NewItemID()
-			if len(msg.Images) > 0 {
-				parts := []MultiContentPart{}
-				if msg.Message != "" {
-					parts = append(parts, MultiContentPart{Type: "text", Text: msg.Message})
-				}
-				for _, img := range msg.Images {
-					parts = append(parts, MultiContentPart{Type: "image_url", ImageURL: &struct{ URL string `json:"url"` }{URL: img}})
-				}
-				thread.AddMessage(Message{Kind: "user_message", Content: msg.Message, MultiContent: parts})
-			} else {
-				thread.AddMessage(Message{Kind: "user_message", Content: msg.Message})
-			}
-			emit(StartItem(itemID, turnID, ItemKindUserMessage, abbreviate(msg.Message, 200), nil))
-			emit(CompleteItem(itemID, turnID, ItemKindUserMessage, msg.Message, nil))
 		default:
 		}
 

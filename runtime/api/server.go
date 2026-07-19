@@ -294,9 +294,6 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	pauseCh := make(chan struct{})
-	interveneCh := make(chan engine.InterveneMsg, 1)
-
 	// Event emission callback: writes SSE + persists to events.jsonl.
 	// Injects thread_id and turn_id into every event automatically.
 	turnID := engine.NewTurnID()
@@ -343,7 +340,7 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		thread.AddMessage(engine.Message{Kind: "user_message", Content: content})
 	}
 
-	result, err := s.eng.RunLoop(ctx, thread, turnID, enrichedPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit, tools.GetUndeliveredResults)
+	result, err := s.eng.RunLoop(ctx, thread, turnID, enrichedPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, emit, tools.GetUndeliveredResults)
 	if err != nil {
 		emit(engine.FailItem("item_error", turnID, engine.ItemKindError, err.Error()))
 
@@ -359,18 +356,6 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 				ID:           turnID,
 				ThreadID:     threadID,
 				Status:       engine.TurnStatusCompleted,
-				InputSummary: truncate(req.Message, 100),
-				StartedAt:    now,
-				EndedAt:      now,
-			}},
-		})
-	case result.Paused:
-		emit(engine.RuntimeEventRecord{
-			Event: engine.EventTurnCompleted,
-			Payload: map[string]any{"turn": engine.TurnRecord{
-				ID:           turnID,
-				ThreadID:     threadID,
-				Status:       engine.TurnStatusInterrupted,
 				InputSummary: truncate(req.Message, 100),
 				StartedAt:    now,
 				EndedAt:      now,

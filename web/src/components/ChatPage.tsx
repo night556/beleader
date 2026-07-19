@@ -133,11 +133,17 @@ export function ChatPage() {
   }, []);
 
   const handleStop = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    if (activeThreadId) {
-      client.pauseThread(activeThreadId).catch(() => {});
-    }
+    if (!activeThreadId) return;
+    // Tell Gateway to cancel the turn. Runtime will exit RunLoop,
+    // emit turn.completed (Interrupted), and the SSE stream will end cleanly.
+    client.pauseThread(activeThreadId).catch(() => {});
+    // Fallback: force abort if the stream hasn't ended within 5s.
+    setTimeout(() => {
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+    }, 5000);
   }, [activeThreadId]);
 
   const switchThread = (threadId: string) => {
