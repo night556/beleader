@@ -113,7 +113,7 @@ func main() {
 
 	os.MkdirAll(*dataDir, 0755)
 
-	srv := api.NewServer(*dataDir, *restrictWorkspace)
+	srv := api.NewServer(*dataDir)
 
 	httpServer := &http.Server{Addr: ":" + *port, Handler: srv}
 
@@ -127,7 +127,7 @@ func main() {
 	// Start auto-registration if gateway URL is configured.
 	var stopReg chan struct{}
 	if *gatewayURL != "" {
-		stopReg = api.StartRegistration(*gatewayURL, *gatewayToken, *runtimeName, *runtimeURL)
+		stopReg = api.StartRegistration(*gatewayURL, *gatewayToken, *runtimeName, *runtimeURL, *restrictWorkspace)
 	}
 
 	sigCh := make(chan os.Signal, 1)

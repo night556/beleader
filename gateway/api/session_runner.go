@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"path/filepath"
 	"time"
 
 	"beleader/gateway/db"
 )
 
-func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelProfile, message string, images []string) {
+func (h *Handler) runSession(runtime *RuntimeClient, threadID string, agent *db.Agent, model *db.ModelProfile, message string, images []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.mu.Lock()
 	h.cancelFuncs[threadID] = cancel
@@ -34,11 +35,16 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 		MultiContent: encodeMultiContent(images),
 	})
 
+	threadDir := filepath.Join(h.Config.DataDir, "threads", threadID)
+	workspaceDir := filepath.Join(threadDir, "workspace")
+
 	// Send turn to Runtime.
-	resp, err := h.Runtime.SendTurn(ctx, threadID, TurnRequest{
-		Message: message,
-		Images:  images,
-		Model:   h.buildModelMap(model),
+	resp, err := runtime.SendTurn(ctx, threadID, TurnRequest{
+		Message:      message,
+		Images:       images,
+		Model:        h.buildModelMap(model),
+		ThreadDir:    threadDir,
+		WorkspaceDir: workspaceDir,
 	})
 	if err != nil {
 		log.Printf("[session] %s: send turn error: %v", threadID, err)

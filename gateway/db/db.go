@@ -546,3 +546,4 @@ func (db *DB) GetRuntime(id int64) (*Runtime, error) {
 func (db *DB) DeleteRuntime(id int64) error {
 	return db.GORM.Where("id = ?", id).Delete(&Runtime{}).Error
 }
+

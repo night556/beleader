@@ -12,9 +12,10 @@ import (
 const heartbeatInterval = 30 * time.Second
 
 type registerRequest struct {
-	Name  string `json:"name"`
-	URL   string `json:"url"`
-	Token string `json:"token"`
+	Name              string `json:"name"`
+	URL               string `json:"url"`
+	Token             string `json:"token"`
+	RestrictWorkspace bool   `json:"restrict_workspace"`
 }
 
 type registerResponse struct {
@@ -31,11 +32,11 @@ type heartbeatRequest struct {
 
 // StartRegistration registers this runtime with the gateway, then sends periodic
 // heartbeats. Returns a channel that the caller closes to trigger deregistration.
-func StartRegistration(gatewayURL, token, name, runtimeURL string) chan struct{} {
+func StartRegistration(gatewayURL, token, name, runtimeURL string, restrictWorkspace bool) chan struct{} {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	register := func() (*registerResponse, error) {
-		body, _ := json.Marshal(registerRequest{Name: name, URL: runtimeURL, Token: token})
+		body, _ := json.Marshal(registerRequest{Name: name, URL: runtimeURL, Token: token, RestrictWorkspace: restrictWorkspace})
 		resp, err := client.Post(gatewayURL+"/api/runtimes/register", "application/json", bytes.NewReader(body))
 		if err != nil {
 			return nil, err

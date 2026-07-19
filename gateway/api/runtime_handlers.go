@@ -34,7 +34,7 @@ func (h *Handler) handleRuntimeRegister(c *gin.Context) {
 		return
 	}
 
-	h.Runtime.SetBaseURL(req.URL)
+	h.Runtimes.Set(req.Name, req.URL)
 
 	c.JSON(200, runtime)
 }
@@ -82,6 +82,11 @@ func (h *Handler) handleDeleteRuntime(c *gin.Context) {
 	if err != nil {
 		c.JSON(400, gin.H{"error": "invalid id"})
 		return
+	}
+	// Remove from pool first.
+	rt, _ := h.DB.GetRuntime(id)
+	if rt != nil {
+		h.Runtimes.Remove(rt.Name)
 	}
 	if err := h.DB.DeleteRuntime(id); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})

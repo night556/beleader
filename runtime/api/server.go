@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,24 +21,22 @@ import (
 
 // Server is the Runtime HTTP server.
 type Server struct {
-	eng               *engine.Engine
-	threads           map[string]*engine.Thread
-	mu                sync.RWMutex
-	dataDir           string
-	restrictWorkspace bool
-	mcpMgr            *mcp.Manager
+	eng     *engine.Engine
+	threads map[string]*engine.Thread
+	mu      sync.RWMutex
+	dataDir string
+	mcpMgr  *mcp.Manager
 }
 
 // NewServer creates a new Runtime server.
-func NewServer(dataDir string, restrictWorkspace bool) *Server {
+func NewServer(dataDir string) *Server {
 	eng := engine.NewEngine()
 	tools.RegisterAll(eng)
 	s := &Server{
-		eng:               eng,
-		threads:           make(map[string]*engine.Thread),
-		dataDir:           dataDir,
-		restrictWorkspace: restrictWorkspace,
-		mcpMgr:            mcp.NewManager(),
+		eng:     eng,
+		threads: make(map[string]*engine.Thread),
+		dataDir: dataDir,
+		mcpMgr:  mcp.NewManager(),
 	}
 	tools.SetWorkerGlobals(eng, s.threads)
 	return s
@@ -45,6 +44,10 @@ func NewServer(dataDir string, restrictWorkspace bool) *Server {
 
 // CreateThreadRequest is the JSON body for POST /v1/threads.
 type CreateThreadRequest struct {
+	ThreadID          string             `json:"thread_id"`
+	ThreadDir         string             `json:"thread_dir"`
+	WorkspaceDir      string             `json:"workspace_dir"`
+	RestrictWorkspace bool               `json:"restrict_workspace"`
 	SystemPrompt      string             `json:"system_prompt"`
 	Model             engine.ModelConfig `json:"model"`
 	Tools             []engine.ToolDef   `json:"tools"`
@@ -60,9 +63,11 @@ type CreateThreadResponse struct {
 
 // TurnRequest is the JSON body for POST /v1/threads/{id}/turns.
 type TurnRequest struct {
-	Message string              `json:"message"`
-	Images  []string            `json:"images,omitempty"`
-	Model   *engine.ModelConfig `json:"model,omitempty"`
+	Message      string              `json:"message"`
+	Images       []string            `json:"images,omitempty"`
+	Model        *engine.ModelConfig `json:"model,omitempty"`
+	ThreadDir    string              `json:"thread_dir"`
+	WorkspaceDir string              `json:"workspace_dir"`
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +127,8 @@ func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
 	}
 	var summaries []threadSummary
 	for _, id := range ids {
-		t, err := store.LoadThread(s.dataDir, id)
+		td := filepath.Join(s.dataDir, "threads", id)
+		t, err := store.LoadThread(td)
 		if err != nil {
 			continue
 		}
@@ -136,7 +142,7 @@ func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request, threadID string) {
-	t, err := store.LoadThread(s.dataDir, threadID)
+	t, err := store.LoadThread(s.threadDir(r, threadID))
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "thread not found"})
 		return
@@ -162,7 +168,10 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	thread := engine.NewThread(req.SystemPrompt, req.Model, req.Tools, "", req.MaxContextPct, req.Metadata, nil)
-	thread.RestrictWorkspace = s.restrictWorkspace
+	thread.ID = req.ThreadID
+	thread.DataDir = req.ThreadDir
+	thread.WorkspaceDir = req.WorkspaceDir
+	thread.RestrictWorkspace = req.RestrictWorkspace
 
 	// Connect MCP servers and register their tools.
 	for _, cfg := range req.MCPServers {
@@ -170,7 +179,6 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[MCP] connect %s: %v", cfg.Name, err)
 			continue
 		}
-		// Register tool handlers and add tool defs for this thread.
 		for _, t := range s.mcpMgr.ListTools() {
 			if t.Server != cfg.Name {
 				continue
@@ -193,16 +201,15 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	thread.OnMessageAppend = func(msg *engine.Message) {
-		store.AppendMessage(s.dataDir, thread.ID, msg)
+		store.AppendMessage(req.ThreadDir, thread.ID, msg)
 	}
 
-	if err := store.SaveThread(s.dataDir, thread); err != nil {
+	if err := store.SaveThread(req.ThreadDir, thread); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "failed to save thread: " + err.Error()})
 		return
 	}
 
-	// Ensure events.jsonl exists so SSE connections can open it immediately.
-	if err := store.InitEvents(s.dataDir, thread.ID); err != nil {
+	if err := store.InitEvents(req.ThreadDir, thread.ID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "failed to init events: " + err.Error()})
 		return
 	}
@@ -216,18 +223,27 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID string) {
+	var req TurnRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid request: " + err.Error()})
+		return
+	}
+
+	threadDir := req.ThreadDir
+	workspaceDir := req.WorkspaceDir
+
 	// Try memory first, then disk.
 	s.mu.RLock()
 	thread, ok := s.threads[threadID]
 	s.mu.RUnlock()
 	if !ok {
 		var err error
-		thread, err = store.LoadThread(s.dataDir, threadID)
+		thread, err = store.LoadThread(threadDir)
 		if err != nil {
 			writeJSON(w, 404, map[string]string{"error": "thread not found"})
 			return
 		}
-		msgs, _ := store.LoadMessages(s.dataDir, threadID)
+		msgs, _ := store.LoadMessages(threadDir, threadID)
 		thread.Messages = msgs
 		s.mu.Lock()
 		s.threads[threadID] = thread
@@ -235,19 +251,13 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	}
 
 	thread.OnMessageAppend = func(msg *engine.Message) {
-		store.AppendMessage(s.dataDir, threadID, msg)
-	}
-
-	var req TurnRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "invalid request: " + err.Error()})
-		return
+		store.AppendMessage(threadDir, threadID, msg)
 	}
 
 	// Update model config if provided (per-turn override).
 	if req.Model != nil {
 		thread.Model = *req.Model
-		store.SaveThread(s.dataDir, thread)
+		store.SaveThread(threadDir, thread)
 	}
 
 	flusher, ok := w.(http.Flusher)
@@ -263,7 +273,7 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	flusher.Flush()
 
 	// Open event writer for persistence.
-	ew, err := store.NewEventWriter(s.dataDir, threadID)
+	ew, err := store.NewEventWriter(threadDir, threadID)
 	if err != nil {
 		fmt.Fprintf(w, "event: error\ndata: {\"message\":\"%s\"}\n\n", escapeJSON(err.Error()))
 		flusher.Flush()
@@ -272,7 +282,7 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	defer ew.Close()
 
 	llmClient := llm.New(thread.Model.BaseURL, thread.Model.APIKey, thread.Model.Model)
-	tools.SetExecWorkDir(thread.WorkspaceDir)
+	tools.SetExecWorkDir(workspaceDir)
 	toolList := engine.ToolDefsToOpenAI(thread.ToolDefs)
 
 	ctx, cancel := context.WithCancel(r.Context())
@@ -388,11 +398,11 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	}
 
 	// Save final thread state first (so PinnedIDs/ContextStartID are on disk).
-	store.SaveThread(s.dataDir, thread)
+	store.SaveThread(threadDir, thread)
 
 	// Then sync messages.jsonl with pruned in-memory state after compression.
 	if len(thread.PinnedIDs) > 0 {
-		store.TruncateMessages(s.dataDir, threadID, thread.Messages)
+		store.TruncateMessages(threadDir, threadID, thread.Messages)
 	}
 	log.Printf("[turn] %s: done (rounds=%d)", threadID, result.Rounds)
 }
@@ -416,7 +426,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, threadID s
 	flusher.Flush()
 
 	ch := make(chan engine.RuntimeEventRecord, 100)
-	go store.ReadEvents(s.dataDir, threadID, sinceSeq, ch)
+	go store.ReadEvents(s.threadDir(r, threadID), threadID, sinceSeq, ch)
 
 	for ev := range ch {
 		b, _ := json.Marshal(ev)
@@ -426,7 +436,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, threadID s
 }
 
 func (s *Server) handleLatestSeq(w http.ResponseWriter, r *http.Request, threadID string) {
-	seq, err := store.EventSeq(s.dataDir, threadID)
+	seq, err := store.EventSeq(s.threadDir(r, threadID), threadID)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
@@ -439,7 +449,7 @@ func (s *Server) handleDeleteThread(w http.ResponseWriter, r *http.Request, thre
 	delete(s.threads, threadID)
 	s.mu.Unlock()
 
-	if err := store.DeleteThread(s.dataDir, threadID); err != nil {
+	if err := store.DeleteThread(s.threadDir(r, threadID)); err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
@@ -447,9 +457,9 @@ func (s *Server) handleDeleteThread(w http.ResponseWriter, r *http.Request, thre
 	writeJSON(w, 200, map[string]string{"status": "deleted"})
 }
 
-// ListenAndServe starts the HTTP server.
-func (s *Server) ListenAndServe(addr string) error {
-	return http.ListenAndServe(addr, s)
+// threadDir resolves the thread directory from the request query param.
+func (s *Server) threadDir(r *http.Request, threadID string) string {
+	return r.URL.Query().Get("thread_dir")
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

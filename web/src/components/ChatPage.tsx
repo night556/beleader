@@ -57,7 +57,7 @@ export function ChatPage() {
     });
   }, [activeThreadId]);
 
-  // Load threads list on mount
+  // Load threads list + runtimes on mount
   useEffect(() => {
     client.listThreads().then(ts => dispatch({ type: 'SET_THREADS', threads: ts })).catch(() => {});
   }, []);

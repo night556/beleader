@@ -8,24 +8,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
+	"sync"
 )
 
 // RuntimeClient is the HTTP client for the Runtime service.
 type RuntimeClient struct {
+	Name       string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
-func NewRuntimeClient(baseURL string) *RuntimeClient {
+func NewRuntimeClient(name, baseURL string) *RuntimeClient {
 	return &RuntimeClient{
+		Name:       name,
 		BaseURL:    baseURL,
 		HTTPClient: &http.Client{Timeout: 0},
 	}
-}
-
-func (c *RuntimeClient) SetBaseURL(url string) {
-	c.BaseURL = url
 }
 
 // MCPConfig is the config for a single MCP server passed to Runtime.
@@ -41,6 +39,10 @@ type MCPConfig struct {
 
 // CreateThreadRequest is the JSON body for POST /v1/threads.
 type CreateThreadRequest struct {
+	ThreadID          string           `json:"thread_id"`
+	ThreadDir         string           `json:"thread_dir"`
+	WorkspaceDir      string           `json:"workspace_dir"`
+	RestrictWorkspace bool             `json:"restrict_workspace"`
 	SystemPrompt      string           `json:"system_prompt"`
 	Model             map[string]any   `json:"model"`
 	Tools             []map[string]any `json:"tools"`
@@ -56,9 +58,11 @@ type CreateThreadResponse struct {
 
 // TurnRequest is the JSON body for POST /v1/threads/{id}/turns.
 type TurnRequest struct {
-	Message string         `json:"message"`
-	Images  []string       `json:"images,omitempty"`
-	Model   map[string]any `json:"model,omitempty"`
+	Message     string         `json:"message"`
+	Images      []string       `json:"images,omitempty"`
+	Model       map[string]any `json:"model,omitempty"`
+	ThreadDir   string         `json:"thread_dir"`
+	WorkspaceDir string        `json:"workspace_dir"`
 }
 
 // CreateThread creates a new thread in the Runtime service.
@@ -237,8 +241,60 @@ func ParseAndForwardSSE(body io.ReadCloser, w io.Writer, flusher http.Flusher, o
 	return scanner.Err()
 }
 
-// ── unused local import guard ──
-var _ = time.Now
+// ── Runtime client pool ──
+
+// RuntimeClientPool manages connections to multiple equivalent Runtimes.
+type RuntimeClientPool struct {
+	clients []*RuntimeClient
+	mu      sync.RWMutex
+}
+
+func NewRuntimeClientPool() *RuntimeClientPool {
+	return &RuntimeClientPool{clients: make([]*RuntimeClient, 0)}
+}
+
+func (p *RuntimeClientPool) Set(name, baseURL string) *RuntimeClient {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// Replace existing entry with the same name (re-registration).
+	for i, c := range p.clients {
+		if c.Name == name {
+			p.clients[i] = NewRuntimeClient(name, baseURL)
+			return p.clients[i]
+		}
+	}
+	c := NewRuntimeClient(name, baseURL)
+	p.clients = append(p.clients, c)
+	return c
+}
+
+// Pick returns any available client (first alive in the pool).
+func (p *RuntimeClientPool) Pick() (*RuntimeClient, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if len(p.clients) == 0 {
+		return nil, false
+	}
+	return p.clients[0], true
+}
+
+func (p *RuntimeClientPool) Remove(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i, c := range p.clients {
+		if c.Name == name {
+			p.clients = append(p.clients[:i], p.clients[i+1:]...)
+			return
+		}
+	}
+}
+
+// HasAny returns whether at least one runtime is registered.
+func (p *RuntimeClientPool) HasAny() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.clients) > 0
+}
 
 // GetLatestSeq returns the current max event seq for a thread.
 func (c *RuntimeClient) GetLatestSeq(threadID string) (int64, error) {

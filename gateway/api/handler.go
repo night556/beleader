@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -13,15 +14,16 @@ import (
 	"beleader/gateway/llm"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // Handler is the Gateway HTTP handler.
 type Handler struct {
-	DB      *db.DB
-	LLM     *llm.Client
-	Config  *config.Config
-	SSE     *SSEBroker
-	Runtime *RuntimeClient
+	DB       *db.DB
+	LLM      *llm.Client
+	Config   *config.Config
+	SSE      *SSEBroker
+	Runtimes *RuntimeClientPool
 
 	RegToken   string // shared secret for runtime registration, from GATEWAY_TOKEN env var
 
@@ -39,7 +41,7 @@ func NewHandler(database *db.DB, llmClient *llm.Client, cfg *config.Config) *Han
 		LLM:          llmClient,
 		Config:       cfg,
 		SSE:          broker,
-		Runtime:      NewRuntimeClient(""),
+		Runtimes:     NewRuntimeClientPool(),
 		RegToken:     cfg.RegToken,
 		cancelFuncs: make(map[string]context.CancelFunc),
 		turnTokens:  make(map[string]int64),
@@ -121,7 +123,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "message required"})
 		return
 	}
-	if h.Runtime.BaseURL == "" {
+	if !h.Runtimes.HasAny() {
 		c.JSON(503, gin.H{"error": "no runtime available — wait for a runtime to register"})
 		return
 	}
@@ -138,6 +140,12 @@ func (h *Handler) handleChat(c *gin.Context) {
 		model = overrideEffort(model, req.ReasoningEffort)
 	}
 
+	runtime, _ := h.Runtimes.Pick()
+	if runtime == nil {
+		c.JSON(503, gin.H{"error": "no runtime available"})
+		return
+	}
+
 	threadID := req.ThreadID
 	if threadID == "" {
 		modelID := ""
@@ -145,7 +153,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 			modelID = model.ModelID
 		}
 
-		rtID, err := h.createRuntimeThread(agent, model)
+		rtID, err := h.createRuntimeThread(runtime, agent, model)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -190,10 +198,14 @@ func (h *Handler) handleChat(c *gin.Context) {
 	}()
 
 	// Call Runtime to start the turn and stream SSE back.
-	resp, err := h.Runtime.SendTurn(turnCtx, threadID, TurnRequest{
-		Message: req.Message,
-		Images:  req.Images,
-		Model:   h.buildModelMap(model),
+	threadDir := filepath.Join(h.Config.DataDir, "threads", threadID)
+	workspaceDir := filepath.Join(threadDir, "workspace")
+	resp, err := runtime.SendTurn(turnCtx, threadID, TurnRequest{
+		Message:      req.Message,
+		Images:       req.Images,
+		Model:        h.buildModelMap(model),
+		ThreadDir:    threadDir,
+		WorkspaceDir: workspaceDir,
 	})
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -333,7 +345,9 @@ func (h *Handler) handleGetThread(c *gin.Context) {
 func (h *Handler) handleDeleteThread(c *gin.Context) {
 	id := c.Param("id")
 	h.cancelThread(id)
-	h.Runtime.DeleteThread(id)
+	if runtime, _ := h.Runtimes.Pick(); runtime != nil {
+		runtime.DeleteThread(id)
+	}
 	if err := h.DB.DeleteThread(id); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -353,8 +367,10 @@ func (h *Handler) handleGetMessages(c *gin.Context) {
 		return
 	}
 	resp := gin.H{"messages": msgs, "latest_seq": int64(0)}
-	if seq, err := h.Runtime.GetLatestSeq(threadID); err == nil {
-		resp["latest_seq"] = seq
+	if runtime, _ := h.Runtimes.Pick(); runtime != nil {
+		if seq, err2 := runtime.GetLatestSeq(threadID); err2 == nil {
+			resp["latest_seq"] = seq
+		}
 	}
 	c.JSON(200, resp)
 }
@@ -402,7 +418,12 @@ func (h *Handler) handleResume(c *gin.Context) {
 		return
 	}
 	model := h.resolveModel(agent.ID, "")
-	go h.runSession(threadID, agent, model, "[System] Please continue.", nil)
+	runtime, _ := h.Runtimes.Pick()
+	if runtime == nil {
+		c.JSON(503, gin.H{"error": "no runtime available"})
+		return
+	}
+	go h.runSession(runtime, threadID, agent, model, "[System] Please continue.", nil)
 	c.JSON(200, gin.H{"status": "resumed"})
 }
 
@@ -429,7 +450,12 @@ func (h *Handler) handleIntervene(c *gin.Context) {
 		return
 	}
 	model := h.resolveModel(agent.ID, "")
-	go h.runSession(threadID, agent, model, req.Message, req.Images)
+	runtime, _ := h.Runtimes.Pick()
+	if runtime == nil {
+		c.JSON(503, gin.H{"error": "no runtime available"})
+		return
+	}
+	go h.runSession(runtime, threadID, agent, model, req.Message, req.Images)
 	c.JSON(200, gin.H{"status": "intervened"})
 }
 
@@ -584,7 +610,7 @@ func (h *Handler) buildModelMap(m *db.ModelProfile) map[string]any {
 	}
 }
 
-func (h *Handler) createRuntimeThread(agent *db.Agent, model *db.ModelProfile) (string, error) {
+func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, model *db.ModelProfile) (string, error) {
 	var toolNames []string
 	json.Unmarshal([]byte(agent.Tools), &toolNames)
 	if len(toolNames) == 0 {
@@ -616,7 +642,15 @@ func (h *Handler) createRuntimeThread(agent *db.Agent, model *db.ModelProfile) (
 		}
 	}
 
+	threadID := uuid.New().String()
+	threadDir := filepath.Join(h.Config.DataDir, "threads", threadID)
+	workspaceDir := filepath.Join(threadDir, "workspace")
+
 	req := CreateThreadRequest{
+		ThreadID:          threadID,
+		ThreadDir:         threadDir,
+		WorkspaceDir:      workspaceDir,
+		RestrictWorkspace: h.Config.RestrictWorkspace,
 		SystemPrompt:      agent.SystemPrompt,
 		Model:             h.buildModelMap(model),
 		Tools:             baseToolDefsFiltered(toolNames),
@@ -626,11 +660,10 @@ func (h *Handler) createRuntimeThread(agent *db.Agent, model *db.ModelProfile) (
 		},
 	}
 
-	resp, err := h.Runtime.CreateThread(req)
-	if err != nil {
+	if _, err := runtime.CreateThread(req); err != nil {
 		return "", err
 	}
-	return resp.ID, nil
+	return threadID, nil
 }
 
 func defaultToolNames() []string {

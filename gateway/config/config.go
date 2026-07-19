@@ -7,12 +7,21 @@ import (
 
 // Config holds runtime-only settings. Model configs are stored in the DB.
 type Config struct {
-	RegToken string `json:"-"`
+	RegToken          string `json:"-"`
+	DataDir           string `json:"-"`
+	RestrictWorkspace bool   `json:"-"`
 }
 
 func DefaultConfig() *Config {
+	dir := os.Getenv("DATA_DIR")
+	if dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".beleader", "runtime")
+	}
 	return &Config{
-		RegToken: os.Getenv("GATEWAY_TOKEN"),
+		RegToken:          os.Getenv("GATEWAY_TOKEN"),
+		DataDir:           dir,
+		RestrictWorkspace: os.Getenv("RESTRICT_WORKSPACE") == "true",
 	}
 }
 
