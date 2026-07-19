@@ -53,7 +53,6 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
         <div
           className="modal-backdrop"
           style={{ display: visible ? 'flex' : 'none', opacity: visible ? 1 : 0, transition: 'opacity 0.2s' }}
-          onClick={e => { if (e.target === e.currentTarget) close(); }}
         >
           <div className={`modal-dialog ${opts.wide ? 'wide' : ''}`}>
             <div className="modal-head">

@@ -135,7 +135,7 @@ export function AgentPage() {
         )}
 
         {showForm && (
-          <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowForm(false); }}>
+          <div className="modal-backdrop">
             <div className="modal-dialog wide">
               <div className="modal-head">
                 <h3>{editId ? t('agents.edit_title') : t('agents.new_title')}</h3>

@@ -124,7 +124,7 @@ export function MCPPage() {
         )}
 
         {showForm && (
-          <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowForm(false); }}>
+          <div className="modal-backdrop">
             <div className="modal-dialog wide">
               <div className="modal-head">
                 <h3>{editId ? 'Edit MCP Server' : 'New MCP Server'}</h3>
