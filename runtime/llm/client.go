@@ -327,23 +327,27 @@ func detectProvider(baseURL string) string {
 }
 
 func applyReasoningEffort(body map[string]any, effort, provider string) {
-	if effort == "" || effort == "off" {
-		return
-	}
 	switch provider {
 	case "deepseek":
+		if effort == "" || effort == "off" {
+			body["thinking"] = map[string]string{"type": "disabled"}
+			return
+		}
 		body["reasoning_effort"] = effort
 		body["thinking"] = map[string]string{"type": "enabled"}
 	case "openai":
-		// OpenAI o-series: reasoning_effort is native (low/medium/high).
-		// "max" is not an OpenAI value — fall back to "high".
+		if effort == "" || effort == "off" {
+			return
+		}
 		if effort == "max" {
 			body["reasoning_effort"] = "high"
 		} else {
 			body["reasoning_effort"] = effort
 		}
 	default:
-		// OpenAI-compatible providers: pass reasoning_effort directly.
+		if effort == "" || effort == "off" {
+			return
+		}
 		body["reasoning_effort"] = effort
 	}
 }
