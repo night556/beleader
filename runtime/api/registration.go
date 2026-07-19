@@ -65,14 +65,26 @@ func StartRegistration(gatewayURL, token, name, runtimeURL string, restrictWorks
 	done := make(chan struct{})
 
 	go func() {
-		// Initial registration.
-		regResp, err := register()
-		if err != nil {
-			log.Printf("[registration] initial registration failed: %v", err)
+		// Initial registration with retries.
+		var runtimeID int64
+		for i := 0; i < 10; i++ {
+			regResp, err := register()
+			if err == nil {
+				runtimeID = regResp.ID
+				log.Printf("[registration] registered as %q (id=%d) at %s", name, runtimeID, runtimeURL)
+				break
+			}
+			log.Printf("[registration] attempt %d/10 failed: %v", i+1, err)
+			select {
+			case <-done:
+				return
+			case <-time.After(time.Duration(i+1) * time.Second):
+			}
+		}
+		if runtimeID == 0 {
+			log.Printf("[registration] all attempts failed, giving up")
 			return
 		}
-		runtimeID := regResp.ID
-		log.Printf("[registration] registered as %q (id=%d) at %s", name, runtimeID, runtimeURL)
 
 		ticker := time.NewTicker(heartbeatInterval)
 		defer ticker.Stop()
