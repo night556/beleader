@@ -27,7 +27,7 @@ services:
       - RESTRICT_WORKSPACE=${RESTRICT_WORKSPACE:-false}
       - GATEWAY_TOKEN=${GATEWAY_TOKEN:-rt_dev_xxx}
     volumes:
-      - runtime-data:/app/data
+      - gateway-data:/app/data
     restart: unless-stopped
 
   web:
@@ -40,3 +40,4 @@ services:
 
 volumes:
   runtime-data:
+  gateway-data:
