@@ -23,27 +23,29 @@ export function ModelPage() {
   };
 
   const openEdit = (m: ModelProfile) => {
-    setEditingId(m.id);
-    setForm({ ...m });
+    setEditingId(m.id.trim());
+    setForm({ ...m, id: m.id.trim() });
     setShowForm(true);
   };
 
   const save = async () => {
-    if (!form.id.trim()) return;
+    const id = form.id.trim();
+    if (!id) return;
+    const cleaned = { ...form, id };
     if (editingId) {
-      await client.updateModel(editingId, form);
-      const updated = models.map(m => m.id === editingId ? form : m);
+      await client.updateModel(editingId, cleaned);
+      const updated = models.map(m => m.id === editingId ? cleaned : m);
       dispatch({ type: 'SET_MODELS', models: updated });
     } else {
-      if (models.find(m => m.id === form.id)) {
+      if (models.find(m => m.id === id)) {
         alert('A model with this ID already exists.');
         return;
       }
-      await client.createModel(form);
-      const updated = [...models, form];
+      await client.createModel(cleaned);
+      const updated = [...models, cleaned];
       dispatch({ type: 'SET_MODELS', models: updated });
       if (!activeModelId) {
-        dispatch({ type: 'SET_ACTIVE_MODEL', modelId: form.id });
+        dispatch({ type: 'SET_ACTIVE_MODEL', modelId: id });
       }
       dispatch({ type: 'SET_HAS_MODELS', has: true });
     }

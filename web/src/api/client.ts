@@ -45,8 +45,8 @@ export const client = {
   // Models
   listModels: () => api<ModelProfile[]>('/api/models'),
   createModel: (body: ModelProfile) => api<ModelProfile>('/api/models', { method: 'POST', body: JSON.stringify(body) }),
-  updateModel: (id: string, body: ModelProfile) => api<{ status: string }>(`/api/models/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
-  deleteModel: (id: string) => api<{ status: string }>(`/api/models/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  updateModel: (_id: string, body: ModelProfile) => api<{ status: string }>('/api/models', { method: 'PUT', body: JSON.stringify(body) }),
+  deleteModel: (id: string) => api<{ status: string }>('/api/models', { method: 'DELETE', body: JSON.stringify({ id }) }),
 
   // MCP
   listMCPServers: () => api<MCPServer[]>('/api/mcp/servers'),

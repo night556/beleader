@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,8 +94,8 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 
 		api.GET("/models", h.handleListModels)
 		api.POST("/models", h.handleCreateModel)
-		api.PUT("/models/:id", h.handleUpdateModel)
-		api.DELETE("/models/:id", h.handleDeleteModel)
+		api.PUT("/models", h.handleUpdateModel)
+		api.DELETE("/models", h.handleDeleteModel)
 
 		api.GET("/mcp/servers", h.handleListMCPServers)
 		api.POST("/mcp/servers", h.handleCreateMCPServer)
@@ -505,7 +506,7 @@ func (h *Handler) handleCreateModel(c *gin.Context) {
 		return
 	}
 	m := &db.ModelProfile{
-		ModelID:         req.ID,
+		ModelID:         strings.TrimSpace(req.ID),
 		BaseURL:         req.BaseURL,
 		APIKey:          req.APIKey,
 		Model:           req.Model,
@@ -521,13 +522,18 @@ func (h *Handler) handleCreateModel(c *gin.Context) {
 }
 
 func (h *Handler) handleUpdateModel(c *gin.Context) {
-	modelID := c.Param("id")
 	var req config.ModelProfile
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+	modelID := strings.TrimSpace(req.ID)
+	if modelID == "" {
+		c.JSON(400, gin.H{"error": "id is required"})
+		return
+	}
 	m := &db.ModelProfile{
+		ModelID:         modelID,
 		BaseURL:         req.BaseURL,
 		APIKey:          req.APIKey,
 		Model:           req.Model,
@@ -543,7 +549,19 @@ func (h *Handler) handleUpdateModel(c *gin.Context) {
 }
 
 func (h *Handler) handleDeleteModel(c *gin.Context) {
-	if err := h.DB.DeleteModel(c.Param("id")); err != nil {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	modelID := strings.TrimSpace(req.ID)
+	if modelID == "" {
+		c.JSON(400, gin.H{"error": "id is required"})
+		return
+	}
+	if err := h.DB.DeleteModel(modelID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
