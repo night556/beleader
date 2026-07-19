@@ -2,14 +2,17 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"beleader/runtime/api"
 	"beleader/runtime/tools"
@@ -112,10 +115,11 @@ func main() {
 
 	srv := api.NewServer(*dataDir, *restrictWorkspace)
 
-	// Run server in goroutine so main can handle signals.
+	httpServer := &http.Server{Addr: ":" + *port, Handler: srv}
+
 	go func() {
 		log.Printf("Runtime starting on :%s (data=%s)", *port, *dataDir)
-		if err := srv.ListenAndServe(":" + *port); err != nil {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
 	}()
@@ -133,4 +137,13 @@ func main() {
 	if stopReg != nil {
 		close(stopReg)
 	}
+
+	// Graceful HTTP shutdown — stops accepting new requests, waits for in-flight.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	httpServer.Shutdown(shutdownCtx)
+
+	// Kill all background processes started by this Runtime.
+	tools.Cleanup()
+	log.Println("Shutdown complete.")
 }

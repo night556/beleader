@@ -186,8 +186,8 @@ func findBrowser() string {
 
 // Cleanup kills the browser process.
 func Cleanup() {
-	execMu.Lock()
-	for id, sess := range execSessions {
+	bgMu.Lock()
+	for id, sess := range bgSessions {
 		select {
 		case <-sess.done:
 		default:
@@ -197,7 +197,7 @@ func Cleanup() {
 		}
 		_ = id
 	}
-	execMu.Unlock()
+	bgMu.Unlock()
 
 	bmu.Lock()
 	if bState != nil {

@@ -234,7 +234,7 @@ func (db *DB) SetActiveModel(modelID string) error {
 
 func (db *DB) seedDefaultAgent() {
 	var count int64
-	defaultTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","read_status","update_status","run_command","web_search","web_fetch","run_http_request","spawn_worker"]`
+	defaultTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","read_status","update_status","run_command","task_output","task_stop","web_search","web_fetch","run_http_request","spawn_worker"]`
 	if db.GORM.Model(&Agent{}).Where("name = 'Default'").Count(&count); count == 0 {
 		db.GORM.Create(&Agent{
 			Name:         "Default",

@@ -316,7 +316,18 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 		WorkDir: thread.WorkspaceDir,
 	}
 	thread.TurnMeta = engine.BuildTurnMeta(env)
-	result, err := s.eng.RunLoop(ctx, thread, turnID, enrichedPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit)
+
+	// Inject any background command results that completed since last turn.
+	// (injected as user_message — background commands have no matching tool_call)
+	for _, r := range tools.GetUndeliveredResults() {
+		content := fmt.Sprintf("[Background command completed]\nCommand: %s\nExit code: %d\n\n%s", r.Command, r.ExitCode, r.Output)
+		if r.Error != "" {
+			content = fmt.Sprintf("[Background command completed]\nCommand: %s\nExit code: %d\nError: %s\n\n%s", r.Command, r.ExitCode, r.Error, r.Output)
+		}
+		thread.AddMessage(engine.Message{Kind: "user_message", Content: content})
+	}
+
+	result, err := s.eng.RunLoop(ctx, thread, turnID, enrichedPrompt, req.Message, toolList, llmClient, thread.Model.ContextLimit, thread.Model.Vision, pauseCh, interveneCh, emit, tools.GetUndeliveredResults)
 	if err != nil {
 		emit(engine.FailItem("item_error", turnID, engine.ItemKindError, err.Error()))
 

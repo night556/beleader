@@ -79,7 +79,7 @@ func spawnWorkerHandler(ctx context.Context, args string) *engine.ToolResult {
 	noopEmit := func(ev engine.RuntimeEventRecord) {}
 
 	// Run the sub-agent.
-	result, _ := eng.RunLoop(ctx, subThread, "sub_"+engine.NewTurnID(), p.SystemPrompt, p.Task, toolList, llmClient, subThread.Model.ContextLimit, visionEnabled, make(chan struct{}), make(chan engine.InterveneMsg, 1), noopEmit)
+	result, _ := eng.RunLoop(ctx, subThread, "sub_"+engine.NewTurnID(), p.SystemPrompt, p.Task, toolList, llmClient, subThread.Model.ContextLimit, visionEnabled, make(chan struct{}), make(chan engine.InterveneMsg, 1), noopEmit, nil)
 
 	if result != nil {
 		if result.Error != "" {
@@ -136,11 +136,19 @@ func baseToolDefs() []engine.ToolDef {
 			"pattern": map[string]any{"type": "string", "description": "Glob pattern."},
 			"path":    map[string]any{"type": "string", "description": "Directory to search."},
 		}, []string{"pattern"}),
-		engine.MkTool("run_command", "Run a shell command.", map[string]any{
-			"command":    map[string]any{"type": "string", "description": "Command to execute."},
-			"background": map[string]any{"type": "boolean", "description": "Run in background."},
-			"timeout":    map[string]any{"type": "integer", "description": "Timeout in seconds."},
+		engine.MkTool("run_command", "Execute a shell command in the workspace. Set background=true for long-running commands (returns session_id). Use task_output to check/wait and task_stop to kill.", map[string]any{
+			"command":    map[string]any{"type": "string", "description": "Shell command to execute."},
+			"background": map[string]any{"type": "boolean", "description": "Run in background. Returns session_id for task_output/task_stop."},
+			"timeout":    map[string]any{"type": "integer", "description": "Timeout in seconds (default 60, max 120)."},
 		}, []string{"command"}),
+		engine.MkTool("task_output", "Get output from a background command. Use block=false to check immediately; block=true to wait for completion.", map[string]any{
+			"id":    map[string]any{"type": "string", "description": "Session ID returned by run_command."},
+			"block": map[string]any{"type": "boolean", "description": "Whether to block until the command completes (default false)."},
+			"wait":  map[string]any{"type": "integer", "description": "Max seconds to wait when block=true (default 30)."},
+		}, []string{"id"}),
+		engine.MkTool("task_stop", "Stop a running background command and return its final output.", map[string]any{
+			"id": map[string]any{"type": "string", "description": "Session ID to kill."},
+		}, []string{"id"}),
 		engine.MkTool("web_search", "Search the web.", map[string]any{
 			"query": map[string]any{"type": "string", "description": "Search query."},
 		}, []string{"query"}),

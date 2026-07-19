@@ -120,6 +120,15 @@ func SendCommandEnd(ctx context.Context, command string, exitCode int) {
 	EmitEvent(ctx, ev)
 }
 
+// BackgroundResult is the result of a completed background command.
+type BackgroundResult struct {
+	ID       string
+	Command  string
+	ExitCode int
+	Output   string
+	Error    string
+}
+
 // Engine manages tool handlers and runs the LLM loop.
 type Engine struct {
 	ToolHandlers map[string]func(ctx context.Context, args string) *ToolResult

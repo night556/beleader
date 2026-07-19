@@ -7,104 +7,65 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
 	"beleader/runtime/engine"
 )
 
-// ringBuffer is a fixed-size circular buffer for capturing process output.
-type ringBuffer struct {
-	buf    []byte
-	size   int
-	write  int
-	total  int
-	mu     sync.Mutex
-	notify chan struct{}
+// ── outputBuf ──
+
+type outputBuf struct {
+	mu  sync.Mutex
+	buf []byte
 }
 
-func newRingBuffer(size int) *ringBuffer {
-	return &ringBuffer{
-		buf:    make([]byte, size),
-		size:   size,
-		notify: make(chan struct{}, 1),
-	}
+func newOutputBuf() *outputBuf {
+	return &outputBuf{buf: make([]byte, 0, 8192)}
 }
 
-func (rb *ringBuffer) Write(p []byte) (int, error) {
-	rb.mu.Lock()
-	for i := 0; i < len(p); i++ {
-		rb.buf[rb.write] = p[i]
-		rb.write = (rb.write + 1) % rb.size
-	}
-	rb.total += len(p)
-	rb.mu.Unlock()
-
-	select {
-	case rb.notify <- struct{}{}:
-	default:
+func (b *outputBuf) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf = append(b.buf, p...)
+	if len(b.buf) > 50*1024 {
+		keep := len(b.buf) - 50*1024
+		b.buf = b.buf[keep:]
 	}
 	return len(p), nil
 }
 
-func (rb *ringBuffer) read(offset, limit int) (string, int) {
-	rb.mu.Lock()
-	defer rb.mu.Unlock()
-
-	total := rb.total
-	if offset >= total {
-		return "", total
+func (b *outputBuf) StringFrom(pos int) (string, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if pos >= len(b.buf) {
+		return "", len(b.buf)
 	}
-
-	available := rb.size
-	if total < rb.size {
-		available = total
-	}
-	if offset < total-available {
-		offset = total - available
-	}
-
-	remaining := total - offset
-	if limit <= 0 || limit > remaining {
-		limit = remaining
-	}
-
-	var out strings.Builder
-	for i := offset; i < offset+limit; i++ {
-		idx := i % rb.size
-		out.WriteByte(rb.buf[idx])
-	}
-	return out.String(), total
+	s := string(b.buf[pos:])
+	return s, len(b.buf)
 }
 
-func (rb *ringBuffer) resetNotify() {
-	select {
-	case <-rb.notify:
-	default:
-	}
-}
+// ── bgSession ──
 
-// execSession tracks a single background process.
-type execSession struct {
-	id       string
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	stdout   *ringBuffer
-	stderr   *ringBuffer
-	command  string
-	started  time.Time
-	exitCode int
-	exitErr  error
-	done     chan struct{}
-	mu       sync.Mutex
+type bgSession struct {
+	id           string
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	output       *outputBuf
+	command      string
+	started      time.Time
+	exitCode     int
+	exitErr      error
+	done         chan struct{}
+	lastCheckPos int
+	mu           sync.Mutex
 }
 
 var (
-	execSessions = map[string]*execSession{}
-	execMu       sync.Mutex
-	execSeq      int
-	execWorkDir  string
+	bgSessions = map[string]*bgSession{}
+	bgMu       sync.Mutex
+	bgSeq      int
+	execWorkDir string
 )
 
 func setExecWorkDir(dir string) {
@@ -112,17 +73,17 @@ func setExecWorkDir(dir string) {
 }
 
 // SetExecWorkDir sets the working directory for command execution (public API).
-// ShellName returns the detected shell executable name (e.g. "pwsh", "bash").
-func ShellName() string { return detectShell().exe }
-
 func SetExecWorkDir(dir string) {
 	setExecWorkDir(dir)
 }
 
+// ShellName returns the detected shell executable name (e.g. "pwsh", "bash").
+func ShellName() string { return detectShell().exe }
+
 type shellInfo struct {
 	exe    string
 	flag   string
-	prefix string // prepended to every command for encoding/codepage setup
+	prefix string
 }
 
 var cachedShell struct {
@@ -153,11 +114,180 @@ func detectShell() shellInfo {
 	return cachedShell.info
 }
 
-func startBackground(ctx context.Context, command, workDir string) *execSession {
-	execMu.Lock()
-	execSeq++
-	id := fmt.Sprintf("e%d", execSeq)
-	execMu.Unlock()
+// ── Handlers ──
+
+func execHandler(ctx context.Context, args string) *engine.ToolResult {
+	var p struct {
+		Command    string `json:"command"`
+		Timeout    int    `json:"timeout"`
+		Background bool   `json:"background"`
+	}
+	json.Unmarshal([]byte(args), &p)
+
+	if p.Command == "" {
+		return &engine.ToolResult{Error: "command is required"}
+	}
+
+	if p.Background {
+		sess := startBackground(ctx, p.Command, execWorkDir)
+		if sess == nil {
+			return &engine.ToolResult{Error: "failed to start background process"}
+		}
+		return &engine.ToolResult{
+			Content: fmt.Sprintf("Started background session %s (pid=%d)\nCommand: %s\n\nUse task_output(id=\"%s\") to check output, task_output(id=\"%s\", block=true) to wait, task_stop(id=\"%s\") to kill.",
+				sess.id, sess.cmd.Process.Pid, sess.command, sess.id, sess.id, sess.id),
+		}
+	}
+
+	if p.Timeout == 0 {
+		p.Timeout = 60
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(p.Timeout)*time.Second)
+	defer cancel()
+
+	sh := detectShell()
+	command := sh.prefix + p.Command
+
+	cmd := exec.CommandContext(timeoutCtx, sh.exe, sh.flag, command)
+	cmd.Dir = execWorkDir
+
+	engine.SendCommandBegin(ctx, p.Command)
+
+	output, err := cmd.CombinedOutput()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+	engine.SendCommandEnd(ctx, p.Command, exitCode)
+
+	if err != nil {
+		if timeoutCtx.Err() != nil {
+			return &engine.ToolResult{Content: string(output), Error: fmt.Sprintf("command timed out after %ds", p.Timeout)}
+		}
+		return &engine.ToolResult{Content: string(output), Error: err.Error()}
+	}
+	return &engine.ToolResult{Content: string(output)}
+}
+
+func taskOutputHandler(ctx context.Context, args string) *engine.ToolResult {
+	var p struct {
+		ID    string `json:"id"`
+		Block bool   `json:"block"`
+		Wait  int    `json:"wait"`
+	}
+	json.Unmarshal([]byte(args), &p)
+
+	bgMu.Lock()
+	sess := bgSessions[p.ID]
+	bgMu.Unlock()
+
+	if sess == nil {
+		return &engine.ToolResult{Error: fmt.Sprintf("session %s not found. Use task_output(id=\"e1\") with the session ID returned by run_command.", p.ID)}
+	}
+
+	if p.Block {
+		if p.Wait <= 0 {
+			p.Wait = 30
+		}
+		select {
+		case <-sess.done:
+		case <-time.After(time.Duration(p.Wait) * time.Second):
+			// Return partial output on timeout.
+		}
+	}
+
+	sess.mu.Lock()
+	pos := sess.lastCheckPos
+	sess.mu.Unlock()
+
+	output, endPos := sess.output.StringFrom(pos)
+
+	sess.mu.Lock()
+	sess.lastCheckPos = endPos
+	exited := false
+	select {
+	case <-sess.done:
+		exited = true
+	default:
+	}
+	code := sess.exitCode
+	exitErrStr := ""
+	if sess.exitErr != nil {
+		exitErrStr = sess.exitErr.Error()
+	}
+	sess.mu.Unlock()
+
+	if exited {
+		if code != 0 || exitErrStr != "" {
+			return &engine.ToolResult{
+				Content: fmt.Sprintf("[exited code=%d]\n%s", code, output),
+				Error:   exitErrStr,
+			}
+		}
+		return &engine.ToolResult{Content: fmt.Sprintf("[exited code=%d]\n%s", code, output)}
+	}
+
+	if output == "" {
+		return &engine.ToolResult{Content: fmt.Sprintf("[running pid=%d, elapsed=%ds, no new output]", sess.cmd.Process.Pid, int(time.Since(sess.started).Seconds()))}
+	}
+	return &engine.ToolResult{Content: fmt.Sprintf("[running pid=%d, elapsed=%ds]\n%s", sess.cmd.Process.Pid, int(time.Since(sess.started).Seconds()), output)}
+}
+
+func taskStopHandler(ctx context.Context, args string) *engine.ToolResult {
+	var p struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal([]byte(args), &p)
+
+	bgMu.Lock()
+	sess := bgSessions[p.ID]
+	bgMu.Unlock()
+
+	if sess == nil {
+		return &engine.ToolResult{Error: fmt.Sprintf("session %s not found", p.ID)}
+	}
+
+	select {
+	case <-sess.done:
+	default:
+		sess.cmd.Process.Kill()
+	}
+
+	select {
+	case <-sess.done:
+	case <-time.After(5 * time.Second):
+	}
+
+	sess.mu.Lock()
+	code := sess.exitCode
+	exitErrStr := ""
+	if sess.exitErr != nil {
+		exitErrStr = sess.exitErr.Error()
+	}
+	sess.mu.Unlock()
+
+	output, _ := sess.output.StringFrom(0)
+
+	if code != 0 || exitErrStr != "" {
+		return &engine.ToolResult{
+			Content: fmt.Sprintf("Killed %s (exit code=%d)\n\n%s", p.ID, code, output),
+			Error:   exitErrStr,
+		}
+	}
+	return &engine.ToolResult{Content: fmt.Sprintf("Killed %s (exit code=%d)\n\n%s", p.ID, code, output)}
+}
+
+// ── Background ──
+
+func startBackground(ctx context.Context, command, workDir string) *bgSession {
+	bgMu.Lock()
+	bgSeq++
+	id := fmt.Sprintf("e%d", bgSeq)
+	bgMu.Unlock()
 
 	sh := detectShell()
 	command = sh.prefix + command
@@ -166,31 +296,29 @@ func startBackground(ctx context.Context, command, workDir string) *execSession 
 	cmd.Dir = workDir
 
 	stdin, _ := cmd.StdinPipe()
-	stdoutBuf := newRingBuffer(100 * 1024)
-	stderrBuf := newRingBuffer(100 * 1024)
+	outBuf := newOutputBuf()
 
-	cmd.Stdout = io.MultiWriter(stdoutBuf)
-	cmd.Stderr = io.MultiWriter(stderrBuf)
+	cmd.Stdout = outBuf
+	cmd.Stderr = outBuf
 
-	sess := &execSession{
+	sess := &bgSession{
 		id:      id,
 		cmd:     cmd,
 		stdin:   stdin,
-		stdout:  stdoutBuf,
-		stderr:  stderrBuf,
+		output:  outBuf,
 		command: command,
 		started: time.Now(),
 		done:    make(chan struct{}),
 	}
 
-	execMu.Lock()
-	execSessions[id] = sess
-	execMu.Unlock()
+	bgMu.Lock()
+	bgSessions[id] = sess
+	bgMu.Unlock()
 
 	if err := cmd.Start(); err != nil {
-		execMu.Lock()
-		delete(execSessions, id)
-		execMu.Unlock()
+		bgMu.Lock()
+		delete(bgSessions, id)
+		bgMu.Unlock()
 		return nil
 	}
 
@@ -207,327 +335,46 @@ func startBackground(ctx context.Context, command, workDir string) *execSession 
 		}
 		sess.mu.Unlock()
 		close(sess.done)
-		select {
-		case stdoutBuf.notify <- struct{}{}:
-		default:
-		}
 	}()
 
 	return sess
 }
 
-func sessionSummary(sess *execSession) string {
-	sess.mu.Lock()
-	exitCode := sess.exitCode
-	sess.mu.Unlock()
+// GetUndeliveredResults returns results for completed background sessions,
+// removes them from the session map, and marks them as delivered.
+func GetUndeliveredResults() []engine.BackgroundResult {
+	bgMu.Lock()
+	defer bgMu.Unlock()
 
-	select {
-	case <-sess.done:
-		return fmt.Sprintf("exited (code=%d)", exitCode)
-	default:
-		return fmt.Sprintf("running (pid=%d, elapsed=%ds)", sess.cmd.Process.Pid, int(time.Since(sess.started).Seconds()))
-	}
-}
-
-func readCombined(sess *execSession, offset, limit int) (string, int) {
-	out, outTotal := sess.stdout.read(offset, limit)
-	err, errTotal := sess.stderr.read(offset, limit)
-
-	total := outTotal
-	if errTotal > total {
-		total = errTotal
-	}
-
-	var result string
-	if out != "" && err != "" {
-		result = out + "\n[stderr]\n" + err
-	} else if err != "" {
-		result = err
-	} else {
-		result = out
-	}
-	return result, total
-}
-
-func execHandler(ctx context.Context, args string) *engine.ToolResult {
-	var p struct {
-		Command    string `json:"command"`
-		Timeout    int    `json:"timeout"`
-		Background bool   `json:"background"`
-		Action     string `json:"action"`
-		SessionID  string `json:"session_id"`
-		Data       string `json:"data"`
-		Offset     int    `json:"offset"`
-		Limit      int    `json:"limit"`
-	}
-	json.Unmarshal([]byte(args), &p)
-
-	if p.Action != "" {
-		switch p.Action {
-		case "list":
-			return listSessions()
-		case "poll":
-			return pollSession(p.SessionID)
-		case "log":
-			return logSession(p.SessionID, p.Offset, p.Limit)
-		case "write":
-			return writeSession(p.SessionID, p.Data)
-		case "kill":
-			return killSession(p.SessionID)
+	var results []engine.BackgroundResult
+	for id, s := range bgSessions {
+		select {
+		case <-s.done:
+			s.mu.Lock()
+			output, _ := s.output.StringFrom(0)
+			errStr := ""
+			if s.exitErr != nil {
+				errStr = s.exitErr.Error()
+			}
+			r := engine.BackgroundResult{
+				ID:       s.id,
+				Command:  s.command,
+				ExitCode: s.exitCode,
+				Output:   output,
+				Error:    errStr,
+			}
+			s.mu.Unlock()
+			results = append(results, r)
+			delete(bgSessions, id)
 		default:
-			return &engine.ToolResult{Error: fmt.Sprintf("unknown action: %s. Valid: list, poll, log, write, kill", p.Action)}
 		}
 	}
-
-	if p.Command == "" {
-		return &engine.ToolResult{Error: "command required"}
-	}
-
-	if p.Background {
-		sess := startBackground(ctx, p.Command, execWorkDir)
-		if sess == nil {
-			return &engine.ToolResult{Error: "failed to start background process"}
-		}
-		return &engine.ToolResult{Content: fmt.Sprintf("Started background session %s (pid=%d)\nCommand: %s\n\nUse action=poll session_id=%s to check output, action=kill session_id=%s to stop.",
-			sess.id, sess.cmd.Process.Pid, sess.command, sess.id, sess.id)}
-	}
-
-	if p.Timeout == 0 {
-		p.Timeout = 60
-	}
-	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(p.Timeout)*time.Second)
-	defer cancel()
-
-	sh := detectShell()
-	command := sh.prefix + p.Command
-
-	cmd := exec.CommandContext(timeoutCtx, sh.exe, sh.flag, command)
-	cmd.Dir = execWorkDir
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return &engine.ToolResult{Error: err.Error()}
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return &engine.ToolResult{Error: err.Error()}
-	}
-
-	engine.SendCommandBegin(ctx, p.Command)
-
-	if err := cmd.Start(); err != nil {
-		return &engine.ToolResult{Error: err.Error()}
-	}
-
-	var outBuf, errBuf strings.Builder
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		buf := make([]byte, 1024)
-		for {
-			n, readErr := stdout.Read(buf)
-			if n > 0 {
-				chunk := string(buf[:n])
-				outBuf.WriteString(chunk)
-				engine.SendProgress(ctx, p.Command, chunk)
-			}
-			if readErr != nil {
-				break
-			}
-		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		buf := make([]byte, 1024)
-		for {
-			n, readErr := stderr.Read(buf)
-			if n > 0 {
-				errBuf.WriteString(string(buf[:n]))
-			}
-			if readErr != nil {
-				break
-			}
-		}
-	}()
-
-	waitErr := cmd.Wait()
-	wg.Wait()
-
-	exitCode := 0
-	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			exitCode = -1
-		}
-	}
-	engine.SendCommandEnd(ctx, p.Command, exitCode)
-
-	output := outBuf.String()
-	if errOutput := errBuf.String(); errOutput != "" {
-		output += "\n[stderr]\n" + errOutput
-	}
-
-	if waitErr != nil {
-		if timeoutCtx.Err() != nil {
-			return &engine.ToolResult{Content: output, Error: fmt.Sprintf("command timed out after %ds", p.Timeout)}}
-		return &engine.ToolResult{Content: output, Error: waitErr.Error()}
-	}
-	return &engine.ToolResult{Content: output}
+	return results
 }
 
-func listSessions() *engine.ToolResult {
-	execMu.Lock()
-	defer execMu.Unlock()
-
-	if len(execSessions) == 0 {
-		return &engine.ToolResult{Content: "No background sessions."}
-	}
-
-	var out strings.Builder
-	for id, sess := range execSessions {
-		summary := sessionSummary(sess)
-		lastOutput, _ := readCombined(sess, 0, 200)
-		lastOutput = strings.ReplaceAll(lastOutput, "\n", "\\n")
-		if len(lastOutput) > 300 {
-			lastOutput = lastOutput[:300] + "..."
-		}
-		fmt.Fprintf(&out, "%s | %s | %s | last: %s\n", id, summary, sess.command, lastOutput)
-	}
-	return &engine.ToolResult{Content: out.String()}
-}
-
-func pollSession(id string) *engine.ToolResult {
-	execMu.Lock()
-	sess := execSessions[id]
-	execMu.Unlock()
-
-	if sess == nil {
-		return &engine.ToolResult{Error: fmt.Sprintf("session %s not found. Use action=list to see active sessions.", id)}
-	}
-
-	sess.stdout.mu.Lock()
-	sess.stderr.mu.Lock()
-	startOffset := sess.stdout.total
-	stderrStart := sess.stderr.total
-	sess.stdout.mu.Unlock()
-	sess.stderr.mu.Unlock()
-
-	sess.stdout.resetNotify()
-
-	select {
-	case <-sess.stdout.notify:
-	case <-sess.done:
-	case <-time.After(30 * time.Second):
-	}
-
-	out, outTotal := sess.stdout.read(startOffset, 0)
-	err, _ := sess.stderr.read(stderrStart, 0)
-
-	var result string
-	if out != "" && err != "" {
-		result = out + "\n[stderr]\n" + err
-	} else if err != "" {
-		result = err
-	} else {
-		result = out
-	}
-
-	sess.mu.Lock()
-	exitCode := sess.exitCode
-	sess.mu.Unlock()
-
-	select {
-	case <-sess.done:
-		return &engine.ToolResult{Content: fmt.Sprintf("[exited code=%d]\n%s\nTotal output: %d bytes", exitCode, result, outTotal)}
-	default:
-		if result == "" {
-			return &engine.ToolResult{Content: fmt.Sprintf("[running pid=%d, elapsed=%ds, no new output in 30s]\nPoll again or check log.", sess.cmd.Process.Pid, int(time.Since(sess.started).Seconds()))}
-		}
-		return &engine.ToolResult{Content: fmt.Sprintf("[running pid=%d, elapsed=%ds]\n%s", sess.cmd.Process.Pid, int(time.Since(sess.started).Seconds()), result)}
-	}
-}
-
-func logSession(id string, offset, limit int) *engine.ToolResult {
-	execMu.Lock()
-	sess := execSessions[id]
-	execMu.Unlock()
-
-	if sess == nil {
-		return &engine.ToolResult{Error: fmt.Sprintf("session %s not found. Use action=list to see active sessions.", id)}
-	}
-
-	if limit <= 0 {
-		limit = 5000
-	}
-
-	output, total := readCombined(sess, offset, limit)
-	summary := sessionSummary(sess)
-
-	if output == "" {
-		return &engine.ToolResult{Content: fmt.Sprintf("[%s] (no output yet, %d bytes total)\n", summary, total)}
-	}
-	return &engine.ToolResult{Content: fmt.Sprintf("[%s, total=%d bytes, offset=%d]\n%s", summary, total, offset, output)}
-}
-
-func writeSession(id, data string) *engine.ToolResult {
-	execMu.Lock()
-	sess := execSessions[id]
-	execMu.Unlock()
-
-	if sess == nil {
-		return &engine.ToolResult{Error: fmt.Sprintf("session %s not found. Use action=list to see active sessions.", id)}
-	}
-
-	select {
-	case <-sess.done:
-		return &engine.ToolResult{Error: "process already exited"}
-	default:
-	}
-
-	if sess.stdin == nil {
-		return &engine.ToolResult{Error: "no stdin available for this process"}
-	}
-
-	_, err := io.WriteString(sess.stdin, data)
-	if err != nil {
-		return &engine.ToolResult{Error: fmt.Sprintf("write failed: %v", err)}
-	}
-	return &engine.ToolResult{Content: fmt.Sprintf("Wrote %d bytes to %s", len(data), id)}
-}
-
-func killSession(id string) *engine.ToolResult {
-	execMu.Lock()
-	sess := execSessions[id]
-	execMu.Unlock()
-
-	if sess == nil {
-		return &engine.ToolResult{Error: fmt.Sprintf("session %s not found", id)}
-	}
-
-	select {
-	case <-sess.done:
-	default:
-		sess.cmd.Process.Kill()
-	}
-
-	select {
-	case <-sess.done:
-	case <-time.After(5 * time.Second):
-	}
-
-	finalOutput, _ := readCombined(sess, 0, 5000)
-	sess.mu.Lock()
-	code := sess.exitCode
-	sess.mu.Unlock()
-
-	return &engine.ToolResult{Content: fmt.Sprintf("Killed %s (exit code=%d)\n\nFinal output:\n%s", id, code, finalOutput)}
-}
-
-// RegisterExecTools registers the run_command tool.
+// RegisterExecTools registers run_command, task_output, and task_stop handlers.
 func RegisterExecTools(eng *engine.Engine) {
 	eng.RegisterTool("run_command", execHandler)
+	eng.RegisterTool("task_output", taskOutputHandler)
+	eng.RegisterTool("task_stop", taskStopHandler)
 }

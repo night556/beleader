@@ -1,8 +1,6 @@
 package tools
 
 import (
-	"fmt"
-
 	"beleader/runtime/engine"
 
 	"github.com/sashabaranov/go-openai"
@@ -103,48 +101,33 @@ var editFileTool = mkTool("edit_file",
 	[]string{"path", "old_string", "new_string"},
 )
 
-func runCommandTool() openai.Tool {
-	return mkTool("run_command",
-		fmt.Sprintf("[Shell: %s] Execute a shell command in the workspace directory.", ShellName())+`
-
-
-Two modes - choose correctly:
-
-SYNCHRONOUS (default) - ONLY for fast commands that will finish in under 2 minutes.
-Examples: ls, cat, grep, mkdir, git status, go test ./pkg/..., echo, which
-Sync timeout max is 120s. If not 100% sure it finishes in time, use background.
-Default timeout: 60s. You can set up to 120s.
-
-BACKGROUND - for anything that might run long or hang.
-MUST use background for: npm install, pip install, go build ./..., cargo build,
-git clone, docker build, ffmpeg, any compilation, any package manager, network ops.
-Also use background when the output is long and you want to stream it live.
-
-Background workflow:
-  1. Start: { "command": "npm install", "background": true }
-     Returns immediately with a session_id.
-  2. Poll: { "action": "poll", "session_id": "<id>" }
-     Returns new output + status: "running" or "exited" (with exit code).
-  3. Read full log: { "action": "log", "session_id": "<id>", "limit": 5000 }
-  4. List all sessions: { "action": "list" }
-  5. Stop: { "action": "kill", "session_id": "<id>" }
-  6. Write to stdin: { "action": "write", "session_id": "<id>", "data": "y\n" }
-
-After starting a service (dev server, etc.), verify it with web_fetch or browser_open.
-If background cmd produces no output for 30s, stop polling - check log and decide.`,
+var runCommandTool = mkTool("run_command",
+	"Execute a shell command in the workspace directory. Set background=true for long-running commands like npm install, go build, or dev servers — returns a session_id. Use task_output to check or wait for results, and task_stop to kill.",
 	map[string]any{
-		"command":    map[string]any{"type": "string", "description": "Shell command to execute. Required for sync/background modes."},
-		"timeout":    map[string]any{"type": "integer", "description": "Max execution time in seconds for sync mode. Default 60, max 120."},
-		"background": map[string]any{"type": "boolean", "description": "Set true to run in background. REQUIRED for any command that may exceed 120s. Returns session_id immediately."},
-		"action":     map[string]any{"type": "string", "description": "Action for managing background sessions: list, poll, log, write, kill."},
-		"session_id": map[string]any{"type": "string", "description": "Target session ID for poll/log/write/kill actions."},
-		"data":       map[string]any{"type": "string", "description": "Data to write to stdin (for action=write)."},
-		"offset":     map[string]any{"type": "integer", "description": "Byte offset for log action."},
-		"limit":      map[string]any{"type": "integer", "description": "Max bytes to read for log action. Default 5000."},
+		"command":    map[string]any{"type": "string", "description": "Shell command to execute."},
+		"timeout":    map[string]any{"type": "integer", "description": "Max seconds for sync mode. Default 60, max 120."},
+		"background": map[string]any{"type": "boolean", "description": "Set true for long-running commands. Returns session_id immediately."},
 	},
-	nil,
-	)
-}
+	[]string{"command"},
+)
+
+var taskOutputTool = mkTool("task_output",
+	"Get output from a background command started with run_command(background=true). Two modes: block=false (check immediately, returns incremental output since last check) and block=true (wait up to wait seconds for completion).",
+	map[string]any{
+		"id":    map[string]any{"type": "string", "description": "Session ID returned by run_command."},
+		"block": map[string]any{"type": "boolean", "description": "Whether to block until the command completes. Default false."},
+		"wait":  map[string]any{"type": "integer", "description": "Max seconds to wait when block=true. Default 30."},
+	},
+	[]string{"id"},
+)
+
+var taskStopTool = mkTool("task_stop",
+	"Stop a running background command started with run_command(background=true). Returns the final output of the killed process.",
+	map[string]any{
+		"id": map[string]any{"type": "string", "description": "Session ID to kill."},
+	},
+	[]string{"id"},
+)
 
 var runHTTPRequestTool = mkTool("run_http_request",
 	"Send an HTTP request. Use for testing APIs or fetching data.",
@@ -193,12 +176,13 @@ var updateStatusTool = mkTool("update_status",
 func BaseTools(vision bool) []openai.Tool {
 	return []openai.Tool{
 		readFileToolForVision(vision), readDirTool, searchContentTool, searchFilesTool, writeFileTool, editFileTool,
-		runCommandTool(), runHTTPRequestTool,
+		runCommandTool, taskOutputTool, taskStopTool,
+		runHTTPRequestTool,
 		webSearchTool, webFetchTool,
 	}
 }
 
-// DefaultTools returns the 12 builtin tools for a default worker.
+// DefaultTools returns the builtin tools for a default worker.
 func DefaultTools(vision bool) []openai.Tool {
 	tools := BaseTools(vision)
 	tools = append(tools, readStatusTool, updateStatusTool)

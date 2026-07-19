@@ -114,16 +114,39 @@ func baseToolDefs() []map[string]any {
 		},
 		{
 			"name":        "run_command",
-			"description": "Run a shell command and return its output.",
+			"description": "Execute a shell command. Set background=true for long-running commands (returns session_id). Use task_output to check/wait and task_stop to kill.",
 			"parameters": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"command":    map[string]any{"type": "string", "description": "Shell command to execute."},
-					"work_dir":   map[string]any{"type": "string", "description": "Working directory for the command."},
-					"background": map[string]any{"type": "boolean", "description": "Run in background."},
-					"timeout":    map[string]any{"type": "integer", "description": "Timeout in seconds (max 600)."},
+					"background": map[string]any{"type": "boolean", "description": "Run in background. Returns session_id for task_output/task_stop."},
+					"timeout":    map[string]any{"type": "integer", "description": "Timeout in seconds (default 60, max 120)."},
 				},
 				"required": []string{"command"},
+			},
+		},
+		{
+			"name":        "task_output",
+			"description": "Get output from a background command. Use block=false to check immediately; block=true to wait for completion.",
+			"parameters": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":    map[string]any{"type": "string", "description": "Session ID returned by run_command."},
+					"block": map[string]any{"type": "boolean", "description": "Whether to block until the command completes (default false)."},
+					"wait":  map[string]any{"type": "integer", "description": "Max seconds to wait when block=true (default 30)."},
+				},
+				"required": []string{"id"},
+			},
+		},
+		{
+			"name":        "task_stop",
+			"description": "Stop a running background command and return its final output.",
+			"parameters": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{"type": "string", "description": "Session ID to kill."},
+				},
+				"required": []string{"id"},
 			},
 		},
 		{

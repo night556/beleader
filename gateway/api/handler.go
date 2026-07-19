@@ -634,5 +634,5 @@ func (h *Handler) createRuntimeThread(agent *db.Agent, model *db.ModelProfile) (
 }
 
 func defaultToolNames() []string {
-	return []string{"read_file", "read_dir", "write_file", "edit_file", "delete_file", "search_content", "search_files", "read_status", "update_status", "run_command", "web_search", "web_fetch", "run_http_request", "spawn_worker"}
+	return []string{"read_file", "read_dir", "write_file", "edit_file", "delete_file", "search_content", "search_files", "read_status", "update_status", "run_command", "task_output", "task_stop", "web_search", "web_fetch", "run_http_request", "spawn_worker"}
 }

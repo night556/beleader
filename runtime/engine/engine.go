@@ -193,7 +193,7 @@ func messageRole(kind string) string {
 
 // RunLoop runs the LLM agent loop on the thread.
 // turnID is the current turn identifier for item lifecycle events.
-func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sysPrompt string, userContent string, toolList []openai.Tool, llmClient *llm.Client, modelContextLimit int, visionEnabled bool, pauseCh <-chan struct{}, interveneCh <-chan InterveneMsg, emit ProgressCallback) (*LoopResult, error) {
+func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sysPrompt string, userContent string, toolList []openai.Tool, llmClient *llm.Client, modelContextLimit int, visionEnabled bool, pauseCh <-chan struct{}, interveneCh <-chan InterveneMsg, emit ProgressCallback, bgCheck func() []BackgroundResult) (*LoopResult, error) {
 	rounds := 0
 	lastPromptTokens := 0
 	currentTotalTokens := thread.TotalTokens
@@ -394,8 +394,28 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 			}
 		}
 
+		// Inject any completed background command results as user_message.
+		// (not tool_result — background commands have no matching tool_call)
+		var bgResults []BackgroundResult
+		if bgCheck != nil {
+			bgResults = bgCheck()
+		}
+		for _, r := range bgResults {
+			content := fmt.Sprintf("[Background command completed]\nCommand: %s\nExit code: %d\n\n%s",
+				r.Command, r.ExitCode, r.Output)
+			if r.Error != "" {
+				content = fmt.Sprintf("[Background command completed]\nCommand: %s\nExit code: %d\nError: %s\n\n%s",
+					r.Command, r.ExitCode, r.Error, r.Output)
+			}
+			thread.AddMessage(Message{Kind: "user_message", Content: content})
+		}
+
 		if shouldStop {
 			return &LoopResult{Completed: true, Rounds: rounds}, nil
+		}
+
+		if len(bgResults) > 0 {
+			continue
 		}
 
 		if resp.Usage.PromptTokens > 0 {
