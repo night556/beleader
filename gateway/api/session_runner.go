@@ -12,19 +12,20 @@ import (
 
 func (h *Handler) runSession(runtime *RuntimeClient, threadID string, agent *db.Agent, model *db.ModelProfile, message string, images []string) {
 	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
 	h.mu.Lock()
-	h.cancelFuncs[threadID] = cancel
 	token := time.Now().UnixNano()
-	h.turnTokens[threadID] = token
+	h.turnHandles[threadID] = &turnHandle{cancel: cancel, done: done, token: token}
 	h.mu.Unlock()
 
 	defer func() {
 		h.mu.Lock()
-		if h.turnTokens[threadID] == token {
-			delete(h.cancelFuncs, threadID)
-			delete(h.turnTokens, threadID)
+		if th, ok := h.turnHandles[threadID]; ok && th.token == token {
+			delete(h.turnHandles, threadID)
 		}
 		h.mu.Unlock()
+		cancel()
+		close(done)
 	}()
 
 	// Persist user message.

@@ -17,6 +17,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// turnHandle tracks an active turn for a thread.
+type turnHandle struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+	token  int64
+}
+
 // Handler is the Gateway HTTP handler.
 type Handler struct {
 	DB       *db.DB
@@ -27,8 +34,7 @@ type Handler struct {
 
 	RegToken   string // shared secret for runtime registration, from GATEWAY_TOKEN env var
 
-	cancelFuncs map[string]context.CancelFunc
-	turnTokens  map[string]int64
+	turnHandles map[string]*turnHandle
 	mu          sync.Mutex
 
 	observers []SessionObserver
@@ -43,8 +49,7 @@ func NewHandler(database *db.DB, llmClient *llm.Client, cfg *config.Config) *Han
 		SSE:          broker,
 		Runtimes:     NewRuntimeClientPool(),
 		RegToken:     cfg.RegToken,
-		cancelFuncs: make(map[string]context.CancelFunc),
-		turnTokens:  make(map[string]int64),
+		turnHandles: make(map[string]*turnHandle),
 	}
 	h.RegisterObserver(broker)
 	return h
@@ -180,21 +185,21 @@ func (h *Handler) handleChat(c *gin.Context) {
 		MultiContent: encodeMultiContent(req.Images),
 	})
 
-	// Create cancellable context for this turn so pause/stop can abort the HTTP request.
+	// Create cancellable context for this turn.
 	turnCtx, turnCancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
 	h.mu.Lock()
 	token := time.Now().UnixNano()
-	h.cancelFuncs[threadID] = turnCancel
-	h.turnTokens[threadID] = token
+	h.turnHandles[threadID] = &turnHandle{cancel: turnCancel, done: done, token: token}
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
-		if h.turnTokens[threadID] == token {
-			delete(h.cancelFuncs, threadID)
-			delete(h.turnTokens, threadID)
+		if th, ok := h.turnHandles[threadID]; ok && th.token == token {
+			delete(h.turnHandles, threadID)
 		}
 		h.mu.Unlock()
 		turnCancel()
+		close(done)
 	}()
 
 	// Call Runtime to start the turn and stream SSE back.
@@ -314,11 +319,14 @@ func (h *Handler) handleChat(c *gin.Context) {
 
 func (h *Handler) cancelThread(threadID string) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if cancel, ok := h.cancelFuncs[threadID]; ok {
-		cancel()
-		delete(h.cancelFuncs, threadID)
-		delete(h.turnTokens, threadID)
+	th, ok := h.turnHandles[threadID]
+	if ok {
+		delete(h.turnHandles, threadID)
+	}
+	h.mu.Unlock()
+	if ok {
+		th.cancel()
+		<-th.done // wait for old turn to fully exit
 	}
 }
 

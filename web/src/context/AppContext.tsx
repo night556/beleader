@@ -145,13 +145,23 @@ export function processSSEEvent(
   timelineRef: React.MutableRefObject<TimelineItem[]>,
   contentAccRef: React.MutableRefObject<Record<string, string>>,
   thinkingAccRef: React.MutableRefObject<Record<string, string>>,
+  turnIdRef: React.MutableRefObject<string>,
 ): boolean {
-  // Returns true if the stream should end (turn.completed).
-  switch (eventType) {
-    case 'turn.started':
-      dispatch({ type: 'SET_STATE', state: 'thinking' });
-      break;
+  const turnId = data.turn_id || '';
 
+  // turn.started always processes to track the new turn ID.
+  if (eventType === 'turn.started') {
+    const turn = (data.payload as any)?.turn;
+    turnIdRef.current = turn?.id || turnId;
+    dispatch({ type: 'CLEAR_TIMELINE' });
+    dispatch({ type: 'SET_STATE', state: 'thinking' });
+    return false;
+  }
+
+  // Ignore events from stale turns (old SSE stream winding down).
+  if (turnId && turnId !== turnIdRef.current) return false;
+
+  switch (eventType) {
     case 'turn.completed':
       dispatch({ type: 'SET_STATE', state: 'idle' });
       return true;

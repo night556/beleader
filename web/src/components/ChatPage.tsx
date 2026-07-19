@@ -24,6 +24,7 @@ export function ChatPage() {
 
   const contentAccRef = useRef<Record<string, string>>({});
   const thinkingAccRef = useRef<Record<string, string>>({});
+  const turnIdRef = useRef<string>('');
 
   const activeModel = models.find(m => m.id === activeModelId);
 
@@ -73,8 +74,6 @@ export function ChatPage() {
   const handleSendMessage = useCallback(async (body: {
     message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string;
   }) => {
-    abortRef.current?.abort();
-
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
@@ -114,7 +113,7 @@ export function ChatPage() {
             if (dataBuf) {
               try {
                 const data = JSON.parse(dataBuf);
-                const ended = processSSEEvent(eventType, data, dispatch, timelineRef, contentAccRef, thinkingAccRef);
+                const ended = processSSEEvent(eventType, data, dispatch, timelineRef, contentAccRef, thinkingAccRef, turnIdRef);
                 if (ended) return;
               } catch { /* skip malformed JSON */ }
               eventType = ''; dataBuf = '';
