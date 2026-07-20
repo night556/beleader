@@ -683,6 +683,93 @@ a { color: var(--accent); }
   margin: 4px 0;
 }
 
+/* ─── Worker Card ─── */
+
+.msg-worker {
+  justify-content: flex-start;
+}
+
+.msg-worker .msg-bubble {
+  max-width: 85%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  border-bottom-left-radius: 4px;
+  padding: 10px 16px;
+}
+
+.worker-bubble {
+  cursor: default;
+}
+
+.worker-status {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.worker-status-running {
+  color: var(--amber);
+  animation: worker-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes worker-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.worker-status-done {
+  color: var(--green);
+}
+
+.worker-status-stopped {
+  color: var(--red);
+}
+
+.worker-task {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0 6px 0;
+  line-height: 1.4;
+}
+
+.worker-view-btn {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--wash);
+  border: 1px solid var(--wash-strong);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.worker-view-btn:hover {
+  background: var(--wash-strong);
+}
+
+/* ─── Worker Back Button ─── */
+
+.worker-back-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--wash);
+  border: 1px solid var(--wash-strong);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.worker-back-btn:hover {
+  background: var(--wash-strong);
+}
+
 /* ─── Thinking Block ─── */
 
 .thinking-block {

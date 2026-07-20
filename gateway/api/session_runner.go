@@ -64,7 +64,7 @@ func (h *Handler) runSession(runtime *RuntimeClient, threadID string, agent *db.
 			payload = map[string]any{}
 		}
 
-		ev := SessionEvent{Type: eventType, SessionID: threadID, Data: payload}
+		ev := SessionEvent{Type: eventType, SessionID: threadID, Data: envelope}
 
 		switch eventType {
 		case "turn.started", "turn.completed":
@@ -156,6 +156,7 @@ func (h *Handler) runSession(runtime *RuntimeClient, threadID string, agent *db.
 			h.Notify(ev)
 		}
 	})
+	h.onTurnComplete(threadID)
 
 	log.Printf("[session] %s: done", threadID)
 }

@@ -22,16 +22,12 @@ export const client = {
   getMessages: (threadId: string, afterId = 0) => api<{ messages: Message[]; latest_seq: number }>(`/api/threads/${encodeURIComponent(threadId)}/messages?after_id=${afterId}`),
   pauseThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
   resumeThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
+  getWorkers: (threadId: string) => api<{ workers: Array<{ id: string; title: string; status: string; agent_name?: string }> }>(`/api/threads/${encodeURIComponent(threadId)}/workers`),
+  stopWorker: (threadId: string, workerId: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(threadId)}/workers/${encodeURIComponent(workerId)}/stop`, { method: 'POST' }),
 
-  // Chat
-  // Returns raw Response for SSE streaming. Thread ID via X-Thread-Id header.
+  // Chat — async via Gateway SSE. Returns { thread_id, status } immediately.
   sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string; reasoning_effort?: string }, signal?: AbortSignal) =>
-    fetch(`${SERVER_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal,
-    }),
+    api<{ thread_id: string; status: string }>('/api/chat', { method: 'POST', body: JSON.stringify(body), signal }),
 
   // Agents
   listAgents: () => api<Agent[]>('/api/agents'),

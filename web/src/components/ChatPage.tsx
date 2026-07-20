@@ -12,9 +12,8 @@ const EFFORT_ICON: Record<string, string> = {
 
 export function ChatPage() {
   const { state, dispatch } = useAppState();
-  const { activeThreadId, threads, agents, activeAgentId, models, activeModelId, contextPct, totalTokens } = state;
+  const { activeThreadId, threads, agents, activeAgentId, models, activeModelId, contextPct, totalTokens, workerParentId } = state;
 
-  const abortRef = useRef<AbortController | null>(null);
   const sendingNewRef = useRef(false);
   const activeThreadRef = useRef(activeThreadId);
   activeThreadRef.current = activeThreadId;
@@ -46,8 +45,6 @@ export function ChatPage() {
       sendingNewRef.current = false;
       return;
     }
-    abortRef.current?.abort();
-    abortRef.current = null;
     contentAccRef.current = {};
     thinkingAccRef.current = {};
 
@@ -62,42 +59,14 @@ export function ChatPage() {
     });
   }, [activeThreadId]);
 
-  // Load threads list + runtimes on mount
+  // Gateway SSE — unified event stream for turns, items, and worker events.
   useEffect(() => {
-    client.listThreads().then(ts => dispatch({ type: 'SET_THREADS', threads: ts })).catch(() => {});
-  }, []);
+    if (!activeThreadId || workerParentId) return;
 
-  const newThread = () => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    dispatch({ type: 'SET_ACTIVE_THREAD', threadId: null });
-    dispatch({ type: 'CLEAR_TIMELINE' });
-  };
-
-  // Send message via POST /api/chat, which returns SSE stream directly.
-  const handleSendMessage = useCallback(async (body: {
-    message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string;
-  }) => {
     const ctrl = new AbortController();
-    abortRef.current = ctrl;
+    const url = `/api/sse?thread_id=${encodeURIComponent(activeThreadId)}`;
 
-    contentAccRef.current = {};
-    thinkingAccRef.current = {};
-
-    if (!body.thread_id) {
-      sendingNewRef.current = true;
-    }
-    const fullBody = { ...body, reasoning_effort: effortRef.current };
-    try {
-      const res = await client.sendChat(fullBody, ctrl.signal);
-      const threadId = res.headers.get('X-Thread-Id');
-      if (!threadId) return;
-
-      if (!body.thread_id) {
-        dispatch({ type: 'SET_ACTIVE_THREAD', threadId });
-        client.listThreads().then(threads => dispatch({ type: 'SET_THREADS', threads }));
-      }
-
+    fetch(url, { signal: ctrl.signal }).then(async (res) => {
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -117,9 +86,23 @@ export function ChatPage() {
             if (dataBuf) {
               try {
                 const data = JSON.parse(dataBuf);
-                const ended = processSSEEvent(eventType, data, dispatch, timelineRef, contentAccRef, thinkingAccRef, turnIdRef);
-                if (ended) return;
-              } catch { /* skip malformed JSON */ }
+                // Worker events: create/update worker cards.
+                if (eventType === 'worker.dispatched') {
+                  const wid = data.thread_id;
+                  if (wid) {
+                    dispatch({ type: 'UPDATE_TIMELINE_ITEM_BY_WORKER', workerThreadId: wid, updates: { workerThreadId: wid } });
+                  }
+                } else if (eventType === 'worker.completed') {
+                  const wid = data.thread_id;
+                  const st = data.status === 'stopped' ? 'stopped' : 'completed';
+                  if (wid) {
+                    dispatch({ type: 'UPDATE_TIMELINE_ITEM_BY_WORKER', workerThreadId: wid, updates: { workerStatus: st } });
+                  }
+                } else {
+                  // Turn / item events: same processing as old chat SSE.
+                  processSSEEvent(eventType, data, dispatch, timelineRef, contentAccRef, thinkingAccRef, turnIdRef);
+                }
+              } catch {}
               eventType = ''; dataBuf = '';
             }
           } else if (line.startsWith('event: ')) {
@@ -129,6 +112,41 @@ export function ChatPage() {
           }
         }
       }
+    }).catch(() => {});
+
+    return () => ctrl.abort();
+  }, [activeThreadId, workerParentId]);
+
+  // Load threads list + runtimes on mount
+  useEffect(() => {
+    client.listThreads().then(ts => dispatch({ type: 'SET_THREADS', threads: ts })).catch(() => {});
+  }, []);
+
+  const newThread = () => {
+    dispatch({ type: 'SET_ACTIVE_THREAD', threadId: null });
+    dispatch({ type: 'CLEAR_TIMELINE' });
+  };
+
+  // Send message via POST /api/chat. Turn runs in background; events arrive via Gateway SSE.
+  const handleSendMessage = useCallback(async (body: {
+    message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string;
+  }) => {
+    contentAccRef.current = {};
+    thinkingAccRef.current = {};
+
+    if (!body.thread_id) {
+      sendingNewRef.current = true;
+    }
+
+    const fullBody = { ...body, reasoning_effort: effortRef.current };
+    try {
+      const res = await client.sendChat(fullBody);
+      if (!res.thread_id) return;
+
+      if (!body.thread_id) {
+        dispatch({ type: 'SET_ACTIVE_THREAD', threadId: res.thread_id });
+        client.listThreads().then(threads => dispatch({ type: 'SET_THREADS', threads }));
+      }
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
       console.error('chat error:', err);
@@ -137,22 +155,11 @@ export function ChatPage() {
 
   const handleStop = useCallback(() => {
     if (!activeThreadId) return;
-    // Tell Gateway to cancel the turn. Runtime will exit RunLoop,
-    // emit turn.completed (Interrupted), and the SSE stream will end cleanly.
     client.pauseThread(activeThreadId).catch(() => {});
-    // Fallback: force abort if the stream hasn't ended within 5s.
-    setTimeout(() => {
-      if (abortRef.current) {
-        abortRef.current.abort();
-        abortRef.current = null;
-      }
-    }, 5000);
   }, [activeThreadId]);
 
   const switchThread = (threadId: string) => {
     if (threadId === activeThreadId) return;
-    abortRef.current?.abort();
-    abortRef.current = null;
     dispatch({ type: 'CLEAR_TIMELINE' });
     dispatch({ type: 'SET_ACTIVE_THREAD', threadId });
   };
@@ -219,6 +226,12 @@ export function ChatPage() {
             </button>
           </div>
         </div>
+
+        {workerParentId && (
+          <button className="worker-back-btn" onClick={() => dispatch({ type: 'BACK_TO_PARENT' })}>
+            ← Back to parent
+          </button>
+        )}
 
         <div className="chat-top-spacer" />
 

@@ -89,6 +89,7 @@ func createAgentHandler(ctx context.Context, args string) *engine.ToolResult {
 		Tools          []string `json:"tools"`
 		DefaultModelID string   `json:"default_model_id"`
 		MCPServers     []string `json:"mcp_servers"`
+		WorkerAgents   []string `json:"worker_agents"`
 	}
 	if err := json.Unmarshal([]byte(args), &p); err != nil {
 		return gwErr("invalid args: " + err.Error())
@@ -118,6 +119,10 @@ func createAgentHandler(ctx context.Context, args string) *engine.ToolResult {
 		b, _ := json.Marshal(p.MCPServers)
 		req["mcp_servers"] = string(b)
 	}
+	if len(p.WorkerAgents) > 0 {
+		b, _ := json.Marshal(p.WorkerAgents)
+		req["worker_agents"] = string(b)
+	}
 
 	return callGatewayJSON("POST", "/api/agents", req)
 }
@@ -131,6 +136,7 @@ func updateAgentHandler(ctx context.Context, args string) *engine.ToolResult {
 		Tools          []string `json:"tools"`
 		DefaultModelID string   `json:"default_model_id"`
 		MCPServers     []string `json:"mcp_servers"`
+		WorkerAgents   []string `json:"worker_agents"`
 	}
 	if err := json.Unmarshal([]byte(args), &p); err != nil {
 		return gwErr("invalid args: " + err.Error())
@@ -176,6 +182,10 @@ func updateAgentHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.MCPServers != nil {
 		b, _ := json.Marshal(p.MCPServers)
 		req["mcp_servers"] = string(b)
+	}
+	if p.WorkerAgents != nil {
+		b, _ := json.Marshal(p.WorkerAgents)
+		req["worker_agents"] = string(b)
 	}
 
 	return callGatewayJSON("PUT", "/api/agents/"+strconv.FormatInt(p.ID, 10), req)
@@ -361,6 +371,7 @@ func ManagementToolDefs() []engine.ToolDef {
 				"tools":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "List of tool names the agent may use."},
 				"default_model_id": map[string]any{"type": "string", "description": "ID of the default model for this agent."},
 				"mcp_servers":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "List of MCP server names to connect."},
+				"worker_agents":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "List of agent names this agent can spawn as workers."},
 			},
 			[]string{"name", "system_prompt"},
 		),
@@ -374,6 +385,7 @@ func ManagementToolDefs() []engine.ToolDef {
 				"tools":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New tool list (replaces existing)."},
 				"default_model_id": map[string]any{"type": "string", "description": "New default model ID."},
 				"mcp_servers":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New MCP server list (replaces existing)."},
+				"worker_agents":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New worker agent list (replaces existing)."},
 			},
 			[]string{"id"},
 		),

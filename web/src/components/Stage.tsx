@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { marked } from 'marked';
 import type { AppState, TimelineItem, TokenUsage } from '../types';
+import { useAppState } from '../context/AppContext';
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -88,9 +89,44 @@ function msgClass(item: TimelineItem): string {
     case 'user': return `${base} msg-user`;
     case 'agent': return `${base} msg-agent`;
     case 'tool_call': return `${base} msg-tool`;
+    case 'worker': return `${base} msg-worker`;
     case 'error': return `${base} msg-error`;
     default: return base;
   }
+}
+
+function WorkerCard({ item }: { item: TimelineItem }) {
+  const { dispatch, state } = useAppState();
+  const isCompleted = item.workerStatus === 'completed';
+  const isStopped = item.workerStatus === 'stopped';
+
+  const handleView = () => {
+    if (item.workerThreadId) {
+      dispatch({ type: 'VIEW_WORKER', threadId: item.workerThreadId, parentId: state.activeThreadId || '' });
+    }
+  };
+
+  let statusIcon = '🔄';
+  let statusClass = 'worker-status-running';
+  if (isCompleted) { statusIcon = '✓'; statusClass = 'worker-status-done'; }
+  if (isStopped) { statusIcon = '✗'; statusClass = 'worker-status-stopped'; }
+
+  return (
+    <div className={msgClass(item)}>
+      <div className="msg-bubble worker-bubble">
+        <div className="msg-header">
+          <span className={`worker-status ${statusClass}`}>{statusIcon}</span>
+          <span className="msg-label">{item.workerAgent || item.label}</span>
+        </div>
+        <div className="worker-task">{item.workerTask || item.content}</div>
+        {item.workerThreadId && (
+          <button className="worker-view-btn" onClick={handleView}>
+            View thread →
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function formatArgs(args: string): string {
@@ -149,6 +185,7 @@ function formatUsage(u: TokenUsage): string {
 
 function MessageCard({ item }: { item: TimelineItem }) {
   const isTool = item.type === 'tool_call';
+  const isWorker = item.type === 'worker';
   const isError = item.type === 'error';
 
   const content = (item.type === 'agent' || item.type === 'user')
@@ -160,6 +197,10 @@ function MessageCard({ item }: { item: TimelineItem }) {
 
   if (isTool) {
     return <ToolCard item={item} />;
+  }
+
+  if (isWorker) {
+    return <WorkerCard item={item} />;
   }
 
   if (isError) {

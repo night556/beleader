@@ -73,12 +73,15 @@ func (db *DB) autoMigrate() error {
 // ── Thread ──
 
 type Thread struct {
-	ID        string    `gorm:"primaryKey;size:64" json:"id"`
-	Title     string    `gorm:"default:''" json:"title"`
-	AgentID   int64     `gorm:"default:0" json:"agent_id"`
-	ModelID   string    `gorm:"size:64;default:''" json:"model_id"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID              string    `gorm:"primaryKey;size:64" json:"id"`
+	Title           string    `gorm:"default:''" json:"title"`
+	AgentID         int64     `gorm:"default:0" json:"agent_id"`
+	ModelID         string    `gorm:"size:64;default:''" json:"model_id"`
+	ParentThreadID  string    `gorm:"size:64;default:'';index;column:parent_thread_id" json:"parent_thread_id"`
+	Status          string    `gorm:"size:16;default:'idle';column:status" json:"status"`
+	ResultDelivered bool      `gorm:"default:false;column:result_delivered" json:"result_delivered"`
+	CreatedAt       time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt       time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func (Thread) TableName() string { return "threads" }
@@ -110,6 +113,7 @@ type Agent struct {
 	Tools          string    `gorm:"type:text;default:'[]'" json:"tools"`
 	DefaultModelID string    `gorm:"size:64;default:'';column:default_model_id" json:"default_model_id"`
 	MCPServers     string    `gorm:"type:text;default:'[]';column:mcp_servers" json:"mcp_servers"`
+	WorkerAgents   string    `gorm:"type:text;default:'[]';column:worker_agents" json:"worker_agents"`
 	CreatedAt      time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt      time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
@@ -242,6 +246,7 @@ func (db *DB) seedDefaultAgent() {
 			Desc:         "General-purpose assistant — read, write, edit files, run commands, search code and web",
 			SystemPrompt: "You are a helpful AI assistant. You can read and write files, run shell commands, search the web, and spawn sub-agents for complex tasks.\n\n## How to work\n- Before editing files, read them first to understand the current state\n- After making changes, verify they work — run tests or check the build\n- When a task is complex, use spawn_worker to delegate sub-tasks\n- When done, summarize what you accomplished",
 			Tools:        defaultTools,
+			WorkerAgents: "[]",
 		})
 	}
 
@@ -252,6 +257,7 @@ func (db *DB) seedDefaultAgent() {
 			Desc:         "System manager — create and configure agents, MCP servers, models, and other resources",
 			SystemPrompt: "You are a system management assistant. You can create, update, delete, and list agents, MCP servers, models, runtimes, and knowledge entries. Use the management tools to perform operations on behalf of the user. Before creating resources, list existing ones to understand the current state. When creating resources, validate that required fields are provided.",
 			Tools:        managerTools,
+			WorkerAgents: "[]",
 		})
 	}
 }
@@ -264,6 +270,36 @@ func (db *DB) CreateThread(id, title string, agentID int64, modelID string) erro
 	}).Error
 }
 
+func (db *DB) CreateWorkerThread(id, title, parentThreadID string, agentID int64, modelID string) error {
+	return db.GORM.Create(&Thread{
+		ID: id, Title: title, AgentID: agentID, ModelID: modelID, ParentThreadID: parentThreadID, Status: "running",
+	}).Error
+}
+
+func (db *DB) SetThreadStatus(id, status string) error {
+	return db.GORM.Model(&Thread{}).Where("id = ?", id).Update("status", status).Error
+}
+
+func (db *DB) GetCompletedWorkers(parentThreadID string) ([]Thread, error) {
+	var threads []Thread
+	err := db.GORM.Where("parent_thread_id = ? AND status = 'completed' AND result_delivered = false", parentThreadID).Find(&threads).Error
+	return threads, err
+}
+
+func (db *DB) MarkWorkersDelivered(ids []string) error {
+	return db.GORM.Model(&Thread{}).Where("id IN ?", ids).Update("result_delivered", true).Error
+}
+
+func (db *DB) GetActiveWorkers(parentThreadID string) ([]Thread, error) {
+	var threads []Thread
+	err := db.GORM.Where("parent_thread_id = ? AND status = 'running'", parentThreadID).Find(&threads).Error
+	return threads, err
+}
+
+func (db *DB) StopWorkers(parentThreadID string) error {
+	return db.GORM.Model(&Thread{}).Where("parent_thread_id = ? AND status = 'running'", parentThreadID).Update("status", "stopped").Error
+}
+
 func (db *DB) GetThread(id string) (*Thread, error) {
 	var t Thread
 	if err := db.GORM.First(&t, "id = ?", id).Error; err != nil {
@@ -274,7 +310,7 @@ func (db *DB) GetThread(id string) (*Thread, error) {
 
 func (db *DB) ListThreads() ([]Thread, error) {
 	var threads []Thread
-	err := db.GORM.Order("updated_at DESC").Find(&threads).Error
+	err := db.GORM.Where("parent_thread_id = ''").Order("updated_at DESC").Find(&threads).Error
 	return threads, err
 }
 
@@ -329,13 +365,13 @@ func (db *DB) SearchMessages(query string, limit int) ([]Message, error) {
 
 // ── Agent methods ──
 
-func (db *DB) CreateAgent(name, desc, systemPrompt, tools, defaultModelID, mcpServers string) error {
+func (db *DB) CreateAgent(name, desc, systemPrompt, tools, defaultModelID, mcpServers, workerAgents string) error {
 	return db.GORM.Create(&Agent{
-		Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools, DefaultModelID: defaultModelID, MCPServers: mcpServers,
+		Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools, DefaultModelID: defaultModelID, MCPServers: mcpServers, WorkerAgents: workerAgents,
 	}).Error
 }
 
-func (db *DB) UpdateAgent(id int64, name, desc, systemPrompt, tools, defaultModelID, mcpServers string) error {
+func (db *DB) UpdateAgent(id int64, name, desc, systemPrompt, tools, defaultModelID, mcpServers, workerAgents string) error {
 	return db.GORM.Model(&Agent{}).Where("id = ?", id).Updates(map[string]any{
 		"name":             name,
 		"desc":             desc,
@@ -343,6 +379,7 @@ func (db *DB) UpdateAgent(id int64, name, desc, systemPrompt, tools, defaultMode
 		"tools":            tools,
 		"default_model_id": defaultModelID,
 		"mcp_servers":      mcpServers,
+		"worker_agents":    workerAgents,
 	}).Error
 }
 

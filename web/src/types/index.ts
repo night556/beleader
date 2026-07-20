@@ -7,7 +7,7 @@ export interface TokenUsage {
   cached: number;
 }
 
-export type TimelineItemType = 'user' | 'agent' | 'tool_call' | 'tool_result' | 'error' | 'notice';
+export type TimelineItemType = 'user' | 'agent' | 'tool_call' | 'tool_result' | 'error' | 'notice' | 'worker';
 
 export interface TimelineItem {
   id: string;
@@ -24,6 +24,11 @@ export interface TimelineItem {
   args?: string;
   usage?: TokenUsage;
   time: number;
+  // Worker fields
+  workerThreadId?: string;
+  workerAgent?: string;
+  workerTask?: string;
+  workerStatus?: 'running' | 'completed' | 'stopped';
 }
 
 // ── SSE Events ──
@@ -93,8 +98,17 @@ export interface Thread {
   title: string;
   agent_id: number;
   model_id: string;
+  parent_thread_id: string;
+  status: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkerStatus {
+  id: string;
+  title: string;
+  status: string;
+  agent_name?: string;
 }
 
 // ── Agent ──
@@ -204,4 +218,5 @@ export interface AppState {
   contextPct: number;
   totalTokens: number;
   pendingImages: string[];
+  workerParentId: string | null;
 }

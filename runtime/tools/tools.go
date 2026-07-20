@@ -286,12 +286,19 @@ func AllToolDefs() []engine.ToolDef {
 				"body":    map[string]any{"type": "string", "description": "Request body."},
 			}, []string{"url"}),
 		engine.MkTool("spawn_worker",
-			"Spawn a sub-agent to handle a focused task autonomously.",
+			"Spawn a sub-agent by name. The agent must be in the current agent's worker_agents whitelist. The worker cannot spawn further workers.",
 			map[string]any{
-				"system_prompt": map[string]any{"type": "string", "description": "System prompt for the worker agent."},
-				"task":          map[string]any{"type": "string", "description": "Task description for the worker to execute."},
-				"tools":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "List of tool names the worker may use."},
-			}, []string{"system_prompt", "task"}),
+				"agent": map[string]any{"type": "string", "description": "Name of the agent to spawn as a worker."},
+				"task":  map[string]any{"type": "string", "description": "Task description for the worker to execute."},
+			}, []string{"agent", "task"}),
+		engine.MkTool("check_workers",
+			"Check the status of spawned worker agents. Returns counts and names of running and completed workers. Results are delivered automatically — this tool only reports status.",
+			map[string]any{}, nil),
+		engine.MkTool("stop_worker",
+			"Stop a running worker agent by its thread ID.",
+			map[string]any{
+				"thread_id": map[string]any{"type": "string", "description": "Thread ID of the worker to stop."},
+			}, []string{"thread_id"}),
 	}
 	allDefs = append(allDefs, ManagementToolDefs()...)
 	return allDefs
@@ -304,5 +311,7 @@ func RegisterAll(eng *engine.Engine) {
 	RegisterWebTools(eng)
 	RegisterStatusTools(eng)
 	eng.RegisterTool("spawn_worker", spawnWorkerHandler)
+	eng.RegisterTool("check_workers", checkWorkersHandler)
+	eng.RegisterTool("stop_worker", stopWorkerHandler)
 	RegisterManagementTools(eng)
 }

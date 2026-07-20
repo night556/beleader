@@ -8,6 +8,7 @@ type Action =
   | { type: 'SET_STATE'; state: AppStateName }
   | { type: 'PUSH_TIMELINE_ITEM'; item: TimelineItem }
   | { type: 'UPDATE_TIMELINE_ITEM'; id: string; updates: Partial<TimelineItem> }
+  | { type: 'UPDATE_TIMELINE_ITEM_BY_WORKER'; workerThreadId: string; updates: Partial<TimelineItem> }
   | { type: 'SET_LIVE_ITEM'; item: TimelineItem | null }
   | { type: 'SET_ACTIVE_THREAD'; threadId: string | null }
   | { type: 'SET_THREADS'; threads: Thread[] }
@@ -27,7 +28,9 @@ type Action =
   | { type: 'PRUNE_TIMELINE' }
   | { type: 'SET_PENDING_IMAGES'; images: string[] }
   | { type: 'ADD_PENDING_IMAGE'; image: string }
-  | { type: 'CLEAR_PENDING_IMAGES' };
+  | { type: 'CLEAR_PENDING_IMAGES' }
+  | { type: 'VIEW_WORKER'; threadId: string; parentId: string }
+  | { type: 'BACK_TO_PARENT' };
 
 let _seq = 0;
 function newId() { return `ti${++_seq}_${Date.now()}`; }
@@ -50,6 +53,7 @@ function initState(): AppState {
     contextPct: 0,
     totalTokens: 0,
     pendingImages: [],
+    workerParentId: null,
   };
 }
 
@@ -77,6 +81,48 @@ function reducer(state: AppState, action: Action): AppState {
           ? { ...state.liveItem, ...action.updates }
           : state.liveItem,
       };
+    case 'UPDATE_TIMELINE_ITEM_BY_WORKER': {
+      const wId = action.workerThreadId;
+      const found = state.timeline.find(ti => ti.workerThreadId === wId);
+      if (found) {
+        return {
+          ...state,
+          timeline: state.timeline.map(ti =>
+            ti.workerThreadId === wId ? { ...ti, ...action.updates } : ti
+          ),
+        };
+      }
+      // worker.dispatched may arrive before item.completed sets workerThreadId
+      // on the original spawn_worker card. Find a pending worker card without an ID.
+      let pendingIdx = -1;
+      for (let i = state.timeline.length - 1; i >= 0; i--) {
+        const ti = state.timeline[i];
+        if (ti.type === 'worker' && ti.status === 'pending' && !ti.workerThreadId) {
+          pendingIdx = i;
+          break;
+        }
+      }
+      if (pendingIdx >= 0) {
+        return {
+          ...state,
+          timeline: state.timeline.map((ti, i) =>
+            i === pendingIdx ? { ...ti, ...action.updates, workerThreadId: wId } : ti
+          ),
+        };
+      }
+      // Fallback: no matching or pending card, create a placeholder.
+      const item: TimelineItem = {
+        id: `wk_${wId}`, type: 'worker',
+        label: '', content: '',
+        workerThreadId: wId, workerStatus: 'running',
+        status: 'pending', time: Date.now(),
+        ...action.updates,
+      };
+      if (!item.id) item.id = newId();
+      const timeline = [...state.timeline, item];
+      if (timeline.length > 200) timeline.shift();
+      return { ...state, timeline };
+    }
     case 'SET_LIVE_ITEM':
       return { ...state, liveItem: action.item };
     case 'SET_ACTIVE_THREAD':
@@ -121,6 +167,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, pendingImages: [...state.pendingImages, action.image] };
     case 'CLEAR_PENDING_IMAGES':
       return { ...state, pendingImages: [] };
+    case 'VIEW_WORKER':
+      return { ...state, activeThreadId: action.threadId, workerParentId: action.parentId };
+    case 'BACK_TO_PARENT':
+      return { ...state, activeThreadId: state.workerParentId, workerParentId: null, timeline: [], liveItem: null };
     default:
       return state;
   }
@@ -149,8 +199,8 @@ export function processSSEEvent(
     return false;
   }
 
-  // Ignore events from stale turns (old SSE stream winding down).
-  if (turnId && turnId !== turnIdRef.current) return false;
+  // Ignore events from stale turns only once we've seen a turn.started.
+  if (turnId && turnIdRef.current && turnId !== turnIdRef.current) return false;
 
   switch (eventType) {
     case 'turn.completed': {
@@ -187,15 +237,34 @@ export function processSSEEvent(
           dispatch({ type: 'SET_STATE', state: 'tool_calls' });
           const meta = item.metadata || {};
           const rawArgs = meta.arguments || '';
-          dispatch({
-            type: 'PUSH_TIMELINE_ITEM', item: {
-              id: item.id, type: 'tool_call',
-              label: meta.tool_name || 'Tool',
-              content: '',
-              args: rawArgs,
-              status: 'pending', toolName: meta.tool_name, toolCallId: meta.tool_use_id, time: Date.now(),
-            },
-          });
+          const toolName = meta.tool_name || 'Tool';
+          // Worker spawn: render as a worker card instead of a regular tool card.
+          if (toolName === 'spawn_worker') {
+            let agent = '';
+            let task = '';
+            try { const args = JSON.parse(rawArgs); agent = args.agent || ''; task = args.task || ''; } catch {}
+            dispatch({
+              type: 'PUSH_TIMELINE_ITEM', item: {
+                id: item.id, type: 'worker',
+                label: agent || 'Worker',
+                content: task,
+                args: rawArgs,
+                status: 'pending', toolName: 'spawn_worker', toolCallId: meta.tool_use_id,
+                workerAgent: agent, workerTask: task, workerStatus: 'running',
+                time: Date.now(),
+              },
+            });
+          } else {
+            dispatch({
+              type: 'PUSH_TIMELINE_ITEM', item: {
+                id: item.id, type: 'tool_call',
+                label: toolName,
+                content: '',
+                args: rawArgs,
+                status: 'pending', toolName, toolCallId: meta.tool_use_id, time: Date.now(),
+              },
+            });
+          }
           break;
         }
 
@@ -241,13 +310,21 @@ export function processSSEEvent(
 
       if (item.kind === 'tool_call') {
         const meta = item.metadata || {};
+        const toolName = meta.tool_name || '';
         let output = item.detail || '';
         try {
           const parsed = JSON.parse(output);
           output = parsed.content || parsed.error || output;
         } catch {}
         const toolCallId = meta.tool_use_id;
-        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { content: output, status: 'done' } });
+        // Worker dispatch: extract thread ID from result.
+        if (toolName === 'spawn_worker') {
+          const m = output.match(/Worker dispatched: (\S+)/);
+          const workerThreadId = m ? m[1] : '';
+          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { content: output, status: 'done', workerThreadId } });
+        } else {
+          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { content: output, status: 'done' } });
+        }
         if (toolCallId) {
           const t = timelineRef.current;
           for (let i = t.length - 1; i >= 0; i--) {
@@ -283,6 +360,17 @@ export function processSSEEvent(
       });
       break;
     }
+
+    case 'error':
+      dispatch({ type: 'SET_STATE', state: 'error' });
+      dispatch({
+        type: 'PUSH_TIMELINE_ITEM', item: {
+          id: '', type: 'error', label: 'Error',
+          content: (data as any).message || 'An error occurred',
+          status: 'fail', time: Date.now(),
+        },
+      });
+      break;
   }
   return false;
 }

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"beleader/gateway/config"
 	"beleader/gateway/db"
@@ -79,6 +78,8 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.POST("/threads/:id/pause", h.handlePause)
 		api.POST("/threads/:id/resume", h.handleResume)
 		api.POST("/threads/:id/intervene", h.handleIntervene)
+		api.GET("/threads/:id/workers", h.handleListWorkers)
+		api.POST("/threads/:id/workers/:workerID/stop", h.handleStopWorker)
 
 		api.GET("/agents", h.handleListAgents)
 		api.POST("/agents", h.handleCreateAgent)
@@ -120,6 +121,8 @@ func (h *Handler) handleChat(c *gin.Context) {
 		ReasoningEffort string   `json:"reasoning_effort"`
 		Message         string   `json:"message"`
 		Images          []string `json:"images"`
+		ParentThreadID  string   `json:"parent_thread_id"`
+		WorkspaceDir    string   `json:"workspace_dir"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -159,7 +162,12 @@ func (h *Handler) handleChat(c *gin.Context) {
 			modelID = model.ModelID
 		}
 
-		rtID, err := h.createRuntimeThread(runtime, agent, model)
+		// If this is a worker thread, share the parent's workspace.
+		if req.ParentThreadID != "" && req.WorkspaceDir == "" {
+			req.WorkspaceDir = filepath.Join(h.Config.DataDir, "threads", req.ParentThreadID, "workspace")
+		}
+
+		rtID, err := h.createRuntimeThread(runtime, agent, model, req.WorkspaceDir, req.ParentThreadID)
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -170,160 +178,127 @@ func (h *Handler) handleChat(c *gin.Context) {
 		if len(title) > 80 {
 			title = title[:80]
 		}
-		if err := h.DB.CreateThread(threadID, title, agent.ID, modelID); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
+		if req.ParentThreadID != "" {
+			if err := h.DB.CreateWorkerThread(threadID, title, req.ParentThreadID, agent.ID, modelID); err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+				return
+			}
+			h.Notify(SessionEvent{Type: "worker.dispatched", SessionID: req.ParentThreadID, Data: map[string]any{
+				"thread_id":  threadID,
+				"agent_name": agent.Name,
+				"task":       req.Message,
+			}})
+		} else {
+			if err := h.DB.CreateThread(threadID, title, agent.ID, modelID); err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+				return
+			}
 		}
 	} else {
 		h.cancelThread(threadID)
 	}
 
-	// Persist user message to DB.
-	h.DB.InsertMessage(&db.Message{
-		ThreadID:     threadID,
-		Kind:         "user_message",
-		Content:      req.Message,
-		MultiContent: encodeMultiContent(req.Images),
-	})
+	// Run the turn in background. All events flow through Gateway SSE.
+	go h.runSession(runtime, threadID, agent, model, req.Message, req.Images)
 
-	// Create cancellable context for this turn.
-	turnCtx, turnCancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	h.mu.Lock()
-	token := time.Now().UnixNano()
-	h.turnHandles[threadID] = &turnHandle{cancel: turnCancel, done: done, token: token}
-	h.mu.Unlock()
-	defer func() {
-		h.mu.Lock()
-		if th, ok := h.turnHandles[threadID]; ok && th.token == token {
-			delete(h.turnHandles, threadID)
-		}
-		h.mu.Unlock()
-		turnCancel()
-		close(done)
-	}()
+	c.JSON(http.StatusOK, gin.H{"thread_id": threadID, "status": "started"})
+}
 
-	// Call Runtime to start the turn and stream SSE back.
-	threadDir := filepath.Join(h.Config.DataDir, "threads", threadID)
-	workspaceDir := filepath.Join(threadDir, "workspace")
-	resp, err := runtime.SendTurn(turnCtx, threadID, TurnRequest{
-		Message:      req.Message,
-		Images:       req.Images,
-		Model:        h.buildModelMap(model),
-		ThreadDir:    threadDir,
-		WorkspaceDir: workspaceDir,
-	})
+// onTurnComplete runs after a turn finishes. Handles both trigger points:
+// Trigger 1: if this is a parent thread, check for completed worker results and auto-resume.
+// Trigger 2: if this is a worker thread, mark completed and check if parent needs wakeup.
+func (h *Handler) onTurnComplete(threadID string) {
+	t, err := h.DB.GetThread(threadID)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("X-Thread-Id", threadID)
-	c.Header("Cache-Control", "no-cache")
-	c.Writer.WriteHeader(http.StatusOK)
-	c.Writer.Flush()
-
-	flusher, _ := c.Writer.(http.Flusher)
-	thinkingAcc := map[string]string{} // item_id → accumulated thinking
-	ParseAndForwardSSE(resp.Body, c.Writer, flusher, func(eventType string, envelope map[string]any) {
-		payload, _ := envelope["payload"].(map[string]any)
-		if payload == nil {
-			payload = map[string]any{}
+	if t.ParentThreadID != "" {
+		// Trigger 2: worker turn just finished.
+		// Only mark completed if the worker wasn't explicitly stopped.
+		finalStatus := t.Status
+		if t.Status == "running" {
+			h.DB.SetThreadStatus(threadID, "completed")
+			h.tryAutoResumeParent(t.ParentThreadID)
+			finalStatus = "completed"
 		}
 
-		switch eventType {
-		case "item.delta":
-			itemID, _ := envelope["item_id"].(string)
-			kind, _ := payload["kind"].(string)
-			delta, _ := payload["delta"].(string)
-			if itemID != "" && kind == "thinking" {
-				thinkingAcc[itemID] += delta
-			}
+		h.Notify(SessionEvent{Type: "worker.completed", SessionID: t.ParentThreadID, Data: map[string]any{
+			"thread_id": threadID,
+			"status":    finalStatus,
+		}})
+	} else {
+		// Trigger 1: parent turn ended. Skip if cancelled (turnHandle already removed).
+		h.mu.Lock()
+		_, exists := h.turnHandles[threadID]
+		h.mu.Unlock()
+		if exists {
+			h.tryCheckCompletedWorkers(threadID)
+		}
+	}
+}
 
-		case "item.started":
-			item, _ := payload["item"].(map[string]any)
-			if item != nil {
-				kind, _ := item["kind"].(string)
-				// Reset thinking accumulator for this item.
-				if id, _ := item["id"].(string); id != "" {
-					delete(thinkingAcc, id)
-				}
-				if kind == "tool_call" {
-					metadata, _ := item["metadata"].(map[string]any)
-					toolName, _ := metadata["tool_name"].(string)
-					toolUseID, _ := metadata["tool_use_id"].(string)
-					tcsJSON, _ := json.Marshal([]map[string]any{{
-						"id":   toolUseID,
-						"type": "function",
-						"function": map[string]any{
-							"name": toolName,
-						},
-					}})
-					h.DB.InsertMessage(&db.Message{
-						ThreadID:  threadID,
-						Kind:      "tool_call",
-						ToolCalls: string(tcsJSON),
-					})
-				}
-			}
+// tryAutoResumeParent checks if the parent thread is idle and has pending worker results.
+// If so, it auto-resumes the parent with batched worker results.
+func (h *Handler) tryAutoResumeParent(parentThreadID string) {
+	h.mu.Lock()
+	_, active := h.turnHandles[parentThreadID]
+	h.mu.Unlock()
+	if active {
+		return // parent still running, Trigger 1 will handle it
+	}
+	h.tryCheckCompletedWorkers(parentThreadID)
+}
 
-		case "item.completed":
-			item, _ := payload["item"].(map[string]any)
-			if item != nil {
-				kind, _ := item["kind"].(string)
-				detail, _ := item["detail"].(string)
-				itemID, _ := item["id"].(string)
-				switch kind {
-				case "agent_message":
-					metadata, _ := item["metadata"].(map[string]any)
-					usageJSON := ""
-					if u, ok := metadata["usage"]; ok {
-						if b, err := json.Marshal(u); err == nil {
-							usageJSON = string(b)
-						}
-					}
-					h.DB.InsertMessage(&db.Message{
-						ThreadID:         threadID,
-						Kind:             "agent_message",
-						Content:          detail,
-						ReasoningContent: thinkingAcc[itemID],
-						Usage:            usageJSON,
-					})
-					delete(thinkingAcc, itemID)
-				case "tool_call":
-					metadata, _ := item["metadata"].(map[string]any)
-					toolUseID, _ := metadata["tool_use_id"].(string)
-					if toolUseID != "" {
-						dbContent := detail
-						if m, ok := parseJSONMap(detail); ok {
-							delete(m, "images")
-							if b, err := json.Marshal(m); err == nil {
-								dbContent = string(b)
-							}
-						}
-						h.DB.InsertMessage(&db.Message{
-							ThreadID:   threadID,
-							Kind:       "tool_result",
-							Content:    dbContent,
-							ToolCallID: toolUseID,
-						})
-					}
-				}
-			}
+// tryCheckCompletedWorkers checks for completed undelivered workers and auto-resumes the parent.
+func (h *Handler) tryCheckCompletedWorkers(threadID string) {
+	workers, err := h.DB.GetCompletedWorkers(threadID)
+	if err != nil || len(workers) == 0 {
+		return
+	}
 
-		case "item.failed":
-			item, _ := payload["item"].(map[string]any)
-			if item != nil {
-				detail, _ := item["detail"].(string)
-				h.DB.InsertMessage(&db.Message{
-					ThreadID: threadID,
-					Kind:     "error",
-					Content:  detail,
-				})
+	// Build batched result message.
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("[%d workers completed]\n", len(workers)))
+	for _, w := range workers {
+		msgs, _ := h.DB.GetRecentMessages(w.ID, 5)
+		var result string
+		for _, m := range msgs {
+			if m.Kind == "agent_message" {
+				result = m.Content
 			}
 		}
-	})
+		b.WriteString(fmt.Sprintf("\n## %s (thread %s)\n", w.Title, w.ID))
+		if result != "" {
+			b.WriteString(result)
+		}
+		b.WriteString("\n")
+	}
+
+	// Mark as delivered.
+	var ids []string
+	for _, w := range workers {
+		ids = append(ids, w.ID)
+	}
+	h.DB.MarkWorkersDelivered(ids)
+
+	// Load parent thread info for resume.
+	t, err := h.DB.GetThread(threadID)
+	if err != nil {
+		return
+	}
+	agent, err := h.DB.GetAgent(t.AgentID)
+	if err != nil {
+		return
+	}
+	model := h.resolveModel(agent.ID, "")
+	runtime, _ := h.Runtimes.Pick()
+	if runtime == nil {
+		return
+	}
+
+	// Auto-resume the parent with worker results as the message.
+	go h.runSession(runtime, threadID, agent, model, b.String(), nil)
 }
 
 func (h *Handler) cancelThread(threadID string) {
@@ -423,8 +398,53 @@ func (h *Handler) handleSSE(c *gin.Context) {
 // ── Pause / Resume / Intervene ──
 
 func (h *Handler) handlePause(c *gin.Context) {
-	h.cancelThread(c.Param("id"))
+	threadID := c.Param("id")
+	// Fetch active workers before marking them stopped.
+	workers, _ := h.DB.GetActiveWorkers(threadID)
+	// Mark workers stopped before cancelling their turns, so onTurnComplete skips auto-resume.
+	h.DB.StopWorkers(threadID)
+	h.mu.Lock()
+	for _, w := range workers {
+		if th, ok := h.turnHandles[w.ID]; ok {
+			th.cancel()
+			delete(h.turnHandles, w.ID)
+		}
+	}
+	h.mu.Unlock()
+	h.cancelThread(threadID)
 	c.JSON(200, gin.H{"status": "paused"})
+}
+
+// handleListWorkers returns status of all worker threads for a parent.
+func (h *Handler) handleListWorkers(c *gin.Context) {
+	parentID := c.Param("id")
+	running, _ := h.DB.GetActiveWorkers(parentID)
+	completed, _ := h.DB.GetCompletedWorkers(parentID)
+
+	type workerStatus struct {
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		Status string `json:"status"`
+	}
+	var workers []workerStatus
+	for _, w := range running {
+		workers = append(workers, workerStatus{ID: w.ID, Title: w.Title, Status: "running"})
+	}
+	for _, w := range completed {
+		workers = append(workers, workerStatus{ID: w.ID, Title: w.Title, Status: "completed"})
+	}
+	if workers == nil {
+		workers = []workerStatus{}
+	}
+	c.JSON(200, gin.H{"workers": workers})
+}
+
+// handleStopWorker stops a specific worker thread.
+func (h *Handler) handleStopWorker(c *gin.Context) {
+	workerID := c.Param("workerID")
+	h.DB.SetThreadStatus(workerID, "stopped") // set before cancel so onTurnComplete sees it
+	h.cancelThread(workerID)
+	c.JSON(200, gin.H{"status": "stopped"})
 }
 
 func (h *Handler) handleResume(c *gin.Context) {
@@ -653,7 +673,7 @@ func (h *Handler) buildModelMap(m *db.ModelProfile) map[string]any {
 	}
 }
 
-func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, model *db.ModelProfile) (string, error) {
+func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, model *db.ModelProfile, workspaceOverride string, parentThreadID string) (string, error) {
 	allTools, err := runtime.ToolDefs()
 	if err != nil {
 		return "", fmt.Errorf("fetch tools: %w", err)
@@ -665,6 +685,18 @@ func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, m
 		for _, t := range allTools {
 			toolNames = append(toolNames, t["name"].(string))
 		}
+	}
+
+	// Auto-strip spawn/worker tools from worker agents to prevent nesting.
+	if parentThreadID != "" {
+		strip := map[string]bool{"spawn_worker": true, "check_workers": true, "stop_worker": true}
+		filtered := make([]string, 0, len(toolNames))
+		for _, n := range toolNames {
+			if !strip[n] {
+				filtered = append(filtered, n)
+			}
+		}
+		toolNames = filtered
 	}
 
 	// Build MCP server configs from agent's mcp_servers list.
@@ -694,19 +726,30 @@ func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, m
 
 	threadID := uuid.New().String()
 	threadDir := filepath.Join(h.Config.DataDir, "threads", threadID)
-	workspaceDir := filepath.Join(threadDir, "workspace")
+	workspaceDir := workspaceOverride
+	if workspaceDir == "" {
+		workspaceDir = filepath.Join(threadDir, "workspace")
+	}
+
+	// Build system prompt with worker agent info injected.
+	systemPrompt := agent.SystemPrompt
+	workerNames, workerInfo := h.buildWorkerPrompt(agent)
+	if workerInfo != "" {
+		systemPrompt += workerInfo
+	}
 
 	req := CreateThreadRequest{
 		ThreadID:          threadID,
 		ThreadDir:         threadDir,
 		WorkspaceDir:      workspaceDir,
 		RestrictWorkspace: h.Config.RestrictWorkspace,
-		SystemPrompt:      agent.SystemPrompt,
+		SystemPrompt:      systemPrompt,
 		Model:             h.buildModelMap(model),
 		Tools:             filterToolsByName(allTools, toolNames),
 		MCPServers:        mcpConfigs,
 		Metadata: map[string]any{
-			"agent_id": agent.ID,
+			"agent_id":      agent.ID,
+			"worker_agents": workerNames,
 		},
 	}
 
@@ -714,6 +757,38 @@ func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, m
 		return "", err
 	}
 	return threadID, nil
+}
+
+// buildWorkerPrompt resolves an agent's worker_agents list and builds a
+// system prompt section describing available workers. Returns the list of
+// worker agent names and the prompt text to append.
+func (h *Handler) buildWorkerPrompt(agent *db.Agent) ([]string, string) {
+	var names []string
+	if agent.WorkerAgents == "" || agent.WorkerAgents == "[]" {
+		return names, ""
+	}
+	if err := json.Unmarshal([]byte(agent.WorkerAgents), &names); err != nil || len(names) == 0 {
+		return names, ""
+	}
+
+	allAgents, err := h.DB.ListAgents()
+	if err != nil {
+		return names, ""
+	}
+	agentMap := make(map[string]db.Agent, len(allAgents))
+	for _, a := range allAgents {
+		agentMap[a.Name] = a
+	}
+
+	var b strings.Builder
+	b.WriteString("\n\n## Available Workers\n")
+	b.WriteString("You can delegate work to the following sub-agents using spawn_worker(agent=\"name\", task=\"...\"):\n")
+	for _, name := range names {
+		if wa, ok := agentMap[name]; ok {
+			fmt.Fprintf(&b, "- **%s**: %s\n", wa.Name, wa.Desc)
+		}
+	}
+	return names, b.String()
 }
 
 func filterToolsByName(allTools []map[string]any, names []string) []map[string]any {
