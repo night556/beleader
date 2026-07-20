@@ -401,8 +401,13 @@ func (h *Handler) handleSSE(c *gin.Context) {
 	c.Writer.WriteHeader(http.StatusOK)
 	c.Writer.Flush()
 
-	ch := h.SSE.Subscribe()
-	defer h.SSE.Unsubscribe(ch)
+	threadID := c.Query("thread_id")
+	if threadID == "" {
+		c.JSON(400, gin.H{"error": "thread_id query param required"})
+		return
+	}
+	ch := h.SSE.Subscribe(threadID)
+	defer h.SSE.Unsubscribe(threadID, ch)
 
 	for {
 		select {

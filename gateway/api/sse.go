@@ -12,49 +12,43 @@ type SSEEvent struct {
 }
 
 type SSEBroker struct {
-	clients    map[chan string]struct{}
-	mu         sync.RWMutex
-	register   chan chan string
-	unregister chan chan string
+	clients map[string]map[chan string]struct{} // threadID → subscribed channels
+	mu      sync.RWMutex
 }
 
 func NewSSEBroker() *SSEBroker {
-	b := &SSEBroker{
-		clients:    make(map[chan string]struct{}),
-		register:   make(chan chan string),
-		unregister: make(chan chan string),
-	}
-	go b.run()
-	return b
-}
-
-func (b *SSEBroker) run() {
-	for {
-		select {
-		case ch := <-b.register:
-			b.mu.Lock()
-			b.clients[ch] = struct{}{}
-			b.mu.Unlock()
-		case ch := <-b.unregister:
-			b.mu.Lock()
-			delete(b.clients, ch)
-			close(ch)
-			b.mu.Unlock()
-		}
+	return &SSEBroker{
+		clients: make(map[string]map[chan string]struct{}),
 	}
 }
 
-func (b *SSEBroker) Subscribe() chan string {
+// Subscribe returns a channel that receives SSE events for the given thread.
+func (b *SSEBroker) Subscribe(threadID string) chan string {
 	ch := make(chan string, 64)
-	b.register <- ch
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.clients[threadID] == nil {
+		b.clients[threadID] = make(map[chan string]struct{})
+	}
+	b.clients[threadID][ch] = struct{}{}
 	return ch
 }
 
-func (b *SSEBroker) Unsubscribe(ch chan string) {
-	b.unregister <- ch
+// Unsubscribe removes the channel for the given thread and closes it.
+func (b *SSEBroker) Unsubscribe(threadID string, ch chan string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if m, ok := b.clients[threadID]; ok {
+		delete(m, ch)
+		if len(m) == 0 {
+			delete(b.clients, threadID)
+		}
+	}
+	close(ch)
 }
 
-func (b *SSEBroker) Broadcast(event SSEEvent) {
+// Broadcast sends an event to all channels subscribed to the given thread.
+func (b *SSEBroker) Broadcast(threadID string, event SSEEvent) {
 	payloadJSON, err := json.Marshal(event.Payload)
 	if err != nil {
 		return
@@ -63,7 +57,8 @@ func (b *SSEBroker) Broadcast(event SSEEvent) {
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	for ch := range b.clients {
+
+	for ch := range b.clients[threadID] {
 		select {
 		case ch <- msg:
 		default:
@@ -73,17 +68,5 @@ func (b *SSEBroker) Broadcast(event SSEEvent) {
 
 // OnSessionEvent implements SessionObserver.
 func (b *SSEBroker) OnSessionEvent(event SessionEvent) {
-	var m map[string]any
-	switch v := event.Data.(type) {
-	case map[string]any:
-		m = v
-	}
-	if m != nil {
-		if _, has := m["session_id"]; !has && event.SessionID != "" {
-			m["session_id"] = event.SessionID
-		}
-	} else if event.SessionID != "" {
-		event.Data = map[string]any{"session_id": event.SessionID}
-	}
-	b.Broadcast(SSEEvent{Type: event.Type, Payload: event.Data})
+	b.Broadcast(event.SessionID, SSEEvent{Type: event.Type, Payload: event.Data})
 }

@@ -65,17 +65,7 @@ var (
 	bgSessions = map[string]*bgSession{}
 	bgMu       sync.Mutex
 	bgSeq      int
-	execWorkDir string
 )
-
-func setExecWorkDir(dir string) {
-	execWorkDir = dir
-}
-
-// SetExecWorkDir sets the working directory for command execution (public API).
-func SetExecWorkDir(dir string) {
-	setExecWorkDir(dir)
-}
 
 // ShellName returns the detected shell executable name (e.g. "pwsh", "bash").
 func ShellName() string { return detectShell().exe }
@@ -128,8 +118,10 @@ func execHandler(ctx context.Context, args string) *engine.ToolResult {
 		return &engine.ToolResult{Error: "command is required"}
 	}
 
+	workDir, _ := ctx.Value(engine.CtxKeyWorkDir).(string)
+
 	if p.Background {
-		sess := startBackground(ctx, p.Command, execWorkDir)
+		sess := startBackground(ctx, p.Command, workDir)
 		if sess == nil {
 			return &engine.ToolResult{Error: "failed to start background process"}
 		}
@@ -149,7 +141,7 @@ func execHandler(ctx context.Context, args string) *engine.ToolResult {
 	command := sh.prefix + p.Command
 
 	cmd := exec.CommandContext(timeoutCtx, sh.exe, sh.flag, command)
-	cmd.Dir = execWorkDir
+	cmd.Dir = workDir
 
 	engine.SendCommandBegin(ctx, p.Command)
 

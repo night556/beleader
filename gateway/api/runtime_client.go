@@ -7,9 +7,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sync"
+	"time"
 )
+
+var rtTransport = &http.Transport{
+	DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+	ResponseHeaderTimeout: 30 * time.Second,
+	IdleConnTimeout:       90 * time.Second,
+}
 
 // RuntimeClient is the HTTP client for the Runtime service.
 type RuntimeClient struct {
@@ -25,7 +33,7 @@ func NewRuntimeClient(name, baseURL string) *RuntimeClient {
 	return &RuntimeClient{
 		Name:       name,
 		BaseURL:    baseURL,
-		HTTPClient: &http.Client{Timeout: 0},
+		HTTPClient: &http.Client{Transport: rtTransport},
 	}
 }
 

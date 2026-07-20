@@ -239,8 +239,6 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	}
 
 	threadDir := req.ThreadDir
-	workspaceDir := req.WorkspaceDir
-
 	// Try memory first, then disk.
 	s.mu.RLock()
 	thread, ok := s.threads[threadID]
@@ -293,7 +291,6 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 	defer ew.Close()
 
 	llmClient := llm.New(thread.Model.BaseURL, thread.Model.APIKey, thread.Model.Model)
-	tools.SetExecWorkDir(workspaceDir)
 	toolList := engine.ToolDefsToOpenAI(thread.ToolDefs)
 
 	ctx, cancel := context.WithCancel(r.Context())
