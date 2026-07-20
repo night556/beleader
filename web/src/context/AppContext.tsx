@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useCallback, useRef } from 'react';
-import type { AppState, AppStateName, TimelineItem, Thread, Agent, ModelProfile, ToolDef, MCPServer, RuntimeEventRecord } from '../types';
+import type { AppState, AppStateName, TimelineItem, Thread, Agent, ModelProfile, ToolDef, MCPServer, RuntimeEventRecord, TokenUsage } from '../types';
 
 // ── Actions ──
 
@@ -259,9 +259,8 @@ export function processSSEEvent(
         }
       } else if (item.kind === 'agent_message') {
         const meta = item.metadata || {};
-        const usage = meta.usage;
-        const usageStr = usage ? (typeof usage === 'string' ? usage : JSON.stringify(usage)) : '';
-        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { status: 'done', usage: usageStr } });
+        const usage = meta.usage as TokenUsage | undefined;
+        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { status: 'done', usage } });
       } else if (item.kind === 'command_execution') {
         const meta = item.metadata || {};
         const cmd = meta.command || item.summary || 'run';
@@ -331,8 +330,13 @@ export interface APIMessage {
   tool_calls: string;
   tool_call_id: string;
   reasoning_content: string;
-  usage: string;
+  usage?: string;
   created_at: string;
+}
+
+function parseUsage(raw: string | undefined): import('../types').TokenUsage | undefined {
+  if (!raw) return undefined;
+  try { return JSON.parse(raw); } catch { return undefined; }
 }
 
 // messagesToTimeline converts DB messages to timeline items for initial load.
@@ -353,7 +357,7 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
           id: `msg${m.id}`, type: 'agent', label: 'AI',
           content: m.content,
           thinking: m.reasoning_content || undefined,
-          usage: m.usage || undefined,
+          usage: parseUsage(m.usage),
           status: 'done', time,
         });
         break;
@@ -364,7 +368,7 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
             id: `msg${m.id}`, type: 'agent', label: 'AI',
             content: m.content,
             thinking: m.reasoning_content || undefined,
-            usage: m.usage || undefined,
+            usage: parseUsage(m.usage),
             status: 'done', time,
           });
         }

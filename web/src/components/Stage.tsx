@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { marked } from 'marked';
-import type { AppState, TimelineItem } from '../types';
+import type { AppState, TimelineItem, TokenUsage } from '../types';
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -139,18 +139,12 @@ function ToolCard({ item }: { item: TimelineItem }) {
   );
 }
 
-function formatUsage(usageJSON: string): string {
-  if (!usageJSON) return '';
-  try {
-    const u = JSON.parse(usageJSON);
-    const parts = [`${u.total.toLocaleString()} tokens`];
-    parts.push(`in: ${u.prompt.toLocaleString()}`);
-    parts.push(`out: ${u.completion.toLocaleString()}`);
-    if (u.cached > 0) parts.push(`cache: ${u.cached.toLocaleString()}`);
-    return parts.join(' · ');
-  } catch {
-    return '';
-  }
+function formatUsage(u: TokenUsage): string {
+  const parts = [`${u.total.toLocaleString()} tokens`];
+  parts.push(`in: ${u.prompt.toLocaleString()}`);
+  parts.push(`out: ${u.completion.toLocaleString()}`);
+  if (u.cached > 0) parts.push(`cache: ${u.cached.toLocaleString()}`);
+  return parts.join(' · ');
 }
 
 function MessageCard({ item }: { item: TimelineItem }) {

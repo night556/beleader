@@ -78,6 +78,7 @@ export interface Message {
   tool_calls: string;
   tool_call_id: string;
   reasoning_content: string;
+  usage?: string;
   created_at: string;
   bookmarked?: boolean;
 }

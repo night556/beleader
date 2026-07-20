@@ -1,5 +1,12 @@
 // ── Timeline / Message ──
 
+export interface TokenUsage {
+  prompt: number;
+  completion: number;
+  total: number;
+  cached: number;
+}
+
 export type TimelineItemType = 'user' | 'agent' | 'tool_call' | 'tool_result' | 'error' | 'notice';
 
 export interface TimelineItem {
@@ -15,7 +22,7 @@ export interface TimelineItem {
   toolName?: string;
   thinking?: string;
   args?: string;
-  usage?: string;
+  usage?: TokenUsage;
   time: number;
 }
 
