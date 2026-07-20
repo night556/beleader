@@ -192,7 +192,7 @@ func DefaultTools(vision bool) []openai.Tool {
 // AllToolDefs returns every builtin tool definition. This is the single source of
 // truth for the Gateway's /v1/tools endpoint and for worker baseToolDefs.
 func AllToolDefs() []engine.ToolDef {
-	return []engine.ToolDef{
+	allDefs := []engine.ToolDef{
 		engine.MkTool("read_file",
 			"Read a file from the filesystem. Returns file contents as text, or image data for image files when vision is enabled.",
 			map[string]any{
@@ -293,6 +293,8 @@ func AllToolDefs() []engine.ToolDef {
 				"tools":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "List of tool names the worker may use."},
 			}, []string{"system_prompt", "task"}),
 	}
+	allDefs = append(allDefs, ManagementToolDefs()...)
+	return allDefs
 }
 
 // RegisterAll registers all builtin tool handlers on the engine.
@@ -302,4 +304,5 @@ func RegisterAll(eng *engine.Engine) {
 	RegisterWebTools(eng)
 	RegisterStatusTools(eng)
 	eng.RegisterTool("spawn_worker", spawnWorkerHandler)
+	RegisterManagementTools(eng)
 }

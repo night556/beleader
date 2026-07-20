@@ -117,6 +117,9 @@ func main() {
 		}
 	}()
 
+	// Configure management tools to call back to the Gateway.
+	tools.SetGatewayURL(*gatewayURL)
+
 	// Start auto-registration if gateway URL is configured.
 	var stopReg chan struct{}
 	if *gatewayURL != "" {

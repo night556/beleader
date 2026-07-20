@@ -244,6 +244,16 @@ func (db *DB) seedDefaultAgent() {
 			Tools:        defaultTools,
 		})
 	}
+
+	managerTools := `["create_agent","update_agent","delete_agent","list_agents","create_mcp_server","delete_mcp_server","list_mcp_servers","create_model","list_resources","run_http_request"]`
+	if db.GORM.Model(&Agent{}).Where("name = 'Manager'").Count(&count); count == 0 {
+		db.GORM.Create(&Agent{
+			Name:         "Manager",
+			Desc:         "System manager — create and configure agents, MCP servers, models, and other resources",
+			SystemPrompt: "You are a system management assistant. You can create, update, delete, and list agents, MCP servers, models, runtimes, and knowledge entries. Use the management tools to perform operations on behalf of the user. Before creating resources, list existing ones to understand the current state. When creating resources, validate that required fields are provided.",
+			Tools:        managerTools,
+		})
+	}
 }
 
 // ── Thread methods ──
