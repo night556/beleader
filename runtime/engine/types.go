@@ -17,11 +17,20 @@ type ToolResult struct {
 	ShouldContinue *bool    `json:"should_continue,omitempty"`
 }
 
+// TokenUsage captures per-turn token consumption details.
+type TokenUsage struct {
+	Prompt     int `json:"prompt"`
+	Completion int `json:"completion"`
+	Total      int `json:"total"`
+	Cached     int `json:"cached"`
+}
+
 // LoopResult is the outcome of a RunLoop invocation.
 type LoopResult struct {
 	Completed bool
 	Stopped   bool
 	Rounds    int
+	Usage     TokenUsage
 	Content   string
 	Error     string
 }

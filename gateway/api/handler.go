@@ -276,11 +276,19 @@ func (h *Handler) handleChat(c *gin.Context) {
 				itemID, _ := item["id"].(string)
 				switch kind {
 				case "agent_message":
+					metadata, _ := item["metadata"].(map[string]any)
+					usageJSON := ""
+					if u, ok := metadata["usage"]; ok {
+						if b, err := json.Marshal(u); err == nil {
+							usageJSON = string(b)
+						}
+					}
 					h.DB.InsertMessage(&db.Message{
 						ThreadID:         threadID,
 						Kind:             "agent_message",
 						Content:          detail,
 						ReasoningContent: thinkingAcc[itemID],
+						Usage:            usageJSON,
 					})
 					delete(thinkingAcc, itemID)
 				case "tool_call":

@@ -93,6 +93,18 @@ function msgClass(item: TimelineItem): string {
   }
 }
 
+function formatArgs(args: string): string {
+  if (!args) return '';
+  try {
+    const obj = JSON.parse(args);
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return '';
+    return keys.map(k => `${k}: ${JSON.stringify(obj[k])}`).join('  ');
+  } catch {
+    return args.length > 80 ? args.slice(0, 77) + '...' : args;
+  }
+}
+
 function ToolCard({ item }: { item: TimelineItem }) {
   const isDone = item.status === 'done' || item.status === 'fail';
   const [collapsed, setCollapsed] = useState(isDone);
@@ -105,16 +117,19 @@ function ToolCard({ item }: { item: TimelineItem }) {
     }
   }, [item.status]);
 
+  const params = formatArgs(item.args || '');
+
   return (
     <div className={msgClass(item)}>
       <div className="msg-bubble">
         <div className="msg-header" onClick={() => setCollapsed(v => !v)} style={{ cursor: 'pointer' }}>
           <span className="msg-chevron">{collapsed ? '▶' : '▼'}</span>
           <span className="msg-label">{item.label}</span>
+          {params && <span className="tool-params">{params}</span>}
           {item.status === 'pending' && <span className="msg-badge pending">running</span>}
           {item.status === 'fail' && <span className="msg-badge error">error</span>}
         </div>
-        {!collapsed && (
+        {!collapsed && item.content && (
           <div className="msg-content">
             <pre>{item.content}</pre>
           </div>
@@ -122,6 +137,20 @@ function ToolCard({ item }: { item: TimelineItem }) {
       </div>
     </div>
   );
+}
+
+function formatUsage(usageJSON: string): string {
+  if (!usageJSON) return '';
+  try {
+    const u = JSON.parse(usageJSON);
+    const parts = [`${u.total.toLocaleString()} tokens`];
+    parts.push(`in: ${u.prompt.toLocaleString()}`);
+    parts.push(`out: ${u.completion.toLocaleString()}`);
+    if (u.cached > 0) parts.push(`cache: ${u.cached.toLocaleString()}`);
+    return parts.join(' · ');
+  } catch {
+    return '';
+  }
 }
 
 function MessageCard({ item }: { item: TimelineItem }) {
@@ -133,6 +162,7 @@ function MessageCard({ item }: { item: TimelineItem }) {
     : item.content;
 
   const hasThinking = item.type === 'agent' && item.thinking;
+  const usageText = item.type === 'agent' && item.usage ? formatUsage(item.usage) : '';
 
   if (isTool) {
     return <ToolCard item={item} />;
@@ -173,6 +203,7 @@ function MessageCard({ item }: { item: TimelineItem }) {
             <pre>{content}</pre>
           ) : null}
         </div>
+        {usageText && <div className="msg-usage">{usageText}</div>}
       </div>
     </div>
   );

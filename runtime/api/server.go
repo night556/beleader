@@ -364,6 +364,7 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 				InputSummary: truncate(req.Message, 100),
 				StartedAt:    now,
 				EndedAt:      now,
+				Usage:        &result.Usage,
 			}},
 		})
 	case result.Stopped:
@@ -376,6 +377,7 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 				InputSummary: truncate(req.Message, 100),
 				StartedAt:    now,
 				EndedAt:      now,
+				Usage:        &result.Usage,
 			}},
 		})
 	case result.Error != "":
@@ -389,6 +391,7 @@ func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request, threadID str
 				InputSummary: truncate(req.Message, 100),
 				StartedAt:    now,
 				EndedAt:      now,
+				Usage:        &result.Usage,
 			}},
 		})
 	}

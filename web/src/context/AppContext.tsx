@@ -32,18 +32,6 @@ type Action =
 let _seq = 0;
 function newId() { return `ti${++_seq}_${Date.now()}`; }
 
-function formatToolArgs(name: string, args: string): string {
-  try {
-    const obj = JSON.parse(args);
-    const keys = Object.keys(obj);
-    if (keys.length === 0) return `Running ${name}...`;
-    const preview = keys.map(k => `${k}=${JSON.stringify(obj[k])}`).join(', ');
-    return preview.length > 120 ? preview.slice(0, 117) + '...' : preview;
-  } catch {
-    return args || `Running ${name}...`;
-  }
-}
-
 function initState(): AppState {
   return {
     page: 'chat',
@@ -165,9 +153,10 @@ export function processSSEEvent(
   if (turnId && turnId !== turnIdRef.current) return false;
 
   switch (eventType) {
-    case 'turn.completed':
+    case 'turn.completed': {
       dispatch({ type: 'SET_STATE', state: 'idle' });
       return true;
+    }
 
     case 'item.started': {
       const item = data.payload.item;
@@ -197,11 +186,13 @@ export function processSSEEvent(
         case 'tool_call': {
           dispatch({ type: 'SET_STATE', state: 'tool_calls' });
           const meta = item.metadata || {};
-          const args = meta.arguments || '';
+          const rawArgs = meta.arguments || '';
           dispatch({
             type: 'PUSH_TIMELINE_ITEM', item: {
               id: item.id, type: 'tool_call',
-              label: meta.tool_name || 'Tool', content: args ? formatToolArgs(meta.tool_name, args) : `Running ${meta.tool_name || 'tool'}...`,
+              label: meta.tool_name || 'Tool',
+              content: '',
+              args: rawArgs,
               status: 'pending', toolName: meta.tool_name, toolCallId: meta.tool_use_id, time: Date.now(),
             },
           });
@@ -267,7 +258,10 @@ export function processSSEEvent(
           }
         }
       } else if (item.kind === 'agent_message') {
-        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { status: 'done' } });
+        const meta = item.metadata || {};
+        const usage = meta.usage;
+        const usageStr = usage ? (typeof usage === 'string' ? usage : JSON.stringify(usage)) : '';
+        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { status: 'done', usage: usageStr } });
       } else if (item.kind === 'command_execution') {
         const meta = item.metadata || {};
         const cmd = meta.command || item.summary || 'run';
@@ -337,6 +331,7 @@ export interface APIMessage {
   tool_calls: string;
   tool_call_id: string;
   reasoning_content: string;
+  usage: string;
   created_at: string;
 }
 
@@ -358,10 +353,21 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
           id: `msg${m.id}`, type: 'agent', label: 'AI',
           content: m.content,
           thinking: m.reasoning_content || undefined,
+          usage: m.usage || undefined,
           status: 'done', time,
         });
         break;
       case 'tool_call': {
+        // If the message has text content, push an agent item first.
+        if (m.content) {
+          items.push({
+            id: `msg${m.id}`, type: 'agent', label: 'AI',
+            content: m.content,
+            thinking: m.reasoning_content || undefined,
+            usage: m.usage || undefined,
+            status: 'done', time,
+          });
+        }
         let tcs: Array<{ id?: string; function?: { name?: string; arguments?: string } }> = [];
         try { tcs = JSON.parse(m.tool_calls || '[]'); } catch {}
         for (const tc of tcs) {
@@ -370,7 +376,8 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
           items.push({
             id: `tc${m.id}_${tc.id || ''}`, type: 'tool_call',
             label: toolName,
-            content: formatToolArgs(toolName, args),
+            content: '',
+            args,
             toolName, toolCallId: tc.id,
             status: 'done', time,
           });

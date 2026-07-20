@@ -94,6 +94,7 @@ type Message struct {
 	ToolCalls        string    `gorm:"column:tool_calls;default:'[]'" json:"tool_calls"`
 	ToolCallID       string    `gorm:"size:64;default:'';column:tool_call_id" json:"tool_call_id"`
 	ReasoningContent string    `gorm:"column:reasoning_content;default:''" json:"reasoning_content"`
+	Usage            string    `gorm:"column:usage;default:''" json:"usage"`
 	CreatedAt        time.Time `gorm:"autoCreateTime;index:idx_messages_thread,priority:2" json:"created_at"`
 }
 

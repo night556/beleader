@@ -195,6 +195,7 @@ func messageRole(kind string) string {
 // turnID is the current turn identifier for item lifecycle events.
 func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sysPrompt string, userContent string, toolList []openai.Tool, llmClient *llm.Client, modelContextLimit int, visionEnabled bool, emit ProgressCallback, bgCheck func() []BackgroundResult) (*LoopResult, error) {
 	rounds := 0
+	var turnUsage TokenUsage
 	lastPromptTokens := 0
 	currentTotalTokens := thread.TotalTokens
 	afterID := thread.ContextStartID
@@ -209,7 +210,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 	for {
 		select {
 		case <-ctx.Done():
-			return &LoopResult{Stopped: true, Rounds: rounds}, nil
+			return &LoopResult{Stopped: true, Rounds: rounds, Usage: turnUsage}, nil
 		default:
 		}
 
@@ -261,15 +262,15 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 		if err != nil {
 			if ctx.Err() != nil {
 				emit(CompleteItem(agentItemID, turnID, ItemKindAgentMessage, "", nil))
-				return &LoopResult{Stopped: true, Rounds: rounds}, nil
+				return &LoopResult{Stopped: true, Rounds: rounds, Usage: turnUsage}, nil
 			}
 			emit(FailItem(agentItemID, turnID, ItemKindAgentMessage, err.Error()))
-			return &LoopResult{Completed: false, Rounds: rounds, Error: err.Error()}, nil
+			return &LoopResult{Completed: false, Rounds: rounds, Usage: turnUsage, Error: err.Error()}, nil
 		}
 
 		if len(resp.Choices) == 0 {
 			emit(CompleteItem(agentItemID, turnID, ItemKindAgentMessage, "", nil))
-			return &LoopResult{Completed: true, Rounds: rounds}, nil
+			return &LoopResult{Completed: true, Rounds: rounds, Usage: turnUsage}, nil
 		}
 
 		choice := resp.Choices[0]
@@ -298,25 +299,36 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 		if len(tcs) > 0 {
 			msgKind = ItemKindToolCall
 		}
+		msgUsage := &TokenUsage{
+			Prompt:     resp.Usage.PromptTokens,
+			Completion: resp.Usage.CompletionTokens,
+			Total:      resp.Usage.TotalTokens,
+		}
+		if resp.Usage.PromptTokensDetails != nil {
+			msgUsage.Cached = resp.Usage.PromptTokensDetails.CachedTokens
+		}
 		thread.AddMessage(Message{
 			Kind:             msgKind,
 			Content:          assistantMsg.Content,
 			ToolCalls:        tcs,
 			ReasoningContent: assistantMsg.ReasoningContent,
+			Usage:            msgUsage,
 		})
-
+		
 		// item.completed for this LLM response
-		emit(CompleteItem(agentItemID, turnID, msgKind, assistantMsg.Content, nil))
+		emit(CompleteItem(agentItemID, turnID, ItemKindAgentMessage, assistantMsg.Content, map[string]any{
+			"usage": msgUsage,
+		}))
 
 		if len(assistantMsg.ToolCalls) == 0 {
-			return &LoopResult{Completed: true, Rounds: rounds, Content: assistantMsg.Content}, nil
+			return &LoopResult{Completed: true, Rounds: rounds, Usage: turnUsage, Content: assistantMsg.Content}, nil
 		}
 
 		// Execute tool calls
 		var shouldStop bool
 		for _, tc := range assistantMsg.ToolCalls {
 			if ctx.Err() != nil {
-				return &LoopResult{Stopped: true, Rounds: rounds}, nil
+				return &LoopResult{Stopped: true, Rounds: rounds, Usage: turnUsage}, nil
 			}
 
 			toolItemID := NewItemID()
@@ -389,7 +401,7 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 		}
 
 		if shouldStop {
-			return &LoopResult{Completed: true, Rounds: rounds}, nil
+			return &LoopResult{Completed: true, Rounds: rounds, Usage: turnUsage}, nil
 		}
 
 		if len(bgResults) > 0 {
@@ -401,6 +413,12 @@ func (e *Engine) RunLoop(ctx context.Context, thread *Thread, turnID string, sys
 		}
 		if resp.Usage.TotalTokens > 0 {
 			currentTotalTokens += int(resp.Usage.TotalTokens)
+			turnUsage.Prompt += resp.Usage.PromptTokens
+			turnUsage.Completion += resp.Usage.CompletionTokens
+			turnUsage.Total += resp.Usage.TotalTokens
+			if resp.Usage.PromptTokensDetails != nil {
+				turnUsage.Cached += resp.Usage.PromptTokensDetails.CachedTokens
+			}
 		} else {
 			currentTotalTokens += estimateTokensForRoundOpenAI(msgs, assistantMsg)
 		}

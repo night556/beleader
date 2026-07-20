@@ -33,6 +33,7 @@ type TurnRecord struct {
 	StartedAt    string   `json:"started_at,omitempty"`
 	EndedAt      string   `json:"ended_at,omitempty"`
 	DurationMs   int64    `json:"duration_ms,omitempty"`
+	Usage       *TokenUsage `json:"usage,omitempty"`
 	ItemIDs      []string `json:"item_ids"`
 }
 

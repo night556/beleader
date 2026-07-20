@@ -17,6 +17,7 @@ type Message struct {
 	ToolCallID       string             `json:"tool_call_id,omitempty"`
 	MultiContent     []MultiContentPart `json:"multi_content,omitempty"`
 	ReasoningContent string             `json:"reasoning_content,omitempty"`
+	Usage           *TokenUsage        `json:"usage,omitempty"`
 	Hidden           bool               `json:"hidden,omitempty"`
 	CreatedAt        time.Time          `json:"created_at"`
 }
