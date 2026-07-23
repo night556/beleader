@@ -204,6 +204,8 @@ export interface AppState {
   state: AppStateName;
   timeline: TimelineItem[];
   liveItem: TimelineItem | null;
+  hasMoreMessages: boolean;
+  loadingMore: boolean;
   activeThreadId: string | null;
   threads: Thread[];
   activeAgentId: number | null;

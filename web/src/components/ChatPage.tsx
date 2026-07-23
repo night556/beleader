@@ -60,9 +60,9 @@ export function ChatPage() {
 
     dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
 
-    client.getMessages(threadId).then(({ messages }) => {
+    client.getMessages(threadId).then(({ messages, has_more }) => {
       if (threadId !== activeThreadRef.current) return;
-      dispatch({ type: 'LOAD_TIMELINE', items: messagesToTimeline(messages) });
+      dispatch({ type: 'LOAD_TIMELINE', items: messagesToTimeline(messages), hasMore: has_more });
     }).catch(err => {
       console.error('load messages:', err);
     });
@@ -181,6 +181,45 @@ export function ChatPage() {
     client.pauseThread(activeThreadId).catch(() => {});
   }, [activeThreadId]);
 
+  const loadMoreMessages = useCallback(() => {
+    if (!activeThreadId || state.loadingMore || !state.hasMoreMessages) return;
+
+    // Get the oldest message ID in timeline (format: "msg123" or "tc123_456")
+    const firstItem = state.timeline[0];
+    if (!firstItem) return;
+    const m = firstItem.id.match(/\d+/);
+    if (!m) return;
+    const oldestId = parseInt(m[0], 10);
+    if (!oldestId) return;
+
+    dispatch({ type: 'SET_LOADING_MORE', loading: true });
+
+    client.getMessages(activeThreadId, 0, 100).then(({ messages, has_more }) => {
+      // Filter out messages we already have (id <= oldestId)
+      const newMsgs = messages.filter(msg => msg.id < oldestId);
+      if (newMsgs.length === 0) {
+        dispatch({ type: 'SET_HAS_MORE', hasMore: false });
+        dispatch({ type: 'SET_LOADING_MORE', loading: false });
+        return;
+      }
+      const newItems = messagesToTimeline(newMsgs);
+      dispatch({ type: 'PREPEND_TIMELINE_ITEMS', items: newItems });
+      dispatch({ type: 'SET_HAS_MORE', hasMore: has_more });
+      dispatch({ type: 'SET_LOADING_MORE', loading: false });
+
+      // Preserve scroll position: adjust scrollTop by the height of added content
+      requestAnimationFrame(() => {
+        const el = document.querySelector('.stage') as HTMLElement;
+        if (!el) return;
+        // The new content was added at the top, so scrollHeight increased.
+        // We need to keep the user's viewport at the same position.
+        // This is handled by the Stage component's scroll preservation.
+      });
+    }).catch(() => {
+      dispatch({ type: 'SET_LOADING_MORE', loading: false });
+    });
+  }, [activeThreadId, state.loadingMore, state.hasMoreMessages, state.timeline]);
+
   const switchThread = (threadId: string) => {
     if (threadId === activeThreadId) return;
     dispatch({ type: 'CLEAR_TIMELINE' });
@@ -290,7 +329,7 @@ export function ChatPage() {
           )}
         </div>
         <div className="chat-col">
-          <Stage state={state} />
+          <Stage state={state} onLoadMore={loadMoreMessages} />
           <InputArea onSendMessage={handleSendMessage} onStop={handleStop} />
         </div>
       </div>

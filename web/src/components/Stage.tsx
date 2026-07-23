@@ -7,13 +7,15 @@ marked.setOptions({ breaks: true, gfm: true });
 
 interface Props {
   state: AppState;
+  onLoadMore?: () => void;
 }
 
-export function Stage({ state }: Props) {
-  const { timeline, liveItem, hasModels } = state;
+export function Stage({ state, onLoadMore }: Props) {
+  const { timeline, liveItem, hasModels, hasMoreMessages, loadingMore } = state;
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const prevLenRef = useRef(timeline.length);
+  const prevScrollHeightRef = useRef(0);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const scrollToBottom = useCallback(() => {
@@ -30,7 +32,13 @@ export function Stage({ state }: Props) {
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     atBottomRef.current = dist < 50;
     setShowScrollBtn(dist >= 50);
-  }, []);
+
+    // Load more when scrolled to top
+    if (el.scrollTop < 50 && hasMoreMessages && !loadingMore && onLoadMore) {
+      prevScrollHeightRef.current = el.scrollHeight;
+      onLoadMore();
+    }
+  }, [hasMoreMessages, loadingMore, onLoadMore]);
 
   // Auto-scroll when content changes.
   useEffect(() => {
@@ -38,8 +46,16 @@ export function Stage({ state }: Props) {
     if (!el) return;
 
     if (timeline.length > prevLenRef.current) {
-      // New message was added → always scroll to bottom.
-      scrollToBottom();
+      // Check if new items were prepended (load more) vs appended (new message)
+      // If prepended, preserve scroll position
+      if (prevScrollHeightRef.current > 0 && el.scrollHeight > prevScrollHeightRef.current) {
+        const addedHeight = el.scrollHeight - prevScrollHeightRef.current;
+        el.scrollTop = addedHeight;
+        prevScrollHeightRef.current = 0;
+      } else {
+        // New message was added → scroll to bottom
+        scrollToBottom();
+      }
     } else if (atBottomRef.current) {
       // Streaming update + already at bottom → auto-scroll.
       el.scrollTop = el.scrollHeight;
@@ -70,6 +86,11 @@ export function Stage({ state }: Props) {
   return (
     <main className="stage" ref={scrollRef} onScroll={handleScroll}>
       <div className="timeline">
+        {hasMoreMessages && (
+          <div className="load-more-indicator">
+            {loadingMore ? 'Loading...' : '↑ Scroll up to load more'}
+          </div>
+        )}
         {items.map(item => (
           <MessageCard key={item.id} item={item} />
         ))}

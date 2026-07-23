@@ -7,9 +7,12 @@ type Action =
   | { type: 'SET_PAGE'; page: import('../types').Page }
   | { type: 'SET_STATE'; state: AppStateName }
   | { type: 'PUSH_TIMELINE_ITEM'; item: TimelineItem }
+  | { type: 'PREPEND_TIMELINE_ITEMS'; items: TimelineItem[] }
   | { type: 'UPDATE_TIMELINE_ITEM'; id: string; updates: Partial<TimelineItem> }
   | { type: 'UPDATE_TIMELINE_ITEM_BY_WORKER'; workerThreadId: string; updates: Partial<TimelineItem> }
   | { type: 'SET_LIVE_ITEM'; item: TimelineItem | null }
+  | { type: 'SET_HAS_MORE'; hasMore: boolean }
+  | { type: 'SET_LOADING_MORE'; loading: boolean }
   | { type: 'SET_ACTIVE_THREAD'; threadId: string | null }
   | { type: 'SET_THREADS'; threads: Thread[] }
   | { type: 'ADD_THREAD'; thread: Thread }
@@ -23,7 +26,7 @@ type Action =
   | { type: 'SET_MCP_SERVERS'; servers: MCPServer[] }
   | { type: 'SET_CONTEXT_PCT'; pct: number }
   | { type: 'ADD_TOKENS'; n: number }
-  | { type: 'LOAD_TIMELINE'; items: TimelineItem[] }
+  | { type: 'LOAD_TIMELINE'; items: TimelineItem[]; hasMore: boolean }
   | { type: 'CLEAR_TIMELINE' }
   | { type: 'PRUNE_TIMELINE' }
   | { type: 'SET_PENDING_IMAGES'; images: string[] }
@@ -41,6 +44,8 @@ function initState(): AppState {
     state: 'idle',
     timeline: [],
     liveItem: null,
+    hasMoreMessages: false,
+    loadingMore: false,
     activeThreadId: null,
     threads: [],
     activeAgentId: null,
@@ -68,7 +73,11 @@ function reducer(state: AppState, action: Action): AppState {
       if (!item.id) item.id = newId();
       item.time = item.time || Date.now();
       const timeline = [...state.timeline, item];
-      if (timeline.length > 200) timeline.shift();
+      return { ...state, timeline };
+    }
+    case 'PREPEND_TIMELINE_ITEMS': {
+      if (action.items.length === 0) return state;
+      const timeline = [...action.items, ...state.timeline];
       return { ...state, timeline };
     }
     case 'UPDATE_TIMELINE_ITEM':
@@ -120,7 +129,6 @@ function reducer(state: AppState, action: Action): AppState {
       };
       if (!item.id) item.id = newId();
       const timeline = [...state.timeline, item];
-      if (timeline.length > 200) timeline.shift();
       return { ...state, timeline };
     }
     case 'SET_LIVE_ITEM':
@@ -155,8 +163,12 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, contextPct: action.pct };
     case 'ADD_TOKENS':
       return { ...state, totalTokens: state.totalTokens + action.n };
+    case 'SET_HAS_MORE':
+      return { ...state, hasMoreMessages: action.hasMore };
+    case 'SET_LOADING_MORE':
+      return { ...state, loadingMore: action.loading };
     case 'LOAD_TIMELINE':
-      return { ...state, timeline: action.items.slice(-200), liveItem: null };
+      return { ...state, timeline: action.items, liveItem: null, hasMoreMessages: action.hasMore };
     case 'CLEAR_TIMELINE':
       return { ...state, timeline: [], liveItem: null };
     case 'PRUNE_TIMELINE':
