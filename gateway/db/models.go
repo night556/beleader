@@ -62,6 +62,7 @@ func (Thread) TableName() string { return "threads" }
 type Message struct {
 	ID               int64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	ThreadID         string    `gorm:"size:64;index" json:"thread_id"`
+	TurnID           string    `gorm:"size:64;default:'';index" json:"turn_id"`
 	Kind             string    `gorm:"size:32" json:"kind"`
 	Content          string    `gorm:"type:text;default:''" json:"content"`
 	MultiContent     string    `gorm:"type:text;default:''" json:"multi_content"`

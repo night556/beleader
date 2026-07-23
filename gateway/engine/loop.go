@@ -56,6 +56,7 @@ func (e *Engine) RunLoop(
 	if userContent != "" {
 		msg := &db.Message{
 			ThreadID: thread.ID,
+			TurnID:   turnID,
 			Kind:     "user_message",
 			Content:  userContent,
 		}
@@ -110,7 +111,7 @@ func (e *Engine) RunLoop(
 						"pinned_ids":       db.MarshalPinnedIDs(pinned),
 					})
 				}
-				_, compErr := e.compress(ctx, thread, llmClient)
+				_, compErr := e.compress(ctx, thread, llmClient, turnID)
 				if compErr == nil {
 					emit("context.compressed", turnID, "", map[string]any{
 						"summary": "Context compressed to save space",
@@ -193,6 +194,7 @@ func (e *Engine) RunLoop(
 
 		e.DB.InsertMessage(&db.Message{
 			ThreadID:         thread.ID,
+			TurnID:           turnID,
 			Kind:             msgKind,
 			Content:          assistantMsg.Content,
 			ToolCalls:        tcsJSON,
@@ -266,6 +268,7 @@ func (e *Engine) RunLoop(
 
 			e.DB.InsertMessage(&db.Message{
 				ThreadID:   thread.ID,
+				TurnID:     turnID,
 				Kind:       "tool_result",
 				Content:    string(dbJSON),
 				ToolCallID: tc.ID,
@@ -286,7 +289,7 @@ func (e *Engine) RunLoop(
 				if label == "" {
 					label = "Screenshot"
 				}
-				e.injectImageMessage(thread.ID, result.Images, label)
+				e.injectImageMessage(thread.ID, result.Images, label, turnID)
 			}
 		}
 
@@ -299,7 +302,7 @@ func (e *Engine) RunLoop(
 }
 
 // Compress compresses the conversation history using the LLM.
-func (e *Engine) compress(ctx context.Context, thread *db.Thread, llmClient *llm.Client) (string, error) {
+func (e *Engine) compress(ctx context.Context, thread *db.Thread, llmClient *llm.Client, turnID string) (string, error) {
 	msgs, err := BuildMessages(e.DB, thread, CompressPrompt, "", nil, false)
 	if err != nil {
 		return "", err
@@ -318,13 +321,14 @@ func (e *Engine) compress(ctx context.Context, thread *db.Thread, llmClient *llm
 	content := "[System] Context compressed\n\n" + summary
 	e.DB.InsertMessage(&db.Message{
 		ThreadID: thread.ID,
+		TurnID:   turnID,
 		Kind:     "notice",
 		Content:  content,
 	})
 	return summary, nil
 }
 
-func (e *Engine) injectImageMessage(threadID string, images []string, label string) {
+func (e *Engine) injectImageMessage(threadID string, images []string, label string, turnID string) {
 	parts := []map[string]any{
 		{"type": "text", "text": label},
 	}
@@ -337,6 +341,7 @@ func (e *Engine) injectImageMessage(threadID string, images []string, label stri
 	b, _ := json.Marshal(parts)
 	e.DB.InsertMessage(&db.Message{
 		ThreadID:     threadID,
+		TurnID:       turnID,
 		Kind:         "user_message",
 		Content:      label,
 		MultiContent: string(b),

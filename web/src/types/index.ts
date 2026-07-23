@@ -12,6 +12,7 @@ export type TimelineItemType = 'user' | 'agent' | 'tool_call' | 'tool_result' | 
 export interface TimelineItem {
   id: string;
   type: TimelineItemType;
+  turnId?: string;
   icon?: string;
   label: string;
   content: string;

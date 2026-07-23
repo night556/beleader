@@ -246,6 +246,7 @@ export function processSSEEvent(
               id: item.id, type: 'user', label: 'You',
               content: item.detail || item.summary || '',
               status: 'done', time: Date.now(),
+              turnId: turnIdRef.current,
             },
           });
           break;
@@ -258,6 +259,7 @@ export function processSSEEvent(
             type: 'PUSH_TIMELINE_ITEM', item: {
               id: item.id, type: 'agent', label: 'AI',
               content: '', status: 'streaming', time: Date.now(),
+              turnId: turnIdRef.current,
             },
           });
           break;
@@ -282,6 +284,7 @@ export function processSSEEvent(
                 status: 'pending', toolName: 'spawn_worker', toolCallId: meta.tool_use_id,
                 workerAgent: agent, workerTask: task, workerStatus: 'running',
                 time: Date.now(),
+                turnId: turnIdRef.current,
               },
             });
           } else {
@@ -292,6 +295,7 @@ export function processSSEEvent(
                 content: '',
                 args: rawArgs,
                 status: 'pending', toolName, toolCallId: meta.tool_use_id, time: Date.now(),
+                turnId: turnIdRef.current,
               },
             });
           }
@@ -374,6 +378,7 @@ export function processSSEEvent(
             id: '', type: 'error', label: 'Error',
             content: detail,
             status: 'fail', time: Date.now(),
+            turnId: turnIdRef.current,
           },
         });
       }
@@ -387,6 +392,7 @@ export function processSSEEvent(
           id: '', type: 'error', label: 'Error',
           content: data.message || 'An error occurred',
           status: 'fail', time: Date.now(),
+          turnId: turnIdRef.current,
         },
       });
       break;
@@ -436,6 +442,7 @@ export { newId };
 export interface APIMessage {
   id: number;
   thread_id: string;
+  turn_id: string;
   kind: string;
   content: string;
   multi_content: string;
@@ -462,6 +469,7 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
         items.push({
           id: `msg${m.id}`, type: 'user', label: 'You',
           content: m.content, status: 'done', time,
+          turnId: m.turn_id || undefined,
         });
         break;
       case 'agent_message':
@@ -471,6 +479,7 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
           thinking: m.reasoning_content || undefined,
           usage: parseUsage(m.usage),
           status: 'done', time,
+          turnId: m.turn_id || undefined,
         });
         break;
       case 'tool_call': {
@@ -482,6 +491,7 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
             thinking: m.reasoning_content || undefined,
             usage: parseUsage(m.usage),
             status: 'done', time,
+            turnId: m.turn_id || undefined,
           });
         }
         let tcs: Array<{ id?: string; function?: { name?: string; arguments?: string } }> = [];
@@ -496,6 +506,7 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
             args,
             toolName, toolCallId: tc.id,
             status: 'done', time,
+            turnId: m.turn_id || undefined,
           });
         }
         break;
@@ -521,6 +532,7 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
             id: `tr${m.id}`, type: 'tool_call',
             label: 'Tool', content: output,
             toolCallId: tcId, status: 'done', time,
+            turnId: m.turn_id || undefined,
           });
         }
         break;
@@ -529,6 +541,7 @@ export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
         items.push({
           id: `err${m.id}`, type: 'error', label: 'Error',
           content: m.content, status: 'fail', time,
+          turnId: m.turn_id || undefined,
         });
         break;
     }

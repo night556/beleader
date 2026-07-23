@@ -94,6 +94,8 @@ export function Stage({ state, onLoadMore }: Props) {
   const items = [...timeline];
   if (liveItem) items.push(liveItem);
 
+  const grouped = useMemo(() => groupByTurn(items), [items]);
+
   return (
     <main className="stage" ref={scrollRef} onScroll={handleScroll}>
       <div className="timeline">
@@ -102,9 +104,12 @@ export function Stage({ state, onLoadMore }: Props) {
             {loadingMore ? 'Loading...' : '↑ Scroll up to load more'}
           </div>
         )}
-        {items.map(item => (
-          <MessageCard key={item.id} item={item} />
-        ))}
+        {grouped.map(g => {
+          if (Array.isArray(g)) {
+            return <TurnBubble key={g[0].id} items={g} />;
+          }
+          return <MessageCard key={g.id} item={g} />;
+        })}
       </div>
       {showScrollBtn && (
         <button className="scroll-bottom-btn" onClick={scrollToBottom} title="Scroll to bottom">
@@ -112,6 +117,65 @@ export function Stage({ state, onLoadMore }: Props) {
         </button>
       )}
     </main>
+  );
+}
+
+// Group consecutive AI items with the same turnId into one bubble.
+function groupByTurn(items: TimelineItem[]): Array<TimelineItem | TimelineItem[]> {
+  const result: Array<TimelineItem | TimelineItem[]> = [];
+  let i = 0;
+  while (i < items.length) {
+    const item = items[i];
+    if (item.turnId && (item.type === 'agent' || item.type === 'tool_call' || item.type === 'worker')) {
+      const group: TimelineItem[] = [item];
+      const turnId = item.turnId;
+      i++;
+      while (i < items.length && items[i].turnId === turnId) {
+        group.push(items[i]);
+        i++;
+      }
+      result.push(group);
+    } else {
+      result.push(item);
+      i++;
+    }
+  }
+  return result;
+}
+
+function TurnBubble({ items }: { items: TimelineItem[] }) {
+  const agentItem = items.find(i => i.type === 'agent');
+  const toolItems = items.filter(i => i.type === 'tool_call');
+  const workerItems = items.filter(i => i.type === 'worker');
+  const content = agentItem?.content || '';
+  const thinking = agentItem?.thinking;
+  const usage = agentItem?.usage;
+  const status = agentItem?.status || items[0].status;
+  const isStreaming = status === 'streaming';
+  const htmlContent = useMemo(() => renderMarkdown(content), [content]);
+  const usageText = usage ? formatUsage(usage) : '';
+
+  return (
+    <div className="msg msg-agent">
+      <div className="msg-bubble turn-bubble">
+        <div className="msg-header">
+          <span className="msg-label">AI</span>
+          {isStreaming && <span className="msg-badge streaming">...</span>}
+          {status === 'done' && <CopyButton text={content} />}
+        </div>
+        {thinking && <ThinkingBlock thinking={thinking} streaming={isStreaming} />}
+        {content && (
+          <div className="msg-content" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+        )}
+        {toolItems.map(ti => (
+          <ToolCard key={ti.id} item={ti} />
+        ))}
+        {workerItems.map(wi => (
+          <WorkerCard key={wi.id} item={wi} />
+        ))}
+        {usageText && <div className="msg-usage">{usageText}</div>}
+      </div>
+    </div>
   );
 }
 
