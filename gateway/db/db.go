@@ -1,20 +1,50 @@
 package db
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 type DB struct {
-	GORM *gorm.DB
+	GORM   *gorm.DB
+	Driver string // "sqlite" | "mysql" | "postgres"
 }
 
-func Open(path string) (*DB, error) {
-	gormDB, err := gorm.Open(sqlite.Open(path+"?_journal_mode=WAL&_foreign_keys=on"), &gorm.Config{
+type DBConfig struct {
+	Driver   string
+	Path     string // SQLite
+	Host     string // MySQL/PG
+	Port     int
+	User     string
+	Password string
+	DBName   string
+}
+
+func Open(cfg DBConfig) (*DB, error) {
+	var dialector gorm.Dialector
+	switch cfg.Driver {
+	case "mysql":
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+			cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.DBName)
+		dialector = mysql.Open(dsn)
+	case "postgres":
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName)
+		dialector = postgres.Open(dsn)
+	default: // sqlite
+		dialector = sqlite.Open(cfg.Path + "?_journal_mode=WAL&_foreign_keys=on")
+	}
+
+	gormDB, err := gorm.Open(dialector, &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
 	})
 	if err != nil {
@@ -25,14 +55,72 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get sql.DB: %w", err)
 	}
-	sqlDB.SetMaxIdleConns(1)
-	sqlDB.SetMaxOpenConns(1)
+	if cfg.Driver == "sqlite" {
+		sqlDB.SetMaxIdleConns(1)
+		sqlDB.SetMaxOpenConns(1)
+	} else {
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetMaxOpenConns(25)
+	}
 
-	db := &DB{GORM: gormDB}
+	db := &DB{GORM: gormDB, Driver: cfg.Driver}
 	if err := db.autoMigrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return db, nil
+}
+
+func LoadDBConfig() DBConfig {
+	driver := os.Getenv("DB_DRIVER")
+	if driver == "" {
+		driver = "sqlite"
+	}
+	cfg := DBConfig{Driver: driver}
+	switch driver {
+	case "sqlite":
+		cfg.Path = os.Getenv("DB_PATH")
+		if cfg.Path == "" {
+			cfg.Path = filepath.Join(ConfigDir(), "beleader.db")
+		}
+	case "mysql":
+		cfg.Host = envOr("DB_HOST", "127.0.0.1")
+		cfg.Port = envInt("DB_PORT", 3306)
+		cfg.User = envOr("DB_USER", "beleader")
+		cfg.Password = os.Getenv("DB_PASSWORD")
+		cfg.DBName = envOr("DB_NAME", "beleader")
+	case "postgres":
+		cfg.Host = envOr("DB_HOST", "127.0.0.1")
+		cfg.Port = envInt("DB_PORT", 5432)
+		cfg.User = envOr("DB_USER", "beleader")
+		cfg.Password = os.Getenv("DB_PASSWORD")
+		cfg.DBName = envOr("DB_NAME", "beleader")
+	}
+	return cfg
+}
+
+func ConfigDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".beleader")
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func envInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	var n int
+	fmt.Sscanf(v, "%d", &n)
+	if n == 0 {
+		return def
+	}
+	return n
 }
 
 func (db *DB) Close() error {
@@ -43,241 +131,173 @@ func (db *DB) Close() error {
 	return sqlDB.Close()
 }
 
+// ── Schema version ──
+
+func (db *DB) schemaVersion() int {
+	if db.Driver == "sqlite" {
+		var v int
+		db.GORM.Raw("PRAGMA user_version").Scan(&v)
+		return v
+	}
+	db.GORM.Exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INT PRIMARY KEY)")
+	var v int
+	db.GORM.Raw("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&v)
+	return v
+}
+
+func (db *DB) setSchemaVersion(v int) {
+	if db.Driver == "sqlite" {
+		db.GORM.Exec(fmt.Sprintf("PRAGMA user_version = %d", v))
+	} else {
+		db.GORM.Exec("INSERT INTO schema_migrations (version) VALUES (?) ON CONFLICT DO NOTHING", v)
+	}
+}
+
 func (db *DB) autoMigrate() error {
-	if err := db.GORM.AutoMigrate(&Thread{}, &Message{}, &Agent{}, &Knowledge{}, &MCPServer{}, &ModelProfile{}, &Runtime{}); err != nil {
+	if err := db.GORM.AutoMigrate(
+		&Pool{}, &ToolAgent{}, &Thread{}, &Message{}, &Event{},
+		&Agent{}, &ModelProfile{}, &MCPServer{},
+	); err != nil {
 		return err
 	}
-
-	var schemaVersion int
-	db.GORM.Raw("PRAGMA user_version").Scan(&schemaVersion)
-
-	if schemaVersion < 1 {
-		db.GORM.Exec("DROP TABLE IF EXISTS knowledge_fts")
-		if err := db.GORM.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(title, tokenize='unicode61')").Error; err != nil {
-			return err
-		}
-		var knowledges []Knowledge
-		db.GORM.Select("id, title").Find(&knowledges)
-		for _, k := range knowledges {
-			if k.Title != "" {
-				db.GORM.Exec("INSERT OR IGNORE INTO knowledge_fts(rowid, title) VALUES(?, ?)", k.ID, k.Title)
-			}
-		}
-		db.GORM.Exec("PRAGMA user_version = 1")
+	v := db.schemaVersion()
+	if v < 1 {
+		db.setSchemaVersion(1)
 	}
-
 	db.seedDefaultAgent()
 	return nil
 }
 
-// ── Thread ──
+// ── Pool ──
 
-type Thread struct {
-	ID              string    `gorm:"primaryKey;size:64" json:"id"`
-	Title           string    `gorm:"default:''" json:"title"`
-	AgentID         int64     `gorm:"default:0" json:"agent_id"`
-	ModelID         string    `gorm:"size:64;default:''" json:"model_id"`
-	ParentThreadID  string    `gorm:"size:64;default:'';index;column:parent_thread_id" json:"parent_thread_id"`
-	Status          string    `gorm:"size:16;default:'idle';column:status" json:"status"`
-	ResultDelivered bool      `gorm:"default:false;column:result_delivered" json:"result_delivered"`
-	CreatedAt       time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt       time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+// ── Pool methods ──
+
+func (db *DB) ListPools() ([]Pool, error) {
+	var pools []Pool
+	err := db.GORM.Order("id ASC").Find(&pools).Error
+	return pools, err
 }
 
-func (Thread) TableName() string { return "threads" }
-
-// ── Message ──
-
-type Message struct {
-	ID               int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	ThreadID         string    `gorm:"size:64;index:idx_messages_thread,priority:1;column:thread_id" json:"thread_id"`
-	Kind             string    `gorm:"size:32" json:"kind"`
-	Content          string    `gorm:"default:''" json:"content"`
-	MultiContent     string    `gorm:"column:multi_content;default:''" json:"multi_content"`
-	ToolCalls        string    `gorm:"column:tool_calls;default:'[]'" json:"tool_calls"`
-	ToolCallID       string    `gorm:"size:64;default:'';column:tool_call_id" json:"tool_call_id"`
-	ReasoningContent string    `gorm:"column:reasoning_content;default:''" json:"reasoning_content"`
-	Usage            string    `gorm:"column:usage;default:''" json:"usage"`
-	CreatedAt        time.Time `gorm:"autoCreateTime;index:idx_messages_thread,priority:2" json:"created_at"`
-}
-
-func (Message) TableName() string { return "messages" }
-
-// ── Agent ──
-
-type Agent struct {
-	ID             int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name           string    `gorm:"size:128;uniqueIndex" json:"name"`
-	Desc           string    `gorm:"size:512;default:''" json:"desc"`
-	SystemPrompt   string    `gorm:"column:system_prompt;default:''" json:"system_prompt"`
-	Tools          string    `gorm:"type:text;default:'[]'" json:"tools"`
-	DefaultModelID string    `gorm:"size:64;default:'';column:default_model_id" json:"default_model_id"`
-	MCPServers     string    `gorm:"type:text;default:'[]';column:mcp_servers" json:"mcp_servers"`
-	WorkerAgents   string    `gorm:"type:text;default:'[]';column:worker_agents" json:"worker_agents"`
-	CreatedAt      time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt      time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-}
-
-func (Agent) TableName() string { return "agents" }
-
-// ── Knowledge ──
-
-type Knowledge struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Title     string    `gorm:"default:''" json:"title"`
-	Content   string    `gorm:"default:''" json:"content"`
-	Source    string    `gorm:"size:128;default:''" json:"source"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-}
-
-func (Knowledge) TableName() string { return "knowledges" }
-
-// ── MCPServer ──
-
-type MCPServer struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name      string    `gorm:"size:64;uniqueIndex" json:"name"`
-	Type      string    `gorm:"size:16" json:"type"`
-	Enabled   bool      `gorm:"default:false" json:"enabled"`
-	Command   string    `gorm:"size:512;default:''" json:"command"`
-	Args      string    `gorm:"type:text;default:'[]'" json:"args"`
-	Env       string    `gorm:"type:text;default:'{}'" json:"env"`
-	URL       string    `gorm:"size:512;default:''" json:"url"`
-	Headers   string    `gorm:"type:text;default:'{}'" json:"headers"`
-	Status    string    `gorm:"size:16;default:'disconnected'" json:"status"`
-	Error     string    `gorm:"size:512;default:''" json:"error"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-}
-
-func (MCPServer) TableName() string { return "mcp_servers" }
-
-// ── ModelProfile ──
-
-type ModelProfile struct {
-	ID           int64  `gorm:"primaryKey;autoIncrement" json:"-"`
-	ModelID      string `gorm:"size:64;uniqueIndex;column:model_id" json:"id"`
-	BaseURL      string `gorm:"size:512;default:'';column:base_url" json:"base_url"`
-	APIKey       string `gorm:"size:512;default:'';column:api_key" json:"api_key"`
-	Model        string `gorm:"size:128;default:'';column:model" json:"model"`
-	Vision       bool   `gorm:"default:false" json:"vision"`
-	ContextLimit    int    `gorm:"default:128000;column:context_limit" json:"context_limit"`
-	ReasoningEffort string `gorm:"size:16;default:'high';column:reasoning_effort" json:"reasoning_effort"`
-	IsActive        bool   `gorm:"default:false;column:is_active" json:"-"`
-}
-
-func (ModelProfile) TableName() string { return "model_profiles" }
-
-// ── Runtime ──
-
-type Runtime struct {
-	ID                int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name              string    `gorm:"size:128;uniqueIndex" json:"name"`
-	URL               string    `gorm:"size:256" json:"url"`
-	RestrictWorkspace bool      `gorm:"default:false;column:restrict_workspace" json:"restrict_workspace"`
-	Status            string    `gorm:"size:16;default:'active'" json:"status"`
-	LastHeartbeat     time.Time `gorm:"autoCreateTime" json:"last_heartbeat"`
-	CreatedAt         time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt         time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-}
-
-func (Runtime) TableName() string { return "runtimes" }
-
-func (db *DB) ListModels() ([]ModelProfile, error) {
-	var models []ModelProfile
-	err := db.GORM.Order("id ASC").Find(&models).Error
-	return models, err
-}
-
-func (db *DB) ActiveModel() (*ModelProfile, error) {
-	var m ModelProfile
-	if err := db.GORM.Where("is_active = 1").First(&m).Error; err != nil {
+func (db *DB) GetPool(id int64) (*Pool, error) {
+	var p Pool
+	if err := db.GORM.First(&p, id).Error; err != nil {
 		return nil, err
 	}
-	return &m, nil
+	return &p, nil
 }
 
-func (db *DB) GetModelByID(modelID string) (*ModelProfile, error) {
-	var m ModelProfile
-	if err := db.GORM.Where("model_id = ?", modelID).First(&m).Error; err != nil {
+func (db *DB) GetPoolByName(name string) (*Pool, error) {
+	var p Pool
+	if err := db.GORM.Where("name = ?", name).First(&p).Error; err != nil {
 		return nil, err
 	}
-	return &m, nil
+	return &p, nil
 }
 
-func (db *DB) CreateModel(m *ModelProfile) error {
-	m.ID = 0
-	m.IsActive = false
-	return db.GORM.Create(m).Error
-}
-
-func (db *DB) UpdateModel(modelID string, m *ModelProfile) error {
-	return db.GORM.Model(&ModelProfile{}).Where("model_id = ?", modelID).Updates(map[string]any{
-		"base_url":         m.BaseURL,
-		"api_key":          m.APIKey,
-		"model":            m.Model,
-		"vision":           m.Vision,
-		"context_limit":    m.ContextLimit,
-		"reasoning_effort": m.ReasoningEffort,
-	}).Error
-}
-
-func (db *DB) DeleteModel(modelID string) error {
-	return db.GORM.Where("model_id = ?", modelID).Delete(&ModelProfile{}).Error
-}
-
-func (db *DB) SetActiveModel(modelID string) error {
-	return db.GORM.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&ModelProfile{}).Where("1=1").Update("is_active", false).Error; err != nil {
-			return err
+func (db *DB) GetDefaultPool() (*Pool, error) {
+	var p Pool
+	if err := db.GORM.Where("is_default = 1").First(&p).Error; err != nil {
+		// fallback: first pool
+		if err2 := db.GORM.First(&p).Error; err2 != nil {
+			return nil, err2
 		}
-		return tx.Model(&ModelProfile{}).Where("model_id = ?", modelID).Update("is_active", true).Error
-	})
+	}
+	return &p, nil
 }
 
-// ── Seed ──
+func (db *DB) CreatePool(p *Pool) error {
+	return db.GORM.Create(p).Error
+}
 
-func (db *DB) seedDefaultAgent() {
-	var count int64
-	defaultTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","read_status","update_status","run_command","task_output","task_stop","web_search","web_fetch","run_http_request","spawn_worker"]`
-	if db.GORM.Model(&Agent{}).Where("name = 'Default'").Count(&count); count == 0 {
-		db.GORM.Create(&Agent{
-			Name:         "Default",
-			Desc:         "General-purpose assistant — read, write, edit files, run commands, search code and web",
-			SystemPrompt: "You are a helpful AI assistant. You can read and write files, run shell commands, search the web, and spawn sub-agents for complex tasks.\n\n## How to work\n- Before editing files, read them first to understand the current state\n- After making changes, verify they work — run tests or check the build\n- When a task is complex, use spawn_worker to delegate sub-tasks\n- When done, summarize what you accomplished",
-			Tools:        defaultTools,
-			WorkerAgents: "[]",
-		})
-	}
+func (db *DB) UpdatePool(p *Pool) error {
+	return db.GORM.Save(p).Error
+}
 
-	managerTools := `["create_agent","update_agent","delete_agent","list_agents","create_mcp_server","delete_mcp_server","list_mcp_servers","create_model","list_resources","run_http_request"]`
-	if db.GORM.Model(&Agent{}).Where("name = 'Manager'").Count(&count); count == 0 {
-		db.GORM.Create(&Agent{
-			Name:         "Manager",
-			Desc:         "System manager — create and configure agents, MCP servers, models, and other resources",
-			SystemPrompt: "You are a system management assistant. You can create, update, delete, and list agents, MCP servers, models, runtimes, and knowledge entries. Use the management tools to perform operations on behalf of the user. Before creating resources, list existing ones to understand the current state. When creating resources, validate that required fields are provided.",
-			Tools:        managerTools,
-			WorkerAgents: "[]",
-		})
+func (db *DB) DeletePool(id int64) error {
+	return db.GORM.Where("id = ?", id).Delete(&Pool{}).Error
+}
+
+func (db *DB) UpdatePoolToolDefs(id int64, toolDefs string) error {
+	return db.GORM.Model(&Pool{}).Where("id = ?", id).Update("tool_defs", toolDefs).Error
+}
+
+// ── ToolAgent methods ──
+
+func (db *DB) UpsertToolAgent(name, url string, poolID int64) (*ToolAgent, error) {
+	var ta ToolAgent
+	err := db.GORM.Where("name = ?", name).First(&ta).Error
+	if err != nil {
+		ta = ToolAgent{Name: name, URL: url, PoolID: poolID, Status: "active", LastHeartbeat: time.Now()}
+		if createErr := db.GORM.Create(&ta).Error; createErr != nil {
+			return nil, createErr
+		}
+		return &ta, nil
 	}
+	ta.URL = url
+	ta.PoolID = poolID
+	ta.Status = "active"
+	ta.LastHeartbeat = time.Now()
+	if updateErr := db.GORM.Save(&ta).Error; updateErr != nil {
+		return nil, updateErr
+	}
+	return &ta, nil
+}
+
+func (db *DB) UpdateToolAgentHeartbeat(id int64, status string) error {
+	updates := map[string]any{"last_heartbeat": time.Now()}
+	if status != "" {
+		updates["status"] = status
+	}
+	return db.GORM.Model(&ToolAgent{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (db *DB) ListToolAgents() ([]ToolAgent, error) {
+	var agents []ToolAgent
+	err := db.GORM.Order("name ASC").Find(&agents).Error
+	return agents, err
+}
+
+func (db *DB) ListActiveToolAgentsByPool(poolID int64) ([]ToolAgent, error) {
+	var agents []ToolAgent
+	err := db.GORM.Where("pool_id = ? AND status = ?", poolID, "active").Order("id ASC").Find(&agents).Error
+	return agents, err
+}
+
+func (db *DB) GetToolAgent(id int64) (*ToolAgent, error) {
+	var ta ToolAgent
+	if err := db.GORM.First(&ta, id).Error; err != nil {
+		return nil, err
+	}
+	return &ta, nil
+}
+
+func (db *DB) DeleteToolAgent(id int64) error {
+	return db.GORM.Where("id = ?", id).Delete(&ToolAgent{}).Error
 }
 
 // ── Thread methods ──
 
-func (db *DB) CreateThread(id, title string, agentID int64, modelID string) error {
+func (db *DB) CreateThread(id, title string, agentID int64, modelID string, poolID int64, workspacePath string) error {
 	return db.GORM.Create(&Thread{
 		ID: id, Title: title, AgentID: agentID, ModelID: modelID,
+		PoolID: poolID, WorkspacePath: workspacePath,
 	}).Error
 }
 
-func (db *DB) CreateWorkerThread(id, title, parentThreadID string, agentID int64, modelID string) error {
+func (db *DB) CreateWorkerThread(id, title, parentThreadID string, agentID int64, modelID string, poolID int64, workspacePath string) error {
 	return db.GORM.Create(&Thread{
-		ID: id, Title: title, AgentID: agentID, ModelID: modelID, ParentThreadID: parentThreadID, Status: "running",
+		ID: id, Title: title, AgentID: agentID, ModelID: modelID,
+		PoolID: poolID, WorkspacePath: workspacePath,
+		ParentThreadID: parentThreadID, Status: "running",
 	}).Error
 }
 
 func (db *DB) SetThreadStatus(id, status string) error {
 	return db.GORM.Model(&Thread{}).Where("id = ?", id).Update("status", status).Error
+}
+
+func (db *DB) UpdateThread(id string, updates map[string]any) error {
+	return db.GORM.Model(&Thread{}).Where("id = ?", id).Updates(updates).Error
 }
 
 func (db *DB) GetCompletedWorkers(parentThreadID string) ([]Thread, error) {
@@ -316,6 +336,13 @@ func (db *DB) ListThreads() ([]Thread, error) {
 
 func (db *DB) DeleteThread(id string) error {
 	db.DeleteMessages(id)
+	db.DeleteEvents(id)
+	// delete child threads
+	var children []Thread
+	db.GORM.Where("parent_thread_id = ?", id).Find(&children)
+	for _, c := range children {
+		db.DeleteThread(c.ID)
+	}
 	return db.GORM.Where("id = ?", id).Delete(&Thread{}).Error
 }
 
@@ -340,6 +367,14 @@ func (db *DB) GetMessages(threadID string, afterID int64) ([]Message, error) {
 	return msgs, err
 }
 
+func (db *DB) GetMessagesByIDs(threadID string, ids []int64) ([]Message, error) {
+	var msgs []Message
+	err := db.GORM.Where("thread_id = ? AND id IN ?", threadID, ids).
+		Order("id ASC").
+		Find(&msgs).Error
+	return msgs, err
+}
+
 func (db *DB) GetRecentMessages(threadID string, limit int) ([]Message, error) {
 	var msgs []Message
 	err := db.GORM.Where("thread_id = ?", threadID).
@@ -356,30 +391,41 @@ func (db *DB) DeleteMessages(threadID string) error {
 	return db.GORM.Where("thread_id = ?", threadID).Delete(&Message{}).Error
 }
 
-func (db *DB) SearchMessages(query string, limit int) ([]Message, error) {
-	var msgs []Message
-	err := db.GORM.Where("content LIKE ? AND kind != 'notice'", "%"+query+"%").
-		Order("id DESC").Limit(limit).Find(&msgs).Error
-	return msgs, err
+// ── Event methods ──
+
+func (db *DB) InsertEvent(e *Event) (int64, error) {
+	if err := db.GORM.Create(e).Error; err != nil {
+		return 0, err
+	}
+	return e.ID, nil
+}
+
+func (db *DB) GetEvents(threadID string, sinceID int64) ([]Event, error) {
+	var events []Event
+	err := db.GORM.Where("thread_id = ? AND id > ?", threadID, sinceID).
+		Order("id ASC").
+		Find(&events).Error
+	return events, err
+}
+
+func (db *DB) DeleteEvents(threadID string) error {
+	return db.GORM.Where("thread_id = ?", threadID).Delete(&Event{}).Error
 }
 
 // ── Agent methods ──
 
 func (db *DB) CreateAgent(name, desc, systemPrompt, tools, defaultModelID, mcpServers, workerAgents string) error {
 	return db.GORM.Create(&Agent{
-		Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools, DefaultModelID: defaultModelID, MCPServers: mcpServers, WorkerAgents: workerAgents,
+		Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools,
+		DefaultModelID: defaultModelID, MCPServers: mcpServers, WorkerAgents: workerAgents,
 	}).Error
 }
 
 func (db *DB) UpdateAgent(id int64, name, desc, systemPrompt, tools, defaultModelID, mcpServers, workerAgents string) error {
 	return db.GORM.Model(&Agent{}).Where("id = ?", id).Updates(map[string]any{
-		"name":             name,
-		"desc":             desc,
-		"system_prompt":    systemPrompt,
-		"tools":            tools,
-		"default_model_id": defaultModelID,
-		"mcp_servers":      mcpServers,
-		"worker_agents":    workerAgents,
+		"name": name, "desc": desc, "system_prompt": systemPrompt,
+		"tools": tools, "default_model_id": defaultModelID,
+		"mcp_servers": mcpServers, "worker_agents": workerAgents,
 	}).Error
 }
 
@@ -401,108 +447,65 @@ func (db *DB) GetAgent(id int64) (*Agent, error) {
 	return &a, nil
 }
 
-// ── Knowledge methods ──
-
-func (db *DB) InsertKnowledge(title, content, source string) (int64, error) {
-	k := &Knowledge{Title: title, Content: content, Source: source}
-	if err := db.GORM.Create(k).Error; err != nil {
-		return 0, err
+func (db *DB) GetAgentByName(name string) (*Agent, error) {
+	var a Agent
+	if err := db.GORM.Where("name = ?", name).First(&a).Error; err != nil {
+		return nil, err
 	}
-	if err := db.GORM.Exec("INSERT INTO knowledge_fts(rowid, title) VALUES(?, ?)", k.ID, title).Error; err != nil {
-		return 0, err
-	}
-	return k.ID, nil
+	return &a, nil
 }
 
-func (db *DB) SearchKnowledge(query string, limit int) ([]Knowledge, error) {
-	if limit <= 0 {
-		limit = 5
-	}
-	if limit > 20 {
-		limit = 20
-	}
-	var count int64
-	if err := db.GORM.Raw("SELECT COUNT(*) FROM knowledge_fts WHERE knowledge_fts MATCH ?", query).Scan(&count).Error; err != nil {
+// ── Model methods ──
+
+func (db *DB) ListModels() ([]ModelProfile, error) {
+	var models []ModelProfile
+	err := db.GORM.Order("id ASC").Find(&models).Error
+	return models, err
+}
+
+func (db *DB) ActiveModel() (*ModelProfile, error) {
+	var m ModelProfile
+	if err := db.GORM.Where("is_active = 1").First(&m).Error; err != nil {
 		return nil, err
 	}
-	if count == 0 {
-		return nil, nil
-	}
-	if count > 100 {
-		return nil, fmt.Errorf("结果过多(%d条)，添加更多关键词", count)
-	}
-	var ids []int64
-	if err := db.GORM.Raw("SELECT rowid FROM knowledge_fts WHERE knowledge_fts MATCH ? ORDER BY rank LIMIT ?", query, limit).Scan(&ids).Error; err != nil {
+	return &m, nil
+}
+
+func (db *DB) GetModelByID(modelID string) (*ModelProfile, error) {
+	var m ModelProfile
+	if err := db.GORM.Where("model_id = ?", modelID).First(&m).Error; err != nil {
 		return nil, err
 	}
-	var knowledge []Knowledge
-	if err := db.GORM.Where("id IN ?", ids).Order("created_at DESC").Find(&knowledge).Error; err != nil {
-		return nil, err
-	}
-	if count > 10 {
-		for i := range knowledge {
-			knowledge[i].Content = ""
+	return &m, nil
+}
+
+func (db *DB) CreateModel(m *ModelProfile) error {
+	m.ID = 0
+	m.IsActive = false
+	return db.GORM.Create(m).Error
+}
+
+func (db *DB) UpdateModel(modelID string, m *ModelProfile) error {
+	return db.GORM.Model(&ModelProfile{}).Where("model_id = ?", modelID).Updates(map[string]any{
+		"base_url": m.BaseURL, "api_key": m.APIKey, "model": m.Model,
+		"vision": m.Vision, "context_limit": m.ContextLimit, "reasoning_effort": m.ReasoningEffort,
+	}).Error
+}
+
+func (db *DB) DeleteModel(modelID string) error {
+	return db.GORM.Where("model_id = ?", modelID).Delete(&ModelProfile{}).Error
+}
+
+func (db *DB) SetActiveModel(modelID string) error {
+	return db.GORM.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&ModelProfile{}).Where("1=1").Update("is_active", false).Error; err != nil {
+			return err
 		}
-	}
-	return knowledge, nil
+		return tx.Model(&ModelProfile{}).Where("model_id = ?", modelID).Update("is_active", true).Error
+	})
 }
 
-func (db *DB) ListKnowledge(limit, offset int) ([]Knowledge, error) {
-	var knowledge []Knowledge
-	err := db.GORM.Order("created_at DESC").Limit(limit).Offset(offset).Find(&knowledge).Error
-	return knowledge, err
-}
-
-func (db *DB) UpdateKnowledge(id int64, title, content string) error {
-	updates := map[string]any{}
-	if title != "" {
-		updates["title"] = title
-	}
-	if content != "" {
-		updates["content"] = content
-	}
-	if len(updates) == 0 {
-		return nil
-	}
-	if err := db.GORM.Model(&Knowledge{}).Where("id = ?", id).Updates(updates).Error; err != nil {
-		return err
-	}
-	if title != "" {
-		db.GORM.Exec("DELETE FROM knowledge_fts WHERE rowid = ?", id)
-		db.GORM.Exec("INSERT INTO knowledge_fts(rowid, title) VALUES(?, ?)", id, title)
-	}
-	return nil
-}
-
-func (db *DB) DeleteKnowledge(id int64) error {
-	if err := db.GORM.Where("id = ?", id).Delete(&Knowledge{}).Error; err != nil {
-		return err
-	}
-	return db.GORM.Exec("DELETE FROM knowledge_fts WHERE rowid = ?", id).Error
-}
-
-func (db *DB) KnowledgeCount() (int64, error) {
-	var count int64
-	err := db.GORM.Model(&Knowledge{}).Count(&count).Error
-	return count, err
-}
-
-func (db *DB) SearchKnowledgeByQuery(q string, limit, offset int) ([]Knowledge, int64, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	var knowledge []Knowledge
-	var count int64
-	query := "%" + q + "%"
-	if err := db.GORM.Model(&Knowledge{}).Where("title LIKE ? OR content LIKE ?", query, query).Count(&count).Error; err != nil {
-		return nil, 0, err
-	}
-	err := db.GORM.Where("title LIKE ? OR content LIKE ?", query, query).
-		Order("created_at DESC").Limit(limit).Offset(offset).Find(&knowledge).Error
-	return knowledge, count, err
-}
-
-// ── MCPServer methods ──
+// ── MCP Server methods ──
 
 func (db *DB) CreateMCPServer(s *MCPServer) error {
 	return db.GORM.Create(s).Error
@@ -510,16 +513,9 @@ func (db *DB) CreateMCPServer(s *MCPServer) error {
 
 func (db *DB) UpdateMCPServer(s *MCPServer) error {
 	return db.GORM.Model(&MCPServer{}).Where("id = ?", s.ID).Updates(map[string]any{
-		"name":    s.Name,
-		"type":    s.Type,
-		"enabled": s.Enabled,
-		"command": s.Command,
-		"args":    s.Args,
-		"env":     s.Env,
-		"url":     s.URL,
-		"headers": s.Headers,
-		"status":  s.Status,
-		"error":   s.Error,
+		"name": s.Name, "type": s.Type, "enabled": s.Enabled,
+		"command": s.Command, "args": s.Args, "env": s.Env,
+		"url": s.URL, "headers": s.Headers, "status": s.Status, "error": s.Error,
 	}).Error
 }
 
@@ -541,57 +537,15 @@ func (db *DB) ListMCPServers() ([]MCPServer, error) {
 	return servers, err
 }
 
-func (db *DB) ListEnabledMCPServers() ([]MCPServer, error) {
-	var servers []MCPServer
-	err := db.GORM.Where("enabled = 1").Order("name ASC").Find(&servers).Error
-	return servers, err
+// ── Helpers ──
+
+func ParsePinnedIDs(s string) []int64 {
+	var ids []int64
+	json.Unmarshal([]byte(s), &ids)
+	return ids
 }
 
-// ── Runtime methods ──
-
-func (db *DB) UpsertRuntime(name, url string, restrictWorkspace bool) (*Runtime, error) {
-	var r Runtime
-	err := db.GORM.Where("name = ?", name).First(&r).Error
-	if err != nil {
-		r = Runtime{Name: name, URL: url, RestrictWorkspace: restrictWorkspace, Status: "active", LastHeartbeat: time.Now()}
-		if createErr := db.GORM.Create(&r).Error; createErr != nil {
-			return nil, createErr
-		}
-		return &r, nil
-	}
-	r.URL = url
-	r.RestrictWorkspace = restrictWorkspace
-	r.Status = "active"
-	r.LastHeartbeat = time.Now()
-	if updateErr := db.GORM.Save(&r).Error; updateErr != nil {
-		return nil, updateErr
-	}
-	return &r, nil
+func MarshalPinnedIDs(ids []int64) string {
+	b, _ := json.Marshal(ids)
+	return string(b)
 }
-
-func (db *DB) UpdateRuntimeHeartbeat(id int64, status string) error {
-	updates := map[string]any{"last_heartbeat": time.Now()}
-	if status != "" {
-		updates["status"] = status
-	}
-	return db.GORM.Model(&Runtime{}).Where("id = ?", id).Updates(updates).Error
-}
-
-func (db *DB) ListRuntimes() ([]Runtime, error) {
-	var runtimes []Runtime
-	err := db.GORM.Order("name ASC").Find(&runtimes).Error
-	return runtimes, err
-}
-
-func (db *DB) GetRuntime(id int64) (*Runtime, error) {
-	var r Runtime
-	if err := db.GORM.First(&r, id).Error; err != nil {
-		return nil, err
-	}
-	return &r, nil
-}
-
-func (db *DB) DeleteRuntime(id int64) error {
-	return db.GORM.Where("id = ?", id).Delete(&Runtime{}).Error
-}
-

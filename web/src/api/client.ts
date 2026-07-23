@@ -1,4 +1,4 @@
-import type { Thread, Agent, ModelProfile, ToolDef, MCPServer, Knowledge, Runtime } from '../types';
+import type { Thread, Agent, ModelProfile, ToolDef, MCPServer, Pool, ToolAgent } from '../types';
 
 const SERVER_URL = window.location.origin;
 
@@ -19,20 +19,20 @@ export const client = {
   listThreads: () => api<Thread[]>('/api/threads'),
   getThread: (id: string) => api<Thread>(`/api/threads/${encodeURIComponent(id)}`),
   deleteThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  getMessages: (threadId: string, afterId = 0) => api<{ messages: Message[]; latest_seq: number }>(`/api/threads/${encodeURIComponent(threadId)}/messages?after_id=${afterId}`),
+  getMessages: (threadId: string, afterId = 0) => api<{ messages: Message[] }>(`/api/threads/${encodeURIComponent(threadId)}/messages?after_id=${afterId}`),
   pauseThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
   resumeThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
-  getWorkers: (threadId: string) => api<{ workers: Array<{ id: string; title: string; status: string; agent_name?: string }> }>(`/api/threads/${encodeURIComponent(threadId)}/workers`),
+  getWorkers: (threadId: string) => api<{ workers: Array<{ id: string; title: string; status: string }> }>(`/api/threads/${encodeURIComponent(threadId)}/workers`),
   stopWorker: (threadId: string, workerId: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(threadId)}/workers/${encodeURIComponent(workerId)}/stop`, { method: 'POST' }),
 
-  // Chat — async via Gateway SSE. Returns { thread_id, status } immediately.
+  // Chat
   sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string; reasoning_effort?: string }, signal?: AbortSignal) =>
     api<{ thread_id: string; status: string }>('/api/chat', { method: 'POST', body: JSON.stringify(body), signal }),
 
   // Agents
   listAgents: () => api<Agent[]>('/api/agents'),
-  createAgent: (body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string; mcp_servers?: string }) => api<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(body) }),
-  updateAgent: (id: number, body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string; mcp_servers?: string }) => api<Agent>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  createAgent: (body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string; mcp_servers?: string; worker_agents?: string }) => api<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(body) }),
+  updateAgent: (id: number, body: { name: string; desc: string; system_prompt: string; tools: string; default_model_id?: string; mcp_servers?: string; worker_agents?: string }) => api<Agent>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAgent: (id: number) => api<{ status: string }>(`/api/agents/${id}`, { method: 'DELETE' }),
 
   // Tools
@@ -51,18 +51,15 @@ export const client = {
   deleteMCPServer: (id: number) => api<{ status: string }>(`/api/mcp/servers/${id}`, { method: 'DELETE' }),
   testMCPServer: (id: number) => api<{ success: boolean; tool_count: number; tools: string[]; error?: string }>(`/api/mcp/servers/${id}/test`, { method: 'POST' }),
 
-  // Knowledge
-  listKnowledge: (limit = 20, offset = 0) => api<Knowledge[]>(`/api/knowledge?limit=${limit}&offset=${offset}`),
-  searchKnowledge: (q: string) => api<Knowledge[]>(`/api/knowledge/search?q=${encodeURIComponent(q)}`),
-  updateKnowledge: (id: number, body: { title?: string; content?: string }) => api<Knowledge>(`/api/knowledge/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
-  deleteKnowledge: (id: number) => api<{ status: string }>(`/api/knowledge/${id}`, { method: 'DELETE' }),
+  // Pools
+  listPools: () => api<Pool[]>('/api/pools'),
+  createPool: (body: Partial<Pool>) => api<Pool>('/api/pools', { method: 'POST', body: JSON.stringify(body) }),
+  updatePool: (id: number, body: Partial<Pool>) => api<Pool>(`/api/pools/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deletePool: (id: number) => api<{ status: string }>(`/api/pools/${id}`, { method: 'DELETE' }),
 
-  // Runtime
-  listRuntimes: () => api<Runtime[]>('/api/runtimes'),
-  deleteRuntime: (id: number) => api<{ status: string }>(`/api/runtimes/${id}`, { method: 'DELETE' }),
-  // Bookmarks
-  getBookmarks: (threadId: string) => api<Message[]>(`/api/messages/bookmarked?thread_id=${encodeURIComponent(threadId)}`),
-  toggleBookmark: (msgId: number, bookmarked: boolean) => api<{ status: string }>(`/api/messages/${msgId}/bookmark`, { method: 'PUT', body: JSON.stringify({ bookmarked }) }),
+  // Tool Agents
+  listToolAgents: () => api<ToolAgent[]>('/api/tool-agents'),
+  deleteToolAgent: (id: number) => api<{ status: string }>(`/api/tool-agents/${id}`, { method: 'DELETE' }),
 };
 
 export interface Message {
@@ -76,5 +73,4 @@ export interface Message {
   reasoning_content: string;
   usage?: string;
   created_at: string;
-  bookmarked?: boolean;
 }

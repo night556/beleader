@@ -11,7 +11,7 @@ const TABS: { page: Page; label: string }[] = [
   { page: 'agent', label: 'Agent' },
   { page: 'mcp', label: 'MCP' },
   { page: 'model', label: 'Model' },
-  { page: 'runtime', label: 'Runtime' },
+  { page: 'pool', label: 'Pools' },
 ];
 
 export function TopNav({ page, onPageChange }: Props) {

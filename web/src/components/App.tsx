@@ -6,7 +6,7 @@ import { ChatPage } from './ChatPage';
 import { AgentPage } from './AgentPage';
 import { MCPPage } from './MCPPage';
 import { ModelPage } from './ModelPage';
-import { RuntimePage } from './RuntimePage';
+import { PoolPage } from './PoolPage';
 import { Toaster } from './Toaster';
 import type { Page } from '../types';
 
@@ -14,7 +14,6 @@ function AppInner() {
   const { state, dispatch } = useAppState();
   const { page } = state;
 
-  // Startup: load initial data
   useEffect(() => {
     Promise.all([
       client.listThreads(),
@@ -29,10 +28,8 @@ function AppInner() {
       dispatch({ type: 'SET_HAS_MODELS', has: models.length > 0 });
       const defaultAgent = agents.find(a => a.name === 'Default') || agents[0];
       if (defaultAgent) {
-        // SET_ACTIVE_AGENT now also sets activeModelId from agent's default.
         dispatch({ type: 'SET_ACTIVE_AGENT', agentId: defaultAgent.id });
       } else {
-        // No agent — just pick the first model.
         dispatch({ type: 'SET_ACTIVE_MODEL', modelId: models.length > 0 ? models[0].id : '' });
       }
     }).catch(err => console.error('startup error:', err));
@@ -50,7 +47,7 @@ function AppInner() {
         {page === 'agent' && <AgentPage />}
         {page === 'mcp' && <MCPPage />}
         {page === 'model' && <ModelPage />}
-        {page === 'runtime' && <RuntimePage />}
+        {page === 'pool' && <PoolPage />}
       </div>
       <Toaster />
     </div>

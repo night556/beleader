@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useCallback, useRef } from 'react';
-import type { AppState, AppStateName, TimelineItem, Thread, Agent, ModelProfile, ToolDef, MCPServer, RuntimeEventRecord, TokenUsage } from '../types';
+import type { AppState, AppStateName, TimelineItem, Thread, Agent, ModelProfile, ToolDef, MCPServer, SSEPayload, TokenUsage } from '../types';
 
 // ── Actions ──
 
@@ -181,18 +181,18 @@ function reducer(state: AppState, action: Action): AppState {
 // processSSEEvent handles a single SSE event from the Gateway.
 export function processSSEEvent(
   eventType: string,
-  data: RuntimeEventRecord,
+  data: SSEPayload,
   dispatch: React.Dispatch<Action>,
   timelineRef: React.MutableRefObject<TimelineItem[]>,
   contentAccRef: React.MutableRefObject<Record<string, string>>,
   thinkingAccRef: React.MutableRefObject<Record<string, string>>,
   turnIdRef: React.MutableRefObject<string>,
 ): boolean {
-  const turnId = data.turn_id || '';
+  const turnId = data.payload?.turn_id || '';
 
   // turn.started always processes to track the new turn ID.
   if (eventType === 'turn.started') {
-    const turn = (data.payload as any)?.turn;
+    const turn = data.payload?.turn;
     turnIdRef.current = turn?.id || turnId;
     dispatch({ type: 'PRUNE_TIMELINE' });
     dispatch({ type: 'SET_STATE', state: 'thinking' });
@@ -209,7 +209,7 @@ export function processSSEEvent(
     }
 
     case 'item.started': {
-      const item = data.payload.item;
+      const item = data.payload?.item;
       if (!item) break;
 
       switch (item.kind) {
@@ -286,8 +286,8 @@ export function processSSEEvent(
 
     case 'item.delta': {
       dispatch({ type: 'SET_STATE', state: 'responding' });
-      const kind = data.payload.kind || '';
-      const delta = data.payload.delta || '';
+      const kind = data.payload?.kind || '';
+      const delta = data.payload?.delta || '';
       const itemId = data.item_id;
       if (!itemId) break;
 
@@ -305,7 +305,7 @@ export function processSSEEvent(
 
     case 'item.completed': {
       dispatch({ type: 'SET_STATE', state: 'idle' });
-      const item = data.payload.item;
+      const item = data.payload?.item;
       if (!item) break;
 
       if (item.kind === 'tool_call') {
@@ -350,11 +350,11 @@ export function processSSEEvent(
 
     case 'item.failed': {
       dispatch({ type: 'SET_STATE', state: 'error' });
-      const item = data.payload.item;
+      const item = data.payload?.item;
       dispatch({
         type: 'PUSH_TIMELINE_ITEM', item: {
           id: '', type: 'error', label: 'Error',
-          content: item?.detail || data.payload.message || 'An error occurred',
+          content: item?.detail || data.payload?.message || 'An error occurred',
           status: 'fail', time: Date.now(),
         },
       });

@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,8 +8,6 @@ import (
 	"runtime"
 	"sync"
 	"time"
-
-	"beleader/runtime/engine"
 )
 
 // ── outputBuf ──
@@ -67,9 +64,6 @@ var (
 	bgSeq      int
 )
 
-// ShellName returns the detected shell executable name (e.g. "pwsh", "bash").
-func ShellName() string { return detectShell().exe }
-
 type shellInfo struct {
 	exe    string
 	flag   string
@@ -90,7 +84,7 @@ func detectShell() shellInfo {
 					return
 				}
 			}
-			cachedShell.info = shellInfo{exe: "cmd", flag: "/c", prefix: "chcp 65001 >nul && "}
+			cachedShell.info = shellInfo{exe: "cmd", flag: "/c", prefix: "chcp 65001 >nul & "}
 			return
 		}
 		for _, exe := range []string{"bash", "zsh", "ash"} {
@@ -104,28 +98,27 @@ func detectShell() shellInfo {
 	return cachedShell.info
 }
 
-// ── Handlers ──
+// ── Tool handlers ──
 
-func execHandler(ctx context.Context, args string) *engine.ToolResult {
+func execHandler(args, workspace, workspaceRoot string, restrict bool, threadID string) *ToolResult {
 	var p struct {
 		Command    string `json:"command"`
 		Timeout    int    `json:"timeout"`
 		Background bool   `json:"background"`
 	}
 	json.Unmarshal([]byte(args), &p)
-
 	if p.Command == "" {
-		return &engine.ToolResult{Error: "command is required"}
+		return &ToolResult{Error: "command is required"}
 	}
 
-	workDir, _ := ctx.Value(engine.CtxKeyWorkDir).(string)
+	workDir := workspace
 
 	if p.Background {
-		sess := startBackground(ctx, p.Command, workDir)
+		sess := startBackground(p.Command, workDir)
 		if sess == nil {
-			return &engine.ToolResult{Error: "failed to start background process"}
+			return &ToolResult{Error: "failed to start background process"}
 		}
-		return &engine.ToolResult{
+		return &ToolResult{
 			Content: fmt.Sprintf("Started background session %s (pid=%d)\nCommand: %s\n\nUse task_output(id=\"%s\") to check output, task_output(id=\"%s\", block=true) to wait, task_stop(id=\"%s\") to kill.",
 				sess.id, sess.cmd.Process.Pid, sess.command, sess.id, sess.id, sess.id),
 		}
@@ -134,16 +127,15 @@ func execHandler(ctx context.Context, args string) *engine.ToolResult {
 	if p.Timeout == 0 {
 		p.Timeout = 60
 	}
-	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(p.Timeout)*time.Second)
-	defer cancel()
+	if p.Timeout > 120 {
+		p.Timeout = 120
+	}
 
 	sh := detectShell()
 	command := sh.prefix + p.Command
 
-	cmd := exec.CommandContext(timeoutCtx, sh.exe, sh.flag, command)
+	cmd := exec.Command(sh.exe, sh.flag, command)
 	cmd.Dir = workDir
-
-	engine.SendCommandBegin(ctx, p.Command)
 
 	output, err := cmd.CombinedOutput()
 	exitCode := 0
@@ -154,18 +146,14 @@ func execHandler(ctx context.Context, args string) *engine.ToolResult {
 			exitCode = -1
 		}
 	}
-	engine.SendCommandEnd(ctx, p.Command, exitCode)
 
 	if err != nil {
-		if timeoutCtx.Err() != nil {
-			return &engine.ToolResult{Content: string(output), Error: fmt.Sprintf("command timed out after %ds", p.Timeout)}
-		}
-		return &engine.ToolResult{Content: string(output), Error: err.Error()}
+		return &ToolResult{Content: string(output), Error: fmt.Sprintf("exit code %d", exitCode)}
 	}
-	return &engine.ToolResult{Content: string(output)}
+	return &ToolResult{Content: string(output)}
 }
 
-func taskOutputHandler(ctx context.Context, args string) *engine.ToolResult {
+func taskOutputHandler(args, workspace, workspaceRoot string, restrict bool, threadID string) *ToolResult {
 	var p struct {
 		ID    string `json:"id"`
 		Block bool   `json:"block"`
@@ -178,7 +166,7 @@ func taskOutputHandler(ctx context.Context, args string) *engine.ToolResult {
 	bgMu.Unlock()
 
 	if sess == nil {
-		return &engine.ToolResult{Error: fmt.Sprintf("session %s not found. Use task_output(id=\"e1\") with the session ID returned by run_command.", p.ID)}
+		return &ToolResult{Error: fmt.Sprintf("session %s not found", p.ID)}
 	}
 
 	if p.Block {
@@ -188,7 +176,6 @@ func taskOutputHandler(ctx context.Context, args string) *engine.ToolResult {
 		select {
 		case <-sess.done:
 		case <-time.After(time.Duration(p.Wait) * time.Second):
-			// Return partial output on timeout.
 		}
 	}
 
@@ -215,24 +202,19 @@ func taskOutputHandler(ctx context.Context, args string) *engine.ToolResult {
 
 	if exited {
 		if code != 0 || exitErrStr != "" {
-			return &engine.ToolResult{
-				Content: fmt.Sprintf("[exited code=%d]\n%s", code, output),
-				Error:   exitErrStr,
-			}
+			return &ToolResult{Content: fmt.Sprintf("[exited code=%d]\n%s", code, output), Error: exitErrStr}
 		}
-		return &engine.ToolResult{Content: fmt.Sprintf("[exited code=%d]\n%s", code, output)}
+		return &ToolResult{Content: fmt.Sprintf("[exited code=%d]\n%s", code, output)}
 	}
 
 	if output == "" {
-		return &engine.ToolResult{Content: fmt.Sprintf("[running pid=%d, elapsed=%ds, no new output]", sess.cmd.Process.Pid, int(time.Since(sess.started).Seconds()))}
+		return &ToolResult{Content: fmt.Sprintf("[running pid=%d, elapsed=%ds, no new output]", sess.cmd.Process.Pid, int(time.Since(sess.started).Seconds()))}
 	}
-	return &engine.ToolResult{Content: fmt.Sprintf("[running pid=%d, elapsed=%ds]\n%s", sess.cmd.Process.Pid, int(time.Since(sess.started).Seconds()), output)}
+	return &ToolResult{Content: fmt.Sprintf("[running pid=%d, elapsed=%ds]\n%s", sess.cmd.Process.Pid, int(time.Since(sess.started).Seconds()), output)}
 }
 
-func taskStopHandler(ctx context.Context, args string) *engine.ToolResult {
-	var p struct {
-		ID string `json:"id"`
-	}
+func taskStopHandler(args, workspace, workspaceRoot string, restrict bool, threadID string) *ToolResult {
+	var p struct{ ID string `json:"id"` }
 	json.Unmarshal([]byte(args), &p)
 
 	bgMu.Lock()
@@ -240,7 +222,7 @@ func taskStopHandler(ctx context.Context, args string) *engine.ToolResult {
 	bgMu.Unlock()
 
 	if sess == nil {
-		return &engine.ToolResult{Error: fmt.Sprintf("session %s not found", p.ID)}
+		return &ToolResult{Error: fmt.Sprintf("session %s not found", p.ID)}
 	}
 
 	select {
@@ -265,17 +247,14 @@ func taskStopHandler(ctx context.Context, args string) *engine.ToolResult {
 	output, _ := sess.output.StringFrom(0)
 
 	if code != 0 || exitErrStr != "" {
-		return &engine.ToolResult{
-			Content: fmt.Sprintf("Killed %s (exit code=%d)\n\n%s", p.ID, code, output),
-			Error:   exitErrStr,
-		}
+		return &ToolResult{Content: fmt.Sprintf("Killed %s (exit code=%d)\n\n%s", p.ID, code, output), Error: exitErrStr}
 	}
-	return &engine.ToolResult{Content: fmt.Sprintf("Killed %s (exit code=%d)\n\n%s", p.ID, code, output)}
+	return &ToolResult{Content: fmt.Sprintf("Killed %s (exit code=%d)\n\n%s", p.ID, code, output)}
 }
 
 // ── Background ──
 
-func startBackground(ctx context.Context, command, workDir string) *bgSession {
+func startBackground(command, workDir string) *bgSession {
 	bgMu.Lock()
 	bgSeq++
 	id := fmt.Sprintf("e%d", bgSeq)
@@ -284,7 +263,7 @@ func startBackground(ctx context.Context, command, workDir string) *bgSession {
 	sh := detectShell()
 	command = sh.prefix + command
 
-	cmd := exec.CommandContext(ctx, sh.exe, sh.flag, command)
+	cmd := exec.Command(sh.exe, sh.flag, command)
 	cmd.Dir = workDir
 
 	stdin, _ := cmd.StdinPipe()
@@ -332,43 +311,11 @@ func startBackground(ctx context.Context, command, workDir string) *bgSession {
 	return sess
 }
 
-// GetUndeliveredResults returns results for completed background sessions,
-// removes them from the session map, and marks them as delivered.
-func GetUndeliveredResults() []engine.BackgroundResult {
-	bgMu.Lock()
-	defer bgMu.Unlock()
-
-	var results []engine.BackgroundResult
-	for id, s := range bgSessions {
-		select {
-		case <-s.done:
-			s.mu.Lock()
-			output, _ := s.output.StringFrom(0)
-			errStr := ""
-			if s.exitErr != nil {
-				errStr = s.exitErr.Error()
-			}
-			r := engine.BackgroundResult{
-				ID:       s.id,
-				Command:  s.command,
-				ExitCode: s.exitCode,
-				Output:   output,
-				Error:    errStr,
-			}
-			s.mu.Unlock()
-			results = append(results, r)
-			delete(bgSessions, id)
-		default:
-		}
-	}
-	return results
-}
-
 // Cleanup kills all background processes.
 func Cleanup() {
 	bgMu.Lock()
 	defer bgMu.Unlock()
-	for id, sess := range bgSessions {
+	for _, sess := range bgSessions {
 		select {
 		case <-sess.done:
 		default:
@@ -376,13 +323,29 @@ func Cleanup() {
 				sess.cmd.Process.Kill()
 			}
 		}
-		_ = id
 	}
 }
 
-// RegisterExecTools registers run_command, task_output, and task_stop handlers.
-func RegisterExecTools(eng *engine.Engine) {
-	eng.RegisterTool("run_command", execHandler)
-	eng.RegisterTool("task_output", taskOutputHandler)
-	eng.RegisterTool("task_stop", taskStopHandler)
+func init() {
+	register("run_command",
+		"Execute a shell command in the workspace directory. Set background=true for long-running commands — returns a session_id. Use task_output to check or wait for results, and task_stop to kill.",
+		map[string]any{
+			"command":    map[string]any{"type": "string", "description": "Shell command to execute."},
+			"timeout":    map[string]any{"type": "integer", "description": "Max seconds for sync mode. Default 60, max 120."},
+			"background": map[string]any{"type": "boolean", "description": "Set true for long-running commands. Returns session_id immediately."},
+		}, []string{"command"}, execHandler)
+
+	register("task_output",
+		"Get output from a background command started with run_command(background=true). Two modes: block=false (check immediately) and block=true (wait up to wait seconds).",
+		map[string]any{
+			"id":    map[string]any{"type": "string", "description": "Session ID returned by run_command."},
+			"block": map[string]any{"type": "boolean", "description": "Whether to block until the command completes. Default false."},
+			"wait":  map[string]any{"type": "integer", "description": "Max seconds to wait when block=true. Default 30."},
+		}, []string{"id"}, taskOutputHandler)
+
+	register("task_stop",
+		"Stop a running background command and return its final output.",
+		map[string]any{
+			"id": map[string]any{"type": "string", "description": "Session ID to kill."},
+		}, []string{"id"}, taskStopHandler)
 }

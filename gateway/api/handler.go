@@ -4,17 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"beleader/gateway/config"
 	"beleader/gateway/db"
+	"beleader/gateway/engine"
 	"beleader/gateway/llm"
+	"beleader/gateway/tools"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/sashabaranov/go-openai"
 )
 
 // turnHandle tracks an active turn for a thread.
@@ -26,13 +30,14 @@ type turnHandle struct {
 
 // Handler is the Gateway HTTP handler.
 type Handler struct {
-	DB       *db.DB
-	LLM      *llm.Client
-	Config   *config.Config
-	SSE      *SSEBroker
-	Runtimes *RuntimeClientPool
+	DB     *db.DB
+	LLM    *llm.Client
+	Config *config.Config
+	SSE    *SSEBroker
+	Engine *engine.Engine
+	Router *tools.Router
 
-	RegToken   string // shared secret for runtime registration, from GATEWAY_TOKEN env var
+	RegToken string
 
 	turnHandles map[string]*turnHandle
 	mu          sync.Mutex
@@ -42,15 +47,31 @@ type Handler struct {
 
 func NewHandler(database *db.DB, llmClient *llm.Client, cfg *config.Config) *Handler {
 	broker := NewSSEBroker()
+	router := tools.NewRouter(database)
+	tools.SetDB(database)
+	tools.RegisterLocalTools(router)
+	tools.RegisterWorkerTools(router)
+	tools.RegisterManagementTools(router)
+
 	h := &Handler{
-		DB:           database,
-		LLM:          llmClient,
-		Config:       cfg,
-		SSE:          broker,
-		Runtimes:     NewRuntimeClientPool(),
-		RegToken:     cfg.RegToken,
+		DB:          database,
+		LLM:         llmClient,
+		Config:      cfg,
+		SSE:         broker,
+		Router:      router,
+		RegToken:    cfg.RegToken,
 		turnHandles: make(map[string]*turnHandle),
 	}
+	h.Engine = engine.NewEngine(database, llmClient, router)
+
+	// Set worker callbacks
+	tools.SetWorkerCallbacks(&tools.WorkerCallbacks{
+		SpawnWorker:     h.spawnWorker,
+		ListWorkers:     h.listWorkerThreads,
+		InterveneWorker: h.interveneWorkerThread,
+		TerminateWorker: h.terminateWorkerThread,
+	})
+
 	h.RegisterObserver(broker)
 	return h
 }
@@ -70,6 +91,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	{
 		api.POST("/chat", h.handleChat)
 		api.GET("/sse", h.handleSSE)
+		api.GET("/threads/:id/events", h.handleGetEvents)
 
 		api.GET("/threads", h.handleListThreads)
 		api.GET("/threads/:id", h.handleGetThread)
@@ -88,11 +110,6 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 
 		api.GET("/tools", h.handleListTools)
 
-		api.GET("/knowledge", h.handleListKnowledge)
-		api.GET("/knowledge/search", h.handleSearchKnowledge)
-		api.PUT("/knowledge/:id", h.handleUpdateKnowledge)
-		api.DELETE("/knowledge/:id", h.handleDeleteKnowledge)
-
 		api.GET("/models", h.handleListModels)
 		api.POST("/models", h.handleCreateModel)
 		api.PUT("/models", h.handleUpdateModel)
@@ -104,10 +121,17 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.DELETE("/mcp/servers/:id", h.handleDeleteMCPServer)
 		api.POST("/mcp/servers/:id/test", h.handleTestMCPServer)
 
-		api.POST("/runtimes/register", h.handleRuntimeRegister)
-		api.POST("/runtimes/heartbeat", h.handleRuntimeHeartbeat)
-		api.GET("/runtimes", h.handleListRuntimes)
-		api.DELETE("/runtimes/:id", h.handleDeleteRuntime)
+		// Pool management
+		api.GET("/pools", h.handleListPools)
+		api.POST("/pools", h.handleCreatePool)
+		api.PUT("/pools/:id", h.handleUpdatePool)
+		api.DELETE("/pools/:id", h.handleDeletePool)
+
+		// Tool Agent management (replaces runtime)
+		api.POST("/tool-agents/register", h.handleToolAgentRegister)
+		api.POST("/tool-agents/heartbeat", h.handleToolAgentHeartbeat)
+		api.GET("/tool-agents", h.handleListToolAgents)
+		api.DELETE("/tool-agents/:id", h.handleDeleteToolAgent)
 	}
 }
 
@@ -122,7 +146,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 		Message         string   `json:"message"`
 		Images          []string `json:"images"`
 		ParentThreadID  string   `json:"parent_thread_id"`
-		WorkspaceDir    string   `json:"workspace_dir"`
+		PoolID          int64    `json:"pool_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -132,10 +156,6 @@ func (h *Handler) handleChat(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "message required"})
 		return
 	}
-	if !h.Runtimes.HasAny() {
-		c.JSON(503, gin.H{"error": "no runtime available — wait for a runtime to register"})
-		return
-	}
 
 	agent, err := h.DB.GetAgent(req.AgentID)
 	if err != nil {
@@ -143,70 +163,282 @@ func (h *Handler) handleChat(c *gin.Context) {
 		return
 	}
 
-	// Resolve model: request override > agent default > first available.
 	model := h.resolveModel(agent.ID, req.ModelID)
 	if model != nil && req.ReasoningEffort != "" {
-		model = overrideEffort(model, req.ReasoningEffort)
-	}
-
-	runtime, _ := h.Runtimes.Pick()
-	if runtime == nil {
-		c.JSON(503, gin.H{"error": "no runtime available"})
-		return
+		m := *model
+		m.ReasoningEffort = req.ReasoningEffort
+		model = &m
 	}
 
 	threadID := req.ThreadID
 	if threadID == "" {
-		modelID := ""
-		if model != nil {
-			modelID = model.ModelID
+		// Create new thread
+		threadID = uuid.New().String()
+
+		// Determine pool
+		poolID := req.PoolID
+		if poolID == 0 {
+			if req.ParentThreadID != "" {
+				parent, _ := h.DB.GetThread(req.ParentThreadID)
+				if parent != nil {
+					poolID = parent.PoolID
+				}
+			}
+			if poolID == 0 {
+				pool, _ := h.DB.GetDefaultPool()
+				if pool != nil {
+					poolID = pool.ID
+				}
+			}
 		}
 
-		// If this is a worker thread, share the parent's workspace.
-		if req.ParentThreadID != "" && req.WorkspaceDir == "" {
-			req.WorkspaceDir = filepath.Join(h.Config.DataDir, "threads", req.ParentThreadID, "workspace")
+		// Init workspace on a tool agent
+		workspacePath := ""
+		if poolID > 0 {
+			agents, _ := h.DB.ListActiveToolAgentsByPool(poolID)
+			if len(agents) > 0 {
+				client := tools.NewAgentClient(agents[0].URL)
+				ws, err := client.InitWorkspace(c.Request.Context(), threadID)
+				if err == nil {
+					workspacePath = ws
+				}
+			}
 		}
-
-		rtID, err := h.createRuntimeThread(runtime, agent, model, req.WorkspaceDir, req.ParentThreadID)
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		threadID = rtID
 
 		title := req.Message
 		if len(title) > 80 {
 			title = title[:80]
 		}
+
+		modelID := ""
+		if model != nil {
+			modelID = model.ModelID
+		}
+
 		if req.ParentThreadID != "" {
-			if err := h.DB.CreateWorkerThread(threadID, title, req.ParentThreadID, agent.ID, modelID); err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
+			h.DB.CreateWorkerThread(threadID, title, req.ParentThreadID, agent.ID, modelID, poolID, workspacePath)
 			h.Notify(SessionEvent{Type: "worker.dispatched", SessionID: req.ParentThreadID, Data: map[string]any{
 				"thread_id":  threadID,
 				"agent_name": agent.Name,
 				"task":       req.Message,
 			}})
 		} else {
-			if err := h.DB.CreateThread(threadID, title, agent.ID, modelID); err != nil {
-				c.JSON(500, gin.H{"error": err.Error()})
-				return
-			}
+			h.DB.CreateThread(threadID, title, agent.ID, modelID, poolID, workspacePath)
 		}
 	} else {
+		// Cancel existing turn
 		h.cancelThread(threadID)
 	}
 
-	// Run the turn in background. All events flow through Gateway SSE.
-	go h.runSession(runtime, threadID, agent, model, req.Message, req.Images)
+	// Run the turn in background
+	go h.runSession(threadID, agent, model, req.Message, req.Images)
 
 	c.JSON(http.StatusOK, gin.H{"thread_id": threadID, "status": "started"})
 }
 
-// onTurnComplete runs after a turn finishes. Handles both trigger points:
-// Trigger 1: if this is a parent thread, check for completed worker results and auto-resume.
-// Trigger 2: if this is a worker thread, mark completed and check if parent needs wakeup.
+func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelProfile, message string, images []string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	token := time.Now().UnixNano()
+
+	h.mu.Lock()
+	h.turnHandles[threadID] = &turnHandle{cancel: cancel, done: done, token: token}
+	h.mu.Unlock()
+
+	defer func() {
+		h.mu.Lock()
+		if th, ok := h.turnHandles[threadID]; ok && th.token == token {
+			delete(h.turnHandles, threadID)
+		}
+		h.mu.Unlock()
+		cancel()
+		close(done)
+		h.onTurnComplete(threadID)
+	}()
+
+	thread, err := h.DB.GetThread(threadID)
+	if err != nil {
+		return
+	}
+
+	// Build system prompt
+	sysPrompt := engine.BuildSystemPrompt(agent.SystemPrompt)
+
+	// Build turn_meta
+	turnMeta := h.buildTurnMeta(thread)
+
+	// Build tool list
+	toolList := h.buildToolList(thread, agent)
+
+	// Get model config
+	modelContextLimit := 128000
+	visionEnabled := false
+	reasoningEffort := "high"
+	llmClient := h.LLM
+	if model != nil {
+		if model.ContextLimit > 0 {
+			modelContextLimit = model.ContextLimit
+		}
+		visionEnabled = model.Vision
+		if model.ReasoningEffort != "" {
+			reasoningEffort = model.ReasoningEffort
+		}
+		llmClient = llm.New(model.BaseURL, model.APIKey, model.Model)
+	}
+
+	// Emit callback: stores event to DB + pushes SSE
+	emit := func(eventType, turnID, itemID string, payload map[string]any) {
+		// Store event in DB
+		payloadJSON, _ := json.Marshal(payload)
+		h.DB.InsertEvent(&db.Event{
+			ThreadID: threadID,
+			TurnID:   turnID,
+			ItemID:   itemID,
+			Event:    eventType,
+			Payload:  string(payloadJSON),
+		})
+		// Push to SSE
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		payload["thread_id"] = threadID
+		payload["turn_id"] = turnID
+		payload["item_id"] = itemID
+		ev := SessionEvent{Type: eventType, SessionID: threadID, Data: payload}
+		h.Notify(ev)
+	}
+
+	h.Engine.RunLoop(ctx, thread, sysPrompt, turnMeta, message, images, toolList, llmClient, modelContextLimit, visionEnabled, reasoningEffort, emit)
+}
+
+func (h *Handler) buildTurnMeta(thread *db.Thread) string {
+	if thread.PoolID == 0 {
+		return ""
+	}
+	pool, err := h.DB.GetPool(thread.PoolID)
+	if err != nil || pool == nil {
+		return ""
+	}
+	return engine.BuildTurnMeta(pool.Shell, pool.Platform, thread.WorkspacePath, pool.GoVersion, pool.RestrictWorkspace)
+}
+
+func (h *Handler) buildToolList(thread *db.Thread, agent *db.Agent) []openai.Tool {
+	var result []openai.Tool
+
+	// Local tools
+	localDefs := tools.LocalToolDefs()
+
+	// Filter by agent's tool whitelist
+	var agentToolNames []string
+	if agent.Tools != "" && agent.Tools != "[]" {
+		json.Unmarshal([]byte(agent.Tools), &agentToolNames)
+	}
+	toolNameSet := map[string]bool{}
+	for _, n := range agentToolNames {
+		toolNameSet[n] = true
+	}
+
+	for _, td := range localDefs {
+		if len(agentToolNames) == 0 || toolNameSet[td.Name] {
+			result = append(result, engine.ToolDefsToOpenAI([]engine.ToolDef{td})[0])
+		}
+	}
+
+	// Remote tools from Pool.ToolDefs
+	if thread.PoolID > 0 {
+		pool, _ := h.DB.GetPool(thread.PoolID)
+		if pool != nil && pool.ToolDefs != "[]" && pool.ToolDefs != "" {
+			var remoteDefs []engine.ToolDef
+			if err := json.Unmarshal([]byte(pool.ToolDefs), &remoteDefs); err == nil {
+				for _, td := range remoteDefs {
+					if len(agentToolNames) == 0 || toolNameSet[td.Name] {
+						result = append(result, engine.ToolDefsToOpenAI([]engine.ToolDef{td})[0])
+					}
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// ── Worker lifecycle (callbacks for tools package) ──
+
+func (h *Handler) spawnWorker(ctx context.Context, parentThread *db.Thread, agentName, task, poolName string) (string, error) {
+	workerAgent, err := h.DB.GetAgentByName(agentName)
+	if err != nil {
+		return "", fmt.Errorf("agent '%s' not found", agentName)
+	}
+
+	poolID := parentThread.PoolID
+	if poolName != "" {
+		pool, err := h.DB.GetPoolByName(poolName)
+		if err != nil {
+			return "", fmt.Errorf("pool '%s' not found", poolName)
+		}
+		poolID = pool.ID
+	}
+
+	workerID := uuid.New().String()
+	model := h.resolveModel(workerAgent.ID, "")
+
+	// Init workspace
+	workspacePath := ""
+	agents, _ := h.DB.ListActiveToolAgentsByPool(poolID)
+	if len(agents) > 0 {
+		client := tools.NewAgentClient(agents[0].URL)
+		ws, err := client.InitWorkspace(ctx, workerID)
+		if err == nil {
+			workspacePath = ws
+		}
+	}
+
+	modelID := ""
+	if model != nil {
+		modelID = model.ModelID
+	}
+
+	title := task
+	if len(title) > 80 {
+		title = title[:80]
+	}
+
+	h.DB.CreateWorkerThread(workerID, title, parentThread.ID, workerAgent.ID, modelID, poolID, workspacePath)
+
+	// Run worker agent loop asynchronously
+	go h.runSession(workerID, workerAgent, model, task, nil)
+
+	return workerID, nil
+}
+
+func (h *Handler) listWorkerThreads(parentThreadID string) ([]db.Thread, error) {
+	return h.DB.GetActiveWorkers(parentThreadID)
+}
+
+func (h *Handler) interveneWorkerThread(ctx context.Context, workerThreadID, message string) error {
+	// Cancel current turn, start new one with the message
+	thread, err := h.DB.GetThread(workerThreadID)
+	if err != nil {
+		return err
+	}
+	agent, _ := h.DB.GetAgent(thread.AgentID)
+	if agent == nil {
+		return fmt.Errorf("agent not found")
+	}
+	model := h.resolveModel(agent.ID, "")
+	h.cancelThread(workerThreadID)
+	go h.runSession(workerThreadID, agent, model, message, nil)
+	return nil
+}
+
+func (h *Handler) terminateWorkerThread(workerThreadID string) error {
+	h.DB.SetThreadStatus(workerThreadID, "stopped")
+	h.cancelThread(workerThreadID)
+	return nil
+}
+
+// ── Turn completion ──
+
 func (h *Handler) onTurnComplete(threadID string) {
 	t, err := h.DB.GetThread(threadID)
 	if err != nil {
@@ -214,21 +446,19 @@ func (h *Handler) onTurnComplete(threadID string) {
 	}
 
 	if t.ParentThreadID != "" {
-		// Trigger 2: worker turn just finished.
-		// Only mark completed if the worker wasn't explicitly stopped.
+		// Worker turn finished
 		finalStatus := t.Status
 		if t.Status == "running" {
 			h.DB.SetThreadStatus(threadID, "completed")
 			h.tryAutoResumeParent(t.ParentThreadID)
 			finalStatus = "completed"
 		}
-
 		h.Notify(SessionEvent{Type: "worker.completed", SessionID: t.ParentThreadID, Data: map[string]any{
 			"thread_id": threadID,
 			"status":    finalStatus,
 		}})
 	} else {
-		// Trigger 1: parent turn ended. Skip if cancelled (turnHandle already removed).
+		// Parent turn ended
 		h.mu.Lock()
 		_, exists := h.turnHandles[threadID]
 		h.mu.Unlock()
@@ -238,26 +468,22 @@ func (h *Handler) onTurnComplete(threadID string) {
 	}
 }
 
-// tryAutoResumeParent checks if the parent thread is idle and has pending worker results.
-// If so, it auto-resumes the parent with batched worker results.
 func (h *Handler) tryAutoResumeParent(parentThreadID string) {
 	h.mu.Lock()
 	_, active := h.turnHandles[parentThreadID]
 	h.mu.Unlock()
 	if active {
-		return // parent still running, Trigger 1 will handle it
+		return
 	}
 	h.tryCheckCompletedWorkers(parentThreadID)
 }
 
-// tryCheckCompletedWorkers checks for completed undelivered workers and auto-resumes the parent.
 func (h *Handler) tryCheckCompletedWorkers(threadID string) {
 	workers, err := h.DB.GetCompletedWorkers(threadID)
 	if err != nil || len(workers) == 0 {
 		return
 	}
 
-	// Build batched result message.
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("[%d workers completed]\n", len(workers)))
 	for _, w := range workers {
@@ -275,14 +501,12 @@ func (h *Handler) tryCheckCompletedWorkers(threadID string) {
 		b.WriteString("\n")
 	}
 
-	// Mark as delivered.
 	var ids []string
 	for _, w := range workers {
 		ids = append(ids, w.ID)
 	}
 	h.DB.MarkWorkersDelivered(ids)
 
-	// Load parent thread info for resume.
 	t, err := h.DB.GetThread(threadID)
 	if err != nil {
 		return
@@ -292,13 +516,7 @@ func (h *Handler) tryCheckCompletedWorkers(threadID string) {
 		return
 	}
 	model := h.resolveModel(agent.ID, "")
-	runtime, _ := h.Runtimes.Pick()
-	if runtime == nil {
-		return
-	}
-
-	// Auto-resume the parent with worker results as the message.
-	go h.runSession(runtime, threadID, agent, model, b.String(), nil)
+	go h.runSession(threadID, agent, model, b.String(), nil)
 }
 
 func (h *Handler) cancelThread(threadID string) {
@@ -310,61 +528,39 @@ func (h *Handler) cancelThread(threadID string) {
 	h.mu.Unlock()
 	if ok {
 		th.cancel()
-		<-th.done // wait for old turn to fully exit
+		<-th.done
 	}
 }
 
-// ── Thread CRUD ──
+// ── Helpers ──
 
-func (h *Handler) handleListThreads(c *gin.Context) {
-	threads, err := h.DB.ListThreads()
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, threads)
-}
-
-func (h *Handler) handleGetThread(c *gin.Context) {
-	t, err := h.DB.GetThread(c.Param("id"))
-	if err != nil {
-		c.JSON(404, gin.H{"error": "thread not found"})
-		return
-	}
-	c.JSON(200, t)
-}
-
-func (h *Handler) handleDeleteThread(c *gin.Context) {
-	id := c.Param("id")
-	h.cancelThread(id)
-	if runtime, _ := h.Runtimes.Pick(); runtime != nil {
-		runtime.DeleteThread(id)
-	}
-	if err := h.DB.DeleteThread(id); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, gin.H{"status": "deleted"})
-}
-
-func (h *Handler) handleGetMessages(c *gin.Context) {
-	threadID := c.Param("id")
-	afterID := int64(0)
-	if v := c.Query("after_id"); v != "" {
-		fmt.Sscanf(v, "%d", &afterID)
-	}
-	msgs, err := h.DB.GetMessages(threadID, afterID)
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	resp := gin.H{"messages": msgs, "latest_seq": int64(0)}
-	if runtime, _ := h.Runtimes.Pick(); runtime != nil {
-		if seq, err2 := runtime.GetLatestSeq(threadID); err2 == nil {
-			resp["latest_seq"] = seq
+func (h *Handler) resolveModel(agentID int64, overrideModelID string) *db.ModelProfile {
+	if overrideModelID != "" {
+		if m, err := h.DB.GetModelByID(overrideModelID); err == nil {
+			return m
 		}
 	}
-	c.JSON(200, resp)
+	if agentID != 0 {
+		agent, err := h.DB.GetAgent(agentID)
+		if err == nil && agent.DefaultModelID != "" {
+			if m, err := h.DB.GetModelByID(agent.DefaultModelID); err == nil {
+				return m
+			}
+		}
+	}
+	models, _ := h.DB.ListModels()
+	if len(models) > 0 {
+		return &models[0]
+	}
+	return nil
+}
+
+func (h *Handler) pickAgentFromPool(poolID int64) *db.ToolAgent {
+	agents, _ := h.DB.ListActiveToolAgentsByPool(poolID)
+	if len(agents) == 0 {
+		return nil
+	}
+	return &agents[rand.Intn(len(agents))]
 }
 
 // ── SSE ──
@@ -395,13 +591,79 @@ func (h *Handler) handleSSE(c *gin.Context) {
 	}
 }
 
+func (h *Handler) handleGetEvents(c *gin.Context) {
+	threadID := c.Param("id")
+	sinceID := int64(0)
+	if v := c.Query("since_id"); v != "" {
+		fmt.Sscanf(v, "%d", &sinceID)
+	}
+	events, err := h.DB.GetEvents(threadID, sinceID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"events": events})
+}
+
+// ── Thread CRUD ──
+
+func (h *Handler) handleListThreads(c *gin.Context) {
+	threads, err := h.DB.ListThreads()
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, threads)
+}
+
+func (h *Handler) handleGetThread(c *gin.Context) {
+	t, err := h.DB.GetThread(c.Param("id"))
+	if err != nil {
+		c.JSON(404, gin.H{"error": "thread not found"})
+		return
+	}
+	c.JSON(200, t)
+}
+
+func (h *Handler) handleDeleteThread(c *gin.Context) {
+	id := c.Param("id")
+	h.cancelThread(id)
+
+	// Cleanup workspace on tool agent
+	thread, _ := h.DB.GetThread(id)
+	if thread != nil && thread.PoolID > 0 {
+		if agent := h.pickAgentFromPool(thread.PoolID); agent != nil {
+			client := tools.NewAgentClient(agent.URL)
+			client.CleanupWorkspace(context.Background(), id)
+		}
+	}
+
+	if err := h.DB.DeleteThread(id); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
+}
+
+func (h *Handler) handleGetMessages(c *gin.Context) {
+	threadID := c.Param("id")
+	afterID := int64(0)
+	if v := c.Query("after_id"); v != "" {
+		fmt.Sscanf(v, "%d", &afterID)
+	}
+	msgs, err := h.DB.GetMessages(threadID, afterID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"messages": msgs})
+}
+
 // ── Pause / Resume / Intervene ──
 
 func (h *Handler) handlePause(c *gin.Context) {
 	threadID := c.Param("id")
-	// Fetch active workers before marking them stopped.
 	workers, _ := h.DB.GetActiveWorkers(threadID)
-	// Mark workers stopped before cancelling their turns, so onTurnComplete skips auto-resume.
 	h.DB.StopWorkers(threadID)
 	h.mu.Lock()
 	for _, w := range workers {
@@ -415,7 +677,6 @@ func (h *Handler) handlePause(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "paused"})
 }
 
-// handleListWorkers returns status of all worker threads for a parent.
 func (h *Handler) handleListWorkers(c *gin.Context) {
 	parentID := c.Param("id")
 	running, _ := h.DB.GetActiveWorkers(parentID)
@@ -439,10 +700,9 @@ func (h *Handler) handleListWorkers(c *gin.Context) {
 	c.JSON(200, gin.H{"workers": workers})
 }
 
-// handleStopWorker stops a specific worker thread.
 func (h *Handler) handleStopWorker(c *gin.Context) {
 	workerID := c.Param("workerID")
-	h.DB.SetThreadStatus(workerID, "stopped") // set before cancel so onTurnComplete sees it
+	h.DB.SetThreadStatus(workerID, "stopped")
 	h.cancelThread(workerID)
 	c.JSON(200, gin.H{"status": "stopped"})
 }
@@ -460,12 +720,7 @@ func (h *Handler) handleResume(c *gin.Context) {
 		return
 	}
 	model := h.resolveModel(agent.ID, "")
-	runtime, _ := h.Runtimes.Pick()
-	if runtime == nil {
-		c.JSON(503, gin.H{"error": "no runtime available"})
-		return
-	}
-	go h.runSession(runtime, threadID, agent, model, "[System] Please continue.", nil)
+	go h.runSession(threadID, agent, model, "[System] Please continue.", nil)
 	c.JSON(200, gin.H{"status": "resumed"})
 }
 
@@ -478,9 +733,9 @@ func (h *Handler) handleIntervene(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	h.cancelThread(c.Param("id"))
-
 	threadID := c.Param("id")
+	h.cancelThread(threadID)
+
 	t, err := h.DB.GetThread(threadID)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "thread not found"})
@@ -492,315 +747,40 @@ func (h *Handler) handleIntervene(c *gin.Context) {
 		return
 	}
 	model := h.resolveModel(agent.ID, "")
-	runtime, _ := h.Runtimes.Pick()
-	if runtime == nil {
-		c.JSON(503, gin.H{"error": "no runtime available"})
-		return
-	}
-	go h.runSession(runtime, threadID, agent, model, req.Message, req.Images)
+	go h.runSession(threadID, agent, model, req.Message, req.Images)
 	c.JSON(200, gin.H{"status": "intervened"})
 }
 
-// ── Models ──
-
-func (h *Handler) handleListModels(c *gin.Context) {
-	dbModels, err := h.DB.ListModels()
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	if dbModels == nil {
-		dbModels = []db.ModelProfile{}
-	}
-	models := make([]config.ModelProfile, len(dbModels))
-	for i, m := range dbModels {
-		models[i] = config.ModelProfile{
-			ID:              m.ModelID,
-			BaseURL:         m.BaseURL,
-			APIKey:          m.APIKey,
-			Model:           m.Model,
-			Vision:          m.Vision,
-			ContextLimit:    m.ContextLimit,
-			ReasoningEffort: m.ReasoningEffort,
-		}
-	}
-	c.JSON(200, models)
-}
-
-
-func (h *Handler) handleCreateModel(c *gin.Context) {
-	var req config.ModelProfile
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-	if req.ID == "" {
-		c.JSON(400, gin.H{"error": "id is required"})
-		return
-	}
-	m := &db.ModelProfile{
-		ModelID:         strings.TrimSpace(req.ID),
-		BaseURL:         req.BaseURL,
-		APIKey:          req.APIKey,
-		Model:           req.Model,
-		Vision:          req.Vision,
-		ContextLimit:    req.ContextLimit,
-		ReasoningEffort: req.ReasoningEffort,
-	}
-	if err := h.DB.CreateModel(m); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, modelToConfig(m))
-}
-
-func (h *Handler) handleUpdateModel(c *gin.Context) {
-	var req config.ModelProfile
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-	modelID := strings.TrimSpace(req.ID)
-	if modelID == "" {
-		c.JSON(400, gin.H{"error": "id is required"})
-		return
-	}
-	m := &db.ModelProfile{
-		ModelID:         modelID,
-		BaseURL:         req.BaseURL,
-		APIKey:          req.APIKey,
-		Model:           req.Model,
-		Vision:          req.Vision,
-		ContextLimit:    req.ContextLimit,
-		ReasoningEffort: req.ReasoningEffort,
-	}
-	if err := h.DB.UpdateModel(modelID, m); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, gin.H{"status": "ok"})
-}
-
-func (h *Handler) handleDeleteModel(c *gin.Context) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-	modelID := strings.TrimSpace(req.ID)
-	if modelID == "" {
-		c.JSON(400, gin.H{"error": "id is required"})
-		return
-	}
-	if err := h.DB.DeleteModel(modelID); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, gin.H{"status": "deleted"})
-}
-
-func modelToConfig(m *db.ModelProfile) config.ModelProfile {
-	return config.ModelProfile{
-		ID:              m.ModelID,
-		BaseURL:         m.BaseURL,
-		APIKey:          m.APIKey,
-		Model:           m.Model,
-		Vision:          m.Vision,
-		ContextLimit:    m.ContextLimit,
-		ReasoningEffort: m.ReasoningEffort,
-	}
-}
-
-// ── Helpers ──
+// ── Tools list ──
 
 func (h *Handler) handleListTools(c *gin.Context) {
-	tools, err := h.Runtimes.ToolDefs()
-	if err != nil {
-		c.JSON(503, gin.H{"error": "no runtime available: " + err.Error()})
-		return
+	localDefs := tools.LocalToolDefs()
+	result := make([]map[string]any, 0, len(localDefs))
+	for _, td := range localDefs {
+		result = append(result, map[string]any{
+			"name":        td.Name,
+			"description": td.Description,
+			"source":      "local",
+		})
 	}
-	for i := range tools {
-		if tools[i]["source"] == nil {
-			tools[i]["source"] = "builtin"
+
+	// Add remote tools from pools
+	pools, _ := h.DB.ListPools()
+	for _, p := range pools {
+		if p.ToolDefs == "" || p.ToolDefs == "[]" {
+			continue
 		}
-	}
-	c.JSON(200, tools)
-}
-
-func (h *Handler) resolveModel(agentID int64, overrideModelID string) *db.ModelProfile {
-	// 1. Use explicit override if provided (per-conversation model switch).
-	if overrideModelID != "" {
-		if m, err := h.DB.GetModelByID(overrideModelID); err == nil {
-			return m
-		}
-	}
-	// 2. Use agent's default model if set.
-	if agentID != 0 {
-		agent, err := h.DB.GetAgent(agentID)
-		if err == nil && agent.DefaultModelID != "" {
-			if m, err := h.DB.GetModelByID(agent.DefaultModelID); err == nil {
-				return m
-			}
-		}
-	}
-	// 3. Fall back to first available model.
-	models, _ := h.DB.ListModels()
-	if len(models) > 0 {
-		return &models[0]
-	}
-	return nil
-}
-
-func overrideEffort(m *db.ModelProfile, effort string) *db.ModelProfile {
-	copy := *m
-	copy.ReasoningEffort = effort
-	return &copy
-}
-
-func (h *Handler) buildModelMap(m *db.ModelProfile) map[string]any {
-	if m == nil {
-		return map[string]any{"context_limit": 128000}
-	}
-	return map[string]any{
-		"base_url":         m.BaseURL,
-		"api_key":          m.APIKey,
-		"model":            m.Model,
-		"context_limit":    m.ContextLimit,
-		"vision":           m.Vision,
-		"reasoning_effort": m.ReasoningEffort,
-	}
-}
-
-func (h *Handler) createRuntimeThread(runtime *RuntimeClient, agent *db.Agent, model *db.ModelProfile, workspaceOverride string, parentThreadID string) (string, error) {
-	allTools, err := runtime.ToolDefs()
-	if err != nil {
-		return "", fmt.Errorf("fetch tools: %w", err)
-	}
-
-	var toolNames []string
-	json.Unmarshal([]byte(agent.Tools), &toolNames)
-	if len(toolNames) == 0 {
-		for _, t := range allTools {
-			toolNames = append(toolNames, t["name"].(string))
-		}
-	}
-
-	// Auto-strip spawn/worker tools from worker agents to prevent nesting.
-	if parentThreadID != "" {
-		strip := map[string]bool{"spawn_worker": true, "check_workers": true, "stop_worker": true}
-		filtered := make([]string, 0, len(toolNames))
-		for _, n := range toolNames {
-			if !strip[n] {
-				filtered = append(filtered, n)
-			}
-		}
-		toolNames = filtered
-	}
-
-	// Build MCP server configs from agent's mcp_servers list.
-	var mcpConfigs []MCPConfig
-	if agent.MCPServers != "" {
-		var serverNames []string
-		if err := json.Unmarshal([]byte(agent.MCPServers), &serverNames); err == nil {
-			for _, name := range serverNames {
-				allServers, _ := h.DB.ListMCPServers()
-				for _, s := range allServers {
-					if s.Name == name && s.Enabled {
-						mcpConfigs = append(mcpConfigs, MCPConfig{
-							Name:    s.Name,
-							Type:    s.Type,
-							Command: s.Command,
-							Args:    s.Args,
-							Env:     s.Env,
-							URL:     s.URL,
-							Headers: s.Headers,
-						})
-						break
-					}
-				}
+		var remoteDefs []engine.ToolDef
+		if err := json.Unmarshal([]byte(p.ToolDefs), &remoteDefs); err == nil {
+			for _, td := range remoteDefs {
+				result = append(result, map[string]any{
+					"name":        td.Name,
+					"description": td.Description,
+					"source":      "pool:" + p.Name,
+				})
 			}
 		}
 	}
 
-	threadID := uuid.New().String()
-	threadDir := filepath.Join(h.Config.DataDir, "threads", threadID)
-	workspaceDir := workspaceOverride
-	if workspaceDir == "" {
-		workspaceDir = filepath.Join(threadDir, "workspace")
-	}
-
-	// Build system prompt with worker agent info injected.
-	systemPrompt := agent.SystemPrompt
-	workerNames, workerInfo := h.buildWorkerPrompt(agent)
-	if workerInfo != "" {
-		systemPrompt += workerInfo
-	}
-
-	req := CreateThreadRequest{
-		ThreadID:          threadID,
-		ThreadDir:         threadDir,
-		WorkspaceDir:      workspaceDir,
-		RestrictWorkspace: h.Config.RestrictWorkspace,
-		SystemPrompt:      systemPrompt,
-		Model:             h.buildModelMap(model),
-		Tools:             filterToolsByName(allTools, toolNames),
-		MCPServers:        mcpConfigs,
-		Metadata: map[string]any{
-			"agent_id":      agent.ID,
-			"worker_agents": workerNames,
-		},
-	}
-
-	if _, err := runtime.CreateThread(req); err != nil {
-		return "", err
-	}
-	return threadID, nil
-}
-
-// buildWorkerPrompt resolves an agent's worker_agents list and builds a
-// system prompt section describing available workers. Returns the list of
-// worker agent names and the prompt text to append.
-func (h *Handler) buildWorkerPrompt(agent *db.Agent) ([]string, string) {
-	var names []string
-	if agent.WorkerAgents == "" || agent.WorkerAgents == "[]" {
-		return names, ""
-	}
-	if err := json.Unmarshal([]byte(agent.WorkerAgents), &names); err != nil || len(names) == 0 {
-		return names, ""
-	}
-
-	allAgents, err := h.DB.ListAgents()
-	if err != nil {
-		return names, ""
-	}
-	agentMap := make(map[string]db.Agent, len(allAgents))
-	for _, a := range allAgents {
-		agentMap[a.Name] = a
-	}
-
-	var b strings.Builder
-	b.WriteString("\n\n## Available Workers\n")
-	b.WriteString("You can delegate work to the following sub-agents using spawn_worker(agent=\"name\", task=\"...\"):\n")
-	for _, name := range names {
-		if wa, ok := agentMap[name]; ok {
-			fmt.Fprintf(&b, "- **%s**: %s\n", wa.Name, wa.Desc)
-		}
-	}
-	return names, b.String()
-}
-
-func filterToolsByName(allTools []map[string]any, names []string) []map[string]any {
-	nameSet := make(map[string]bool, len(names))
-	for _, n := range names {
-		nameSet[n] = true
-	}
-	var filtered []map[string]any
-	for _, t := range allTools {
-		if nameSet[t["name"].(string)] {
-			filtered = append(filtered, t)
-		}
-	}
-	return filtered
+	c.JSON(200, result)
 }

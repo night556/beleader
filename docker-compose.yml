@@ -1,17 +1,16 @@
 services:
-  runtime:
-    build: ./runtime
+  tool-agent:
+    build: ./tool-agent
     ports:
       - "8083:8083"
     environment:
       - PORT=8083
-      - HEADLESS=true
       - GATEWAY_URL=http://gateway:8082
       - GATEWAY_TOKEN=${GATEWAY_TOKEN:-rt_dev_xxx}
-      - RUNTIME_URL=http://runtime:8083
-      - RUNTIME_NAME=${RUNTIME_NAME:-runtime}
+      - POOL=workers
+      - WORKSPACE_ROOT=/app/data
     volumes:
-      - runtime-data:/app/data
+      - workspace-data:/app/data
     depends_on:
       - gateway
     restart: unless-stopped
@@ -22,12 +21,12 @@ services:
       - "8082:8082"
     environment:
       - PORT=8082
+      - DB_DRIVER=sqlite
       - DB_PATH=/app/data/gateway.db
       - DATA_DIR=/app/data
-      - RESTRICT_WORKSPACE=${RESTRICT_WORKSPACE:-false}
       - GATEWAY_TOKEN=${GATEWAY_TOKEN:-rt_dev_xxx}
     volumes:
-      - runtime-data:/app/data
+      - workspace-data:/app/data
     restart: unless-stopped
 
   web:
@@ -39,4 +38,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  runtime-data:
+  workspace-data:

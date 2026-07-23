@@ -1,10 +1,13 @@
 package llm
 
 import (
+	"bufio"
+	"bytes"
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -16,21 +19,27 @@ var LogWriter io.Writer = os.Stdout
 
 type Client struct {
 	*openai.Client
-	model string
+	model   string
+	baseURL string
+	apiKey  string
 }
 
 func New(baseURL, apiKey, model string) *Client {
 	cfg := openai.DefaultConfig(apiKey)
 	cfg.BaseURL = baseURL
 	return &Client{
-		Client: openai.NewClientWithConfig(cfg),
-		model:  model,
+		Client:  openai.NewClientWithConfig(cfg),
+		model:   model,
+		baseURL: baseURL,
+		apiKey:  apiKey,
 	}
 }
 
-func (c *Client) Model() string { return c.model }
+func (c *Client) Model() string {
+	return c.model
+}
 
-func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletionMessage, tools []openai.Tool, onChunk func(deltaContent string) error) (*openai.ChatCompletionResponse, error) {
+func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletionMessage, tools []openai.Tool, onChunk func(deltaContent string) error, onReasoningChunk func(deltaReasoning string) error, reasoningEffort string) (*openai.ChatCompletionResponse, error) {
 	var toolNames []string
 	for _, t := range tools {
 		if t.Function != nil {
@@ -39,7 +48,11 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 	}
 	fmt.Fprintf(LogWriter, "\n%s\n", strings.Repeat("━", 60))
 	fmt.Fprintf(LogWriter, "[LLM REQ] %s | model=%s | msgs=%d | tools=%d [%s] (stream)\n",
-		time.Now().Format("15:04:05"), c.model, len(messages), len(toolNames), strings.Join(toolNames, ", "))
+		time.Now().Format("15:04:05"),
+		c.model,
+		len(messages),
+		len(toolNames),
+		strings.Join(toolNames, ", "))
 
 	for i, m := range messages {
 		content := truncate(m.Content, 200)
@@ -61,7 +74,7 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 		if len(m.ToolCalls) > 0 {
 			var tcNames []string
 			for _, tc := range m.ToolCalls {
-				args := ""
+				var args string
 				if tc.Function.Arguments != "" {
 					args = truncate(tc.Function.Arguments, 80)
 				}
@@ -73,46 +86,76 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 	}
 
 	start := time.Now()
-	stream, err := c.Client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:    c.model,
-		Messages: messages,
-		Tools:    tools,
-		Stream:   true,
-		StreamOptions: &openai.StreamOptions{
-			IncludeUsage: true,
+
+	// Build request body — use map for custom provider fields.
+	reqBody := map[string]any{
+		"model":    c.model,
+		"messages": messages,
+		"tools":    tools,
+		"stream":   true,
+		"stream_options": map[string]any{
+			"include_usage": true,
 		},
-	})
+	}
+	applyReasoningEffort(reqBody, reasoningEffort, detectProvider(c.baseURL))
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	httpResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		fmt.Fprintf(LogWriter, "[LLM ERR] %s | elapsed=%v | %v\n", time.Now().Format("15:04:05"), time.Since(start), err)
 		fmt.Fprintf(LogWriter, "%s\n\n", strings.Repeat("━", 60))
 		return nil, fmt.Errorf("chat completion stream: %w", err)
 	}
-	defer stream.Close()
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != 200 {
+		body, _ := io.ReadAll(io.LimitReader(httpResp.Body, 4096))
+		fmt.Fprintf(LogWriter, "[LLM ERR] %s | elapsed=%v | HTTP %d: %s\n", time.Now().Format("15:04:05"), time.Since(start), httpResp.StatusCode, string(body))
+		fmt.Fprintf(LogWriter, "%s\n\n", strings.Repeat("━", 60))
+		return nil, fmt.Errorf("chat completion stream: HTTP %d: %s", httpResp.StatusCode, string(body))
+	}
 
 	var fullContent string
 	var reasoningContent string
 	tcAcc := make(map[int]*openai.ToolCall)
 	var usage openai.Usage
 
-	for {
-		resp, recvErr := stream.Recv()
-		if recvErr != nil {
-			if errors.Is(recvErr, io.EOF) || recvErr.Error() == "EOF" || strings.Contains(recvErr.Error(), "stream closed") || recvErr.Error() == "io: read/write on closed pipe" {
-				break
-			}
-			fmt.Fprintf(LogWriter, "[LLM ERR] %s | elapsed=%v | recv: %v\n", time.Now().Format("15:04:05"), time.Since(start), recvErr)
-			fmt.Fprintf(LogWriter, "%s\n\n", strings.Repeat("━", 60))
-			return nil, fmt.Errorf("chat completion stream recv: %w", recvErr)
-		}
-
-		if resp.Usage != nil && resp.Usage.TotalTokens > 0 {
-			usage = *resp.Usage
-		}
-
-		if len(resp.Choices) == 0 {
+	scanner := bufio.NewScanner(httpResp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
-		delta := resp.Choices[0].Delta
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+
+		var chunk openai.ChatCompletionStreamResponse
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+
+		if chunk.Usage != nil && chunk.Usage.TotalTokens > 0 {
+			usage = *chunk.Usage
+		}
+
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		delta := chunk.Choices[0].Delta
 
 		if delta.Content != "" {
 			fullContent += delta.Content
@@ -125,6 +168,11 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 
 		if delta.ReasoningContent != "" {
 			reasoningContent += delta.ReasoningContent
+			if onReasoningChunk != nil {
+				if err := onReasoningChunk(delta.ReasoningContent); err != nil {
+					return nil, err
+				}
+			}
 		}
 
 		for _, tcDelta := range delta.ToolCalls {
@@ -185,7 +233,11 @@ func (c *Client) Chat(ctx context.Context, messages []openai.ChatCompletionMessa
 	}
 	fmt.Fprintf(LogWriter, "\n%s\n", strings.Repeat("━", 60))
 	fmt.Fprintf(LogWriter, "[LLM REQ] %s | model=%s | msgs=%d | tools=%d [%s]\n",
-		time.Now().Format("15:04:05"), c.model, len(messages), len(toolNames), strings.Join(toolNames, ", "))
+		time.Now().Format("15:04:05"),
+		c.model,
+		len(messages),
+		len(toolNames),
+		strings.Join(toolNames, ", "))
 
 	for i, m := range messages {
 		content := truncate(m.Content, 200)
@@ -207,7 +259,7 @@ func (c *Client) Chat(ctx context.Context, messages []openai.ChatCompletionMessa
 		if len(m.ToolCalls) > 0 {
 			var tcNames []string
 			for _, tc := range m.ToolCalls {
-				args := ""
+				var args string
 				if tc.Function.Arguments != "" {
 					args = truncate(tc.Function.Arguments, 80)
 				}
@@ -240,22 +292,48 @@ func (c *Client) Chat(ctx context.Context, messages []openai.ChatCompletionMessa
 	fmt.Fprintf(LogWriter, "[LLM RES] %s | elapsed=%v%s\n", time.Now().Format("15:04:05"), elapsed, tokens)
 
 	if len(resp.Choices) > 0 {
-		ch := resp.Choices[0]
-		if ch.Message.Content != "" {
-			fmt.Fprintf(LogWriter, "  content: %s\n", truncate(ch.Message.Content, 300))
+		c := resp.Choices[0]
+		if c.Message.Content != "" {
+			fmt.Fprintf(LogWriter, "  content: %s\n", truncate(c.Message.Content, 300))
 		}
-		if len(ch.Message.ToolCalls) > 0 {
-			for _, tc := range ch.Message.ToolCalls {
+		if len(c.Message.ToolCalls) > 0 {
+			for _, tc := range c.Message.ToolCalls {
 				fmt.Fprintf(LogWriter, "  tool_call: %s(%s)\n", tc.Function.Name, truncate(tc.Function.Arguments, 150))
 			}
 		}
-		if ch.FinishReason != "" {
-			fmt.Fprintf(LogWriter, "  finish: %s\n", ch.FinishReason)
+		if c.FinishReason != "" {
+			fmt.Fprintf(LogWriter, "  finish: %s\n", c.FinishReason)
 		}
 	}
 	fmt.Fprintf(LogWriter, "%s\n", strings.Repeat("━", 60))
 
 	return &resp, nil
+}
+
+func detectProvider(baseURL string) string {
+	u := strings.ToLower(baseURL)
+	switch {
+	case strings.Contains(u, "api.deepseek.com"):
+		return "deepseek"
+	case strings.Contains(u, "api.openai.com"):
+		return "openai"
+	case strings.Contains(u, "api.anthropic.com"):
+		return "anthropic"
+	case strings.Contains(u, "generativelanguage.googleapis.com"):
+		return "gemini"
+	default:
+		return "openai"
+	}
+}
+
+func applyReasoningEffort(body map[string]any, effort, provider string) {
+	if effort == "" || effort == "off" {
+		// Disable thinking. DeepSeek defaults to thinking enabled; other
+		// providers silently ignore this parameter.
+		body["thinking"] = map[string]string{"type": "disabled"}
+		return
+	}
+	body["reasoning_effort"] = effort
 }
 
 func truncate(s string, n int) string {

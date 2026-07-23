@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
+	"time"
+
+	"beleader/gateway/db"
 
 	"github.com/gin-gonic/gin"
 )
@@ -95,102 +97,245 @@ func (h *Handler) handleDeleteAgent(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "ok"})
 }
 
-// ── Knowledge handlers ──
+// ── Models ──
 
-func (h *Handler) handleListKnowledge(c *gin.Context) {
-	offset := 0
-	limit := 50
-	if v := c.Query("offset"); v != "" {
-		fmt.Sscanf(v, "%d", &offset)
-	}
-	if v := c.Query("limit"); v != "" {
-		fmt.Sscanf(v, "%d", &limit)
-	}
-	knowledge, err := h.DB.ListKnowledge(limit, offset)
+func (h *Handler) handleListModels(c *gin.Context) {
+	dbModels, err := h.DB.ListModels()
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	count, _ := h.DB.KnowledgeCount()
-	c.JSON(200, gin.H{"knowledge": knowledge, "count": count})
+	if dbModels == nil {
+		dbModels = []db.ModelProfile{}
+	}
+	c.JSON(200, dbModels)
 }
 
-func (h *Handler) handleSearchKnowledge(c *gin.Context) {
-	q := c.Query("q")
-	if q == "" {
-		c.JSON(400, gin.H{"error": "query required"})
+func (h *Handler) handleCreateModel(c *gin.Context) {
+	var m db.ModelProfile
+	if err := c.ShouldBindJSON(&m); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	offset := 0
-	limit := 20
-	if v := c.Query("offset"); v != "" {
-		fmt.Sscanf(v, "%d", &offset)
+	if m.ModelID == "" {
+		c.JSON(400, gin.H{"error": "id is required"})
+		return
 	}
-	if v := c.Query("limit"); v != "" {
-		fmt.Sscanf(v, "%d", &limit)
-	}
-	knowledge, count, err := h.DB.SearchKnowledgeByQuery(q, limit, offset)
-	if err != nil {
+	if err := h.DB.CreateModel(&m); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, gin.H{"knowledge": knowledge, "count": count})
+	c.JSON(200, m)
 }
 
-func (h *Handler) handleUpdateKnowledge(c *gin.Context) {
-	var id int64
-	if _, err := fmt.Sscanf(c.Param("id"), "%d", &id); err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
+func (h *Handler) handleUpdateModel(c *gin.Context) {
+	var m db.ModelProfile
+	if err := c.ShouldBindJSON(&m); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	var req struct {
-		Title   string `json:"title"`
-		Content string `json:"content"`
+	if m.ModelID == "" {
+		c.JSON(400, gin.H{"error": "id is required"})
+		return
 	}
+	if err := h.DB.UpdateModel(m.ModelID, &m); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func (h *Handler) handleDeleteModel(c *gin.Context) {
+	var req struct{ ID string `json:"id"` }
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Title == "" && req.Content == "" {
-		c.JSON(400, gin.H{"error": "title or content required"})
+	if req.ID == "" {
+		c.JSON(400, gin.H{"error": "id is required"})
 		return
 	}
-	if err := h.DB.UpdateKnowledge(id, req.Title, req.Content); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, gin.H{"status": "updated"})
-}
-
-func (h *Handler) handleDeleteKnowledge(c *gin.Context) {
-	var id int64
-	if _, err := fmt.Sscanf(c.Param("id"), "%d", &id); err != nil {
-		c.JSON(400, gin.H{"error": "invalid id"})
-		return
-	}
-	if err := h.DB.DeleteKnowledge(id); err != nil {
+	if err := h.DB.DeleteModel(req.ID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(200, gin.H{"status": "deleted"})
 }
 
-// searchKnowledgeForLLM performs an FTS5 search on the knowledge base.
-func (h *Handler) searchKnowledgeForLLM(query string, limit int) (string, error) {
-	knowledge, err := h.DB.SearchKnowledge(query, limit)
+// ── Pools ──
+
+func (h *Handler) handleListPools(c *gin.Context) {
+	pools, err := h.DB.ListPools()
 	if err != nil {
-		return "", err
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
 	}
-	b, _ := json.Marshal(knowledge)
-	return string(b), nil
+	if pools == nil {
+		pools = []db.Pool{}
+	}
+	c.JSON(200, pools)
 }
 
-// saveKnowledgeForLLM saves a knowledge entry and returns its ID.
-func (h *Handler) saveKnowledgeForLLM(title, content string) (int64, error) {
-	return h.DB.InsertKnowledge(title, content, "main")
+func (h *Handler) handleCreatePool(c *gin.Context) {
+	var p db.Pool
+	if err := c.ShouldBindJSON(&p); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if p.Name == "" {
+		c.JSON(400, gin.H{"error": "name is required"})
+		return
+	}
+	if p.ToolDefs == "" {
+		p.ToolDefs = "[]"
+	}
+	if err := h.DB.CreatePool(&p); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(201, p)
 }
 
-// deleteKnowledgeForLLM deletes a knowledge entry by ID.
-func (h *Handler) deleteKnowledgeForLLM(id int64) error {
-	return h.DB.DeleteKnowledge(id)
+func (h *Handler) handleUpdatePool(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	var p db.Pool
+	if err := c.ShouldBindJSON(&p); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	p.ID = id
+	if err := h.DB.UpdatePool(&p); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, p)
+}
+
+func (h *Handler) handleDeletePool(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err := h.DB.DeletePool(id); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
+}
+
+// ── Tool Agent registration ──
+
+func (h *Handler) handleToolAgentRegister(c *gin.Context) {
+	var req struct {
+		Name              string             `json:"name" binding:"required"`
+		URL               string             `json:"url" binding:"required"`
+		Token             string             `json:"token" binding:"required"`
+		Pool              string             `json:"pool"`
+		WorkspaceRoot     string             `json:"workspace_root"`
+		RestrictWorkspace bool               `json:"restrict_workspace"`
+		Env               map[string]string  `json:"env"`
+		ToolDefs          []json.RawMessage  `json:"tool_defs"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Token != h.RegToken {
+		c.JSON(401, gin.H{"error": "invalid token"})
+		return
+	}
+
+	poolName := req.Pool
+	if poolName == "" {
+		poolName = req.Name
+	}
+
+	// Find or create pool
+	pool, err := h.DB.GetPoolByName(poolName)
+	if err != nil {
+		// Create new pool
+		shell := ""
+		platform := ""
+		goVersion := ""
+		if req.Env != nil {
+			shell = req.Env["shell"]
+			platform = req.Env["platform"]
+			goVersion = req.Env["go_version"]
+		}
+		pool = &db.Pool{
+			Name:              poolName,
+			Shell:             shell,
+			Platform:          platform,
+			GoVersion:         goVersion,
+			WorkspaceRoot:     req.WorkspaceRoot,
+			RestrictWorkspace: req.RestrictWorkspace,
+			ToolDefs:          "[]",
+			IsDefault:         false,
+		}
+		// Check if this is the first pool → make it default
+		pools, _ := h.DB.ListPools()
+		if len(pools) == 0 {
+			pool.IsDefault = true
+		}
+		h.DB.CreatePool(pool)
+	}
+
+	// Update tool defs if provided
+	if len(req.ToolDefs) > 0 {
+		toolDefsJSON, _ := json.Marshal(req.ToolDefs)
+		h.DB.UpdatePoolToolDefs(pool.ID, string(toolDefsJSON))
+	}
+
+	// Register tool agent
+	ta, err := h.DB.UpsertToolAgent(req.Name, req.URL, pool.ID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, ta)
+}
+
+func (h *Handler) handleToolAgentHeartbeat(c *gin.Context) {
+	var req struct {
+		ID     int64  `json:"id" binding:"required"`
+		Status string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Status == "" {
+		req.Status = "active"
+	}
+	if err := h.DB.UpdateToolAgentHeartbeat(req.ID, req.Status); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func (h *Handler) handleListToolAgents(c *gin.Context) {
+	// Lazy stale check
+	cutoff := time.Now().Add(-60 * time.Second)
+	h.DB.GORM.Model(&db.ToolAgent{}).
+		Where("last_heartbeat < ? AND status = ?", cutoff, "active").
+		Update("status", "inactive")
+
+	agents, err := h.DB.ListToolAgents()
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if agents == nil {
+		agents = []db.ToolAgent{}
+	}
+	c.JSON(200, agents)
+}
+
+func (h *Handler) handleDeleteToolAgent(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err := h.DB.DeleteToolAgent(id); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
 }

@@ -24,7 +24,6 @@ export interface TimelineItem {
   args?: string;
   usage?: TokenUsage;
   time: number;
-  // Worker fields
   workerThreadId?: string;
   workerAgent?: string;
   workerTask?: string;
@@ -40,13 +39,15 @@ export type SSEEventType =
   | 'item.delta'
   | 'item.completed'
   | 'item.failed'
-  | 'error';
+  | 'error'
+  | 'worker.dispatched'
+  | 'worker.completed';
 
 export interface SSEItem {
   id: string;
   turn_id: string;
-  kind: string;  // agent_message | tool_call | command_execution | error
-  status: string; // in_progress | completed | failed | interrupted
+  kind: string;
+  status: string;
   summary?: string;
   detail?: string;
   metadata?: Record<string, any>;
@@ -63,32 +64,19 @@ export interface SSETurn {
   item_ids?: string[];
 }
 
-// RuntimeEventRecord matches the Runtime's SSE event envelope.
-export interface RuntimeEventRecord {
-  schema_version: number;
-  seq: number;
-  timestamp: string;
-  thread_id: string;
-  turn_id?: string;
-  item_id?: string;
-  event: SSEEventType;
+export interface SSEPayload {
+  type: string;
   payload: {
+    thread_id: string;
+    turn_id: string;
+    item_id: string;
     item?: SSEItem;
     turn?: SSETurn;
     delta?: string;
     kind?: string;
     message?: string;
+    status?: string;
   };
-}
-
-// Legacy SSEEvent — kept for Gateway broadcast compatibility.
-export interface SSEEvent {
-  event: SSEEventType;
-  item?: SSEItem;
-  delta?: string;
-  kind?: string;
-  turn?: SSETurn;
-  message?: string;
 }
 
 // ── Thread ──
@@ -98,6 +86,8 @@ export interface Thread {
   title: string;
   agent_id: number;
   model_id: string;
+  pool_id: number;
+  workspace_path: string;
   parent_thread_id: string;
   status: string;
   created_at: string;
@@ -118,9 +108,10 @@ export interface Agent {
   name: string;
   desc: string;
   system_prompt: string;
-  tools: string;  // JSON array
+  tools: string;
   default_model_id: string;
-  mcp_servers: string;  // JSON array
+  mcp_servers: string;
+  worker_agents: string;
   created_at: string;
   updated_at: string;
 }
@@ -148,7 +139,7 @@ export interface ToolParam {
 export interface ToolDef {
   name: string;
   description: string;
-  source: 'builtin' | 'mcp';
+  source: string;
   parameters?: {
     properties: Record<string, ToolParam>;
     required: string[];
@@ -169,28 +160,35 @@ export interface MCPServer {
   headers: string;
   status: 'connected' | 'disconnected' | 'error';
   error: string;
+  pool_id: number;
   created_at: string;
   updated_at: string;
 }
 
-// ── Knowledge ──
+// ── Pool ──
 
-export interface Knowledge {
+export interface Pool {
   id: number;
-  title: string;
-  content: string;
-  source: string;
+  name: string;
+  shell: string;
+  platform: string;
+  go_version: string;
+  workspace_root: string;
+  restrict_workspace: boolean;
+  tool_defs: string;
+  is_default: boolean;
   created_at: string;
+  updated_at: string;
 }
 
-// ── Runtime ──
+// ── ToolAgent ──
 
-export interface Runtime {
+export interface ToolAgent {
   id: number;
   name: string;
   url: string;
+  pool_id: number;
   status: 'active' | 'inactive';
-  restrict_workspace: boolean;
   last_heartbeat: string;
   created_at: string;
   updated_at: string;
@@ -198,7 +196,7 @@ export interface Runtime {
 
 // ── App State ──
 
-export type Page = 'chat' | 'agent' | 'mcp' | 'model' | 'runtime';
+export type Page = 'chat' | 'agent' | 'mcp' | 'model' | 'pool';
 export type AppStateName = 'idle' | 'thinking' | 'tool_calls' | 'responding' | 'error';
 
 export interface AppState {

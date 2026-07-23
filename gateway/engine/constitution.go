@@ -6,54 +6,40 @@ import (
 	"strings"
 )
 
-// Environment holds runtime environment info injected into the system prompt.
-type Environment struct {
-	Shell     string
-	Platform  string
-	WorkDir   string
-	GoVersion string
-}
-
 // BuildSystemPrompt assembles the full system prompt by wrapping the agent's
 // configured prompt with the static constitution and language rules.
 // Per-turn environment info is NOT included here — it goes into <turn_meta>
 // appended to the user message, so the system prompt prefix stays cache-stable.
 func BuildSystemPrompt(agentPrompt string) string {
 	var b strings.Builder
-
-	// Layer 1: Constitution.
 	b.WriteString(strings.TrimSpace(Constitution))
-
-	// Layer 2: Agent prompt (user-configured).
 	if agentPrompt != "" {
 		b.WriteString("\n\n")
 		b.WriteString(agentPrompt)
 	}
-
-	// Layer 3: Language rules.
 	b.WriteString("\n\n")
 	b.WriteString(strings.TrimSpace(LanguageRules))
-
 	return b.String()
 }
 
 // BuildTurnMeta returns a <turn_meta> block with per-turn environment info.
-// This is appended to the latest user message so the system prompt stays
-// byte-stable across turns and across different runtimes.
-func BuildTurnMeta(env Environment) string {
-	if env.Platform == "" {
-		env.Platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+func BuildTurnMeta(shell, platform, workspace, goVersion string, restricted bool) string {
+	if platform == "" {
+		platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	if env.GoVersion == "" {
-		env.GoVersion = runtime.Version()
+	if goVersion == "" {
+		goVersion = runtime.Version()
 	}
-
-	return fmt.Sprintf("\n\n<turn_meta>\nShell: %s\nPlatform: %s\nWorkspace: %s\nRuntime: Go %s\n</turn_meta>",
-		env.Shell, env.Platform, env.WorkDir, env.GoVersion)
+	meta := fmt.Sprintf("\n\n<turn_meta>\nShell: %s\nPlatform: %s\nWorkspace: %s\nRuntime: Go %s",
+		shell, platform, workspace, goVersion)
+	if restricted {
+		meta += "\nRestricted: true"
+	}
+	meta += "\n</turn_meta>"
+	return meta
 }
 
 // Constitution is the behavioral charter injected into every system prompt.
-// It is static — the same for all agents and all sessions.
 const Constitution = `## IAmHuman
 
 You are an AI coding assistant working alongside the user to carry out their

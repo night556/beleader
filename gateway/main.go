@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -46,32 +45,24 @@ func loadEnvFile(path string) {
 func main() {
 	loadEnvFile(".env")
 
-	port := flag.Int("port", 0, "HTTP server port (0=default: PORT env or 8080)")
+	port := flag.Int("port", 0, "HTTP server port (0=default: PORT env or 8082)")
 	logDir := flag.String("log-dir", "", "Log directory for rotating file logs (default: LOG_DIR env or stdout)")
 	flag.Parse()
 
-	os.MkdirAll(config.ConfigDir(), 0755)
+	os.MkdirAll(config.DefaultConfig().DataDir, 0755)
 
 	cfg := config.DefaultConfig()
 
-	dbPath := config.DBPath()
-	os.MkdirAll(filepath.Dir(dbPath), 0755)
-	database, err := db.Open(dbPath)
+	dbCfg := db.LoadDBConfig()
+	database, err := db.Open(dbCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
 		os.Exit(1)
 	}
 	defer database.Close()
 
-	// Check if a model is configured
-	var llmClient *llm.Client
-	if _, err := database.ActiveModel(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: No active model configured — chat will be unavailable until a model is added in Settings.\n")
-		llmClient = llm.New("", "", "")
-	} else {
-		// LLM client is created per-request from DB model config
-		llmClient = llm.New("", "", "")
-	}
+	// LLM client is created per-request from DB model config
+	llmClient := llm.New("", "", "")
 
 	if *logDir == "" {
 		*logDir = os.Getenv("LOG_DIR")
@@ -117,7 +108,7 @@ func main() {
 		}
 	}
 	if listenPort == 0 {
-		listenPort = 8080
+		listenPort = 8082
 	}
 
 	go func() {
