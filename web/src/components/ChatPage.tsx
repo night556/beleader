@@ -214,6 +214,10 @@ export function ChatPage() {
 
   const switchThread = (threadId: string) => {
     if (threadId === activeThreadId) return;
+    const th = threads.find(t => t.id === threadId);
+    if (th) {
+      dispatch({ type: 'SET_THREAD_AGENT_MODEL', agentId: th.agent_id, modelId: th.model_id });
+    }
     dispatch({ type: 'CLEAR_TIMELINE' });
     dispatch({ type: 'SET_ACTIVE_THREAD', threadId });
   };
@@ -239,8 +243,8 @@ export function ChatPage() {
   const commitRename = (id: string) => {
     const title = renameValue.trim();
     if (title) {
-      client.renameThread(id, title).then(() => {
-        client.listThreads().then(threads => dispatch({ type: 'SET_THREADS', threads }));
+      client.updateThread(id, { title }).then(updated => {
+        dispatch({ type: 'SET_THREADS', threads: threads.map(t => t.id === updated.id ? updated : t) });
       }).catch(console.error);
     }
     setRenamingId(null);
@@ -248,10 +252,20 @@ export function ChatPage() {
 
   const handleAgentChange = (agentId: number) => {
     dispatch({ type: 'SET_ACTIVE_AGENT', agentId });
+    if (activeThreadId) {
+      client.updateThread(activeThreadId, { agent_id: agentId }).then(updated => {
+        dispatch({ type: 'SET_THREADS', threads: threads.map(t => t.id === updated.id ? updated : t) });
+      }).catch(console.error);
+    }
   };
 
   const handleModelChange = (modelId: string) => {
     dispatch({ type: 'SET_ACTIVE_MODEL', modelId });
+    if (activeThreadId) {
+      client.updateThread(activeThreadId, { model_id: modelId }).then(updated => {
+        dispatch({ type: 'SET_THREADS', threads: threads.map(t => t.id === updated.id ? updated : t) });
+      }).catch(console.error);
+    }
   };
 
   const handleEffortChange = () => {

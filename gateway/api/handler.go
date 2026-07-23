@@ -158,21 +158,27 @@ func (h *Handler) handleChat(c *gin.Context) {
 		return
 	}
 
-	agent, err := h.DB.GetAgent(req.AgentID)
-	if err != nil {
-		c.JSON(400, gin.H{"error": "agent not found"})
-		return
-	}
-
-	model := h.resolveModel(agent.ID, req.ModelID)
-	if model != nil && req.ReasoningEffort != "" {
-		m := *model
-		m.ReasoningEffort = req.ReasoningEffort
-		model = &m
-	}
-
 	threadID := req.ThreadID
+
+	var agent *db.Agent
+	var model *db.ModelProfile
+	var err error
+
 	if threadID == "" {
+		// New thread — use req.AgentID and req.ModelID
+		agent, err = h.DB.GetAgent(req.AgentID)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "agent not found"})
+			return
+		}
+
+		model = h.resolveModel(agent.ID, req.ModelID)
+		if model != nil && req.ReasoningEffort != "" {
+			m := *model
+			m.ReasoningEffort = req.ReasoningEffort
+			model = &m
+		}
+
 		// Create new thread
 		threadID = uuid.New().String()
 
@@ -222,8 +228,24 @@ func (h *Handler) handleChat(c *gin.Context) {
 			h.DB.CreateThread(threadID, title, agent.ID, modelID, poolID, workspacePath)
 		}
 	} else {
-		// Cancel existing turn
+		// Existing thread — read agent and model from thread, ignore req
 		h.cancelThread(threadID)
+		existingThread, err := h.DB.GetThread(threadID)
+		if err != nil {
+			c.JSON(404, gin.H{"error": "thread not found"})
+			return
+		}
+		agent, err = h.DB.GetAgent(existingThread.AgentID)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "thread's agent not found"})
+			return
+		}
+		model = h.resolveModel(existingThread.AgentID, existingThread.ModelID)
+		if model != nil && req.ReasoningEffort != "" {
+			m := *model
+			m.ReasoningEffort = req.ReasoningEffort
+			model = &m
+		}
 	}
 
 	// Run the turn in background
@@ -649,20 +671,37 @@ func (h *Handler) handleGetThread(c *gin.Context) {
 }
 
 func (h *Handler) handleRenameThread(c *gin.Context) {
-	var req struct{ Title string `json:"title"` }
+	var req struct {
+		Title   string `json:"title"`
+		AgentID *int64 `json:"agent_id"`
+		ModelID string `json:"model_id"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Title == "" {
-		c.JSON(400, gin.H{"error": "title is required"})
+	threadID := c.Param("id")
+	updates := map[string]any{}
+	if req.Title != "" {
+		updates["title"] = req.Title
+	}
+	if req.AgentID != nil {
+		updates["agent_id"] = *req.AgentID
+	}
+	if req.ModelID != "" {
+		updates["model_id"] = req.ModelID
+	}
+	if len(updates) == 0 {
+		c.JSON(400, gin.H{"error": "no fields to update"})
 		return
 	}
-	if err := h.DB.UpdateThreadTitle(c.Param("id"), req.Title); err != nil {
+	updates["updated_at"] = time.Now()
+	if err := h.DB.UpdateThread(threadID, updates); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, gin.H{"status": "ok"})
+	updated, _ := h.DB.GetThread(threadID)
+	c.JSON(200, updated)
 }
 
 func (h *Handler) handleDeleteThread(c *gin.Context) {

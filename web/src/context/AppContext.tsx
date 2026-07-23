@@ -19,6 +19,7 @@ type Action =
   | { type: 'REMOVE_THREAD'; threadId: string }
   | { type: 'SET_AGENTS'; agents: Agent[] }
   | { type: 'SET_ACTIVE_AGENT'; agentId: number | null }
+  | { type: 'SET_THREAD_AGENT_MODEL'; agentId: number; modelId: string }
   | { type: 'SET_MODELS'; models: ModelProfile[] }
   | { type: 'SET_ACTIVE_MODEL'; modelId: string }
   | { type: 'SET_HAS_MODELS'; has: boolean }
@@ -143,12 +144,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, threads: state.threads.filter(t => t.id !== action.threadId) };
     case 'SET_AGENTS':
       return { ...state, agents: action.agents };
-    case 'SET_ACTIVE_AGENT': {
-      // When agent changes, pick the agent's default model if set.
-      const agent = action.agentId ? state.agents.find(a => a.id === action.agentId) : null;
-      const modelId = agent?.default_model_id || state.activeModelId;
-      return { ...state, activeAgentId: action.agentId, activeModelId: modelId };
-    }
+    case 'SET_ACTIVE_AGENT':
+      return { ...state, activeAgentId: action.agentId };
+    case 'SET_THREAD_AGENT_MODEL':
+      return { ...state, activeAgentId: action.agentId, activeModelId: action.modelId };
     case 'SET_MODELS':
       return { ...state, models: action.models };
     case 'SET_ACTIVE_MODEL':

@@ -29,8 +29,11 @@ function AppInner() {
       const defaultAgent = agents.find(a => a.name === 'Default') || agents[0];
       if (defaultAgent) {
         dispatch({ type: 'SET_ACTIVE_AGENT', agentId: defaultAgent.id });
-      } else {
-        dispatch({ type: 'SET_ACTIVE_MODEL', modelId: models.length > 0 ? models[0].id : '' });
+      }
+      // Pick initial model from agent's default or first available
+      const modelId = defaultAgent?.default_model_id || (models.length > 0 ? models[0].id : '');
+      if (modelId) {
+        dispatch({ type: 'SET_ACTIVE_MODEL', modelId });
       }
     }).catch(err => console.error('startup error:', err));
   }, []);
