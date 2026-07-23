@@ -302,7 +302,34 @@ func (h *Handler) handleToolAgentRegister(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, ta)
+	// Return registration result + MCP server configs for this pool
+	mcpServers, _ := h.DB.ListMCPServersByPool(pool.ID)
+	type mcpConfig struct {
+		Name    string            `json:"name"`
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers"`
+	}
+	var mcpConfigs []mcpConfig
+	for _, m := range mcpServers {
+		var headers map[string]string
+		if m.Headers != "" && m.Headers != "{}" {
+			json.Unmarshal([]byte(m.Headers), &headers)
+		}
+		mcpConfigs = append(mcpConfigs, mcpConfig{
+			Name:    m.Name,
+			URL:     m.URL,
+			Headers: headers,
+		})
+	}
+
+	c.JSON(200, gin.H{
+		"id":          ta.ID,
+		"name":        ta.Name,
+		"url":         ta.URL,
+		"pool_id":     ta.PoolID,
+		"status":      ta.Status,
+		"mcp_servers": mcpConfigs,
+	})
 }
 
 func (h *Handler) handleToolAgentHeartbeat(c *gin.Context) {

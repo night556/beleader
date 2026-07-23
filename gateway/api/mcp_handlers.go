@@ -1,18 +1,16 @@
 package api
 
 import (
-	"context"
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"runtime"
+	"io"
+	"net/http"
 	"strconv"
 
 	"beleader/gateway/db"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func (h *Handler) handleListMCPServers(c *gin.Context) {
@@ -106,7 +104,12 @@ func (h *Handler) handleTestMCPServer(c *gin.Context) {
 		return
 	}
 
-	count, names, err := testMCPConnection(*existing)
+	if existing.Type != "http" {
+		c.JSON(200, gin.H{"success": false, "error": "only http type is supported for testing"})
+		return
+	}
+
+	count, names, err := testHTTPMCPConnection(existing.URL, existing.Headers)
 	if err != nil {
 		c.JSON(200, gin.H{"success": false, "error": err.Error()})
 		return
@@ -115,108 +118,79 @@ func (h *Handler) handleTestMCPServer(c *gin.Context) {
 	c.JSON(200, gin.H{"success": true, "tool_count": count, "tools": names})
 }
 
-// testMCPConnection connects to an MCP server, lists tools, and disconnects.
-// Standalone — does not use the Runtime MCP manager.
-func testMCPConnection(cfg db.MCPServer) (int, []string, error) {
-	var c *client.Client
-	var err error
-
-	switch cfg.Type {
-	case "stdio":
-		c, err = connectStdioForTest(cfg)
-	case "http":
-		c, err = connectHTTPForTest(cfg)
-	default:
-		return 0, nil, fmt.Errorf("unknown MCP server type: %s", cfg.Type)
+// testHTTPMCPConnection connects to an HTTP MCP server via JSON-RPC,
+// initializes, and lists tools.
+func testHTTPMCPConnection(url, headersJSON string) (int, []string, error) {
+	var headers map[string]string
+	if headersJSON != "" && headersJSON != "{}" {
+		json.Unmarshal([]byte(headersJSON), &headers)
 	}
-	if err != nil {
-		return 0, nil, err
-	}
-	defer c.Close()
 
-	ctx := context.Background()
-	initReq := mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			ClientInfo: mcp.Implementation{
-				Name:    "BeLeader",
-				Version: "1.0.0",
-			},
+	// 1. Initialize
+	initReq, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2025-03-26",
+			"clientInfo":      map[string]string{"name": "BeLeader", "version": "1.0"},
 		},
-	}
-	if _, err := c.Initialize(ctx, initReq); err != nil {
+	})
+	if _, err := mcpHTTPPost(url, headers, initReq); err != nil {
 		return 0, nil, fmt.Errorf("initialize: %w", err)
 	}
 
-	listResult, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+	// 2. List tools
+	listReq, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "tools/list",
+		"params":  map[string]any{},
+	})
+	respBody, err := mcpHTTPPost(url, headers, listReq)
 	if err != nil {
 		return 0, nil, fmt.Errorf("list tools: %w", err)
 	}
 
+	var listResp struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+		Error any `json:"error"`
+	}
+	json.Unmarshal(respBody, &listResp)
+	if listResp.Error != nil {
+		return 0, nil, fmt.Errorf("server error: %v", listResp.Error)
+	}
+
 	var names []string
-	for _, t := range listResult.Tools {
+	for _, t := range listResp.Result.Tools {
 		names = append(names, t.Name)
 	}
 	return len(names), names, nil
 }
 
-func connectStdioForTest(cfg db.MCPServer) (*client.Client, error) {
-	var args []string
-	if cfg.Args != "" {
-		json.Unmarshal([]byte(cfg.Args), &args)
-	}
-
-	var env []string
-	if cfg.Env != "" {
-		var envMap map[string]string
-		json.Unmarshal([]byte(cfg.Env), &envMap)
-		for k, v := range envMap {
-			env = append(env, k+"="+v)
-		}
-	}
-
-	command := cfg.Command
-	if runtime.GOOS == "windows" && (command == "npx" || command == "npx.cmd") {
-		allArgs := append([]string{"/c", command}, args...)
-		command = "cmd"
-		args = allArgs
-	}
-
-	c, err := client.NewStdioMCPClient(command, env, args...)
+func mcpHTTPPost(url string, headers map[string]string, body []byte) ([]byte, error) {
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create stdio client: %w", err)
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
-	ctx := context.Background()
-	if err := c.Start(ctx); err != nil {
-		c.Close()
-		return nil, fmt.Errorf("start stdio transport: %w", err)
-	}
-
-	return c, nil
-}
-
-func connectHTTPForTest(cfg db.MCPServer) (*client.Client, error) {
-	var headers map[string]string
-	if cfg.Headers != "" {
-		json.Unmarshal([]byte(cfg.Headers), &headers)
-	}
-
-	var opts []transport.StreamableHTTPCOption
-	if len(headers) > 0 {
-		opts = append(opts, transport.WithHTTPHeaders(headers))
-	}
-
-	c, err := client.NewStreamableHttpClient(cfg.URL, opts...)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("create http client: %w", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	ctx := context.Background()
-	if err := c.Start(ctx); err != nil {
-		c.Close()
-		return nil, fmt.Errorf("start http transport: %w", err)
-	}
-
-	return c, nil
+	return io.ReadAll(io.LimitReader(resp.Body, 500000))
 }

@@ -565,6 +565,12 @@ func (db *DB) ListMCPServers() ([]MCPServer, error) {
 	return servers, err
 }
 
+func (db *DB) ListMCPServersByPool(poolID int64) ([]MCPServer, error) {
+	var servers []MCPServer
+	err := db.GORM.Where("pool_id = ? AND enabled = ?", poolID, true).Order("name ASC").Find(&servers).Error
+	return servers, err
+}
+
 // ── Helpers ──
 
 func ParsePinnedIDs(s string) []int64 {

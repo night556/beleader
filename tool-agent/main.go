@@ -93,7 +93,11 @@ func main() {
 		tools.SetEnabledTools(toolsList)
 	}
 
-	// Build tool definitions
+	// Initialize MCP manager
+	mcpMgr := tools.NewMCPManager()
+	tools.SetMCPManager(mcpMgr)
+
+	// Build initial tool definitions (built-in only, MCP added after registration)
 	toolDefs := tools.AllToolDefs()
 
 	httpServer := &http.Server{Addr: ":" + *port, Handler: srv}
@@ -115,7 +119,7 @@ func main() {
 			"go_version": runtime.Version(),
 		}
 		myURL := fmt.Sprintf("http://%s:%s", getMyIP(), *port)
-		stopReg = api.StartRegistration(*gatewayURL, *gatewayToken, *poolName, myURL, *dataDir, *restrict, env, toolDefs)
+		stopReg = api.StartRegistration(*gatewayURL, *gatewayToken, *poolName, myURL, *dataDir, *restrict, env, toolDefs, mcpMgr)
 	}
 
 	sigCh := make(chan os.Signal, 1)

@@ -13,6 +13,11 @@ import (
 	"beleader/tool-agent/tools"
 )
 
+// MCPManagerInterface allows server.go to call MCPManager without circular import.
+type MCPManagerInterface interface {
+	ConnectAll(configs []tools.MCPServerConfig) []json.RawMessage
+}
+
 type ExecuteRequest struct {
 	ThreadID  string          `json:"thread_id"`
 	Workspace string          `json:"workspace"`
@@ -162,7 +167,7 @@ type heartbeatRequest struct {
 	Status string `json:"status"`
 }
 
-func StartRegistration(gatewayURL, token, poolName, myURL, workspaceRoot string, restrict bool, env map[string]string, toolDefs []json.RawMessage) chan struct{} {
+func StartRegistration(gatewayURL, token, poolName, myURL, workspaceRoot string, restrict bool, env map[string]string, toolDefs []json.RawMessage, mcpMgr MCPManagerInterface) chan struct{} {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	register := func() (int64, error) {
@@ -184,12 +189,45 @@ func StartRegistration(gatewayURL, token, poolName, myURL, workspaceRoot string,
 		if resp.StatusCode != 200 {
 			return 0, fmt.Errorf("register failed: %s", resp.Status)
 		}
-		var result map[string]any
-		json.NewDecoder(resp.Body).Decode(&result)
-		if id, ok := result["id"].(float64); ok {
-			return int64(id), nil
+		var result struct {
+			ID        int64 `json:"id"`
+			MCPServers []struct {
+				Name    string            `json:"name"`
+				URL     string            `json:"url"`
+				Headers map[string]string `json:"headers"`
+			} `json:"mcp_servers"`
 		}
-		return 0, nil
+		json.NewDecoder(resp.Body).Decode(&result)
+
+		// Connect to MCP servers and re-register with combined tool defs
+		if mcpMgr != nil && len(result.MCPServers) > 0 {
+			configs := make([]tools.MCPServerConfig, len(result.MCPServers))
+			for i, s := range result.MCPServers {
+				configs[i] = tools.MCPServerConfig{
+					Name:    s.Name,
+					URL:     s.URL,
+					Headers: s.Headers,
+				}
+			}
+			combinedDefs := mcpMgr.ConnectAll(configs)
+			// Re-register with combined tool defs
+			reRegBody, _ := json.Marshal(registerRequest{
+				Name:              poolName + "-" + hostname(),
+				URL:               myURL,
+				Token:             token,
+				Pool:              poolName,
+				WorkspaceRoot:     workspaceRoot,
+				RestrictWorkspace: restrict,
+				Env:               env,
+				ToolDefs:          combinedDefs,
+			})
+			reResp, err := client.Post(gatewayURL+"/api/tool-agents/register", "application/json", strings.NewReader(string(reRegBody)))
+			if err == nil {
+				reResp.Body.Close()
+			}
+		}
+
+		return result.ID, nil
 	}
 
 	sendHeartbeat := func(id int64, status string) error {

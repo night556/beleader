@@ -28,6 +28,12 @@ type ToolHandler func(args string, workspace, workspaceRoot string, restrict boo
 var handlers = map[string]ToolHandler{}
 var toolDefs []ToolDef
 var enabledTools map[string]bool
+var mcpManager *MCPManager
+
+// SetMCPManager sets the global MCP manager (called from main.go).
+func SetMCPManager(m *MCPManager) {
+	mcpManager = m
+}
 
 // SetEnabledTools filters which tools are available.
 // Comma-separated list of tool names. Must be called before AllToolDefs().
@@ -72,11 +78,12 @@ func register(name, description string, params map[string]any, required []string
 	})
 }
 
-// AllToolDefs returns all registered (and enabled) tool definitions.
+// AllToolDefs returns all registered (and enabled) tool definitions,
+// including MCP tools if connected.
 func AllToolDefs() []json.RawMessage {
-	defs := make([]json.RawMessage, 0, len(toolDefs))
+	var defs []json.RawMessage
 	for _, td := range toolDefs {
-		if !isToolEnabled(td.Name) {
+		if !isToolEnabled(td.Name) && !IsMCPTool(td.Name) {
 			continue
 		}
 		b, _ := json.Marshal(td)
@@ -102,6 +109,14 @@ func GetToolDefs() []ToolDef {
 // ExecuteTool runs a tool by name. Returns a ToolResult.
 // This is called by the API server.
 func ExecuteTool(name, args, workspace, workspaceRoot string, restrict bool, threadID string) *ToolResult {
+	// MCP tools
+	if IsMCPTool(name) {
+		if mcpManager == nil {
+			return &ToolResult{Error: "MCP not configured"}
+		}
+		return mcpManager.ExecuteTool(name, args)
+	}
+
 	if !isToolEnabled(name) {
 		return &ToolResult{Error: fmt.Sprintf("tool not enabled: %s", name)}
 	}
