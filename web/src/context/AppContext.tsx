@@ -387,12 +387,18 @@ export function processSSEEvent(
     }
 
     case 'context.compressed': {
+      const before = (data as any).before_tokens || 0;
+      const after = (data as any).after_tokens || 0;
+      const saved = before - after;
+      const text = saved > 0
+        ? `上下文已压缩，节省 ${saved.toLocaleString()} tokens（${before.toLocaleString()} → ${after.toLocaleString()}）`
+        : '上下文已压缩';
       dispatch({
         type: 'PUSH_TIMELINE_ITEM', item: {
           id: `comp_${Date.now()}`,
           type: 'system',
           label: 'System',
-          content: '上下文已压缩',
+          content: text,
           status: 'done',
           time: Date.now(),
           turnId: turnIdRef.current,
