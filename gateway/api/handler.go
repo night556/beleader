@@ -263,6 +263,9 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 	// Build system prompt
 	sysPrompt := engine.BuildSystemPrompt(agent.SystemPrompt)
 
+	// Update thread's updated_at timestamp (for sorting in thread list)
+	h.DB.GORM.Model(&db.Thread{}).Where("id = ?", threadID).Update("updated_at", time.Now())
+
 	// Build turn_meta
 	turnMeta := h.buildTurnMeta(thread)
 

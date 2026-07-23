@@ -347,7 +347,10 @@ func (db *DB) DeleteThread(id string) error {
 }
 
 func (db *DB) UpdateThreadTitle(id, title string) error {
-	return db.GORM.Model(&Thread{}).Where("id = ?", id).Update("title", title).Error
+	return db.GORM.Model(&Thread{}).Where("id = ?", id).Updates(map[string]any{
+		"title":      title,
+		"updated_at": time.Now(),
+	}).Error
 }
 
 // ── Message methods ──

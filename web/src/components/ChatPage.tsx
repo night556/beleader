@@ -162,8 +162,9 @@ export function ChatPage() {
 
       if (!body.thread_id) {
         dispatch({ type: 'SET_ACTIVE_THREAD', threadId: res.thread_id });
-        client.listThreads().then(threads => dispatch({ type: 'SET_THREADS', threads }));
       }
+      // Refresh thread list to update sorting by updated_at
+      client.listThreads().then(threads => dispatch({ type: 'SET_THREADS', threads }));
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
       console.error('chat error:', err);
