@@ -285,11 +285,7 @@ func (e *Engine) RunLoop(
 
 			// Inject images if vision enabled
 			if visionEnabled && len(result.Images) > 0 {
-				label := result.ImageLabel
-				if label == "" {
-					label = "Screenshot"
-				}
-				e.injectImageMessage(thread.ID, result.Images, label, turnID)
+				e.injectImageMessage(thread.ID, result.Images, "Screenshot", turnID)
 			}
 		}
 

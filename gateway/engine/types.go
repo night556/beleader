@@ -10,9 +10,6 @@ type ToolResult struct {
 	Content        string   `json:"content,omitempty"`
 	Error          string   `json:"error,omitempty"`
 	Images         []string `json:"images,omitempty"`
-	ImageLabel     string   `json:"-"`
-	Width          int      `json:"-"`
-	Height         int      `json:"-"`
 	ShouldContinue *bool    `json:"should_continue,omitempty"`
 }
 

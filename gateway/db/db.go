@@ -350,13 +350,6 @@ func (db *DB) DeleteThread(id string) error {
 	return db.GORM.Where("id = ?", id).Delete(&Thread{}).Error
 }
 
-func (db *DB) UpdateThreadTitle(id, title string) error {
-	return db.GORM.Model(&Thread{}).Where("id = ?", id).Updates(map[string]any{
-		"title":      title,
-		"updated_at": time.Now(),
-	}).Error
-}
-
 // ── Message methods ──
 
 func (db *DB) InsertMessage(m *Message) (int64, error) {
@@ -389,14 +382,6 @@ func (db *DB) GetRecentMessagesByCount(threadID string, limit int) ([]Message, e
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
 	return msgs, nil
-}
-
-func (db *DB) GetMessagesByIDs(threadID string, ids []int64) ([]Message, error) {
-	var msgs []Message
-	err := db.GORM.Where("thread_id = ? AND id IN ?", threadID, ids).
-		Order("id ASC").
-		Find(&msgs).Error
-	return msgs, err
 }
 
 func (db *DB) GetRecentMessages(threadID string, limit int) ([]Message, error) {

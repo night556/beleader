@@ -32,7 +32,6 @@ type turnHandle struct {
 type Handler struct {
 	DB     *db.DB
 	LLM    *llm.Client
-	Config *config.Config
 	SSE    *SSEBroker
 	Engine *engine.Engine
 	Router *tools.Router
@@ -54,12 +53,11 @@ func NewHandler(database *db.DB, llmClient *llm.Client, cfg *config.Config) *Han
 	tools.RegisterManagementTools(router)
 
 	h := &Handler{
-		DB:          database,
-		LLM:         llmClient,
-		Config:      cfg,
-		SSE:         broker,
-		Router:      router,
-		RegToken:    cfg.RegToken,
+		DB:       database,
+		LLM:      llmClient,
+		SSE:      broker,
+		Router:   router,
+		RegToken: cfg.RegToken,
 		turnHandles: make(map[string]*turnHandle),
 	}
 	h.Engine = engine.NewEngine(database, llmClient, router)
@@ -91,7 +89,6 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	{
 		api.POST("/chat", h.handleChat)
 		api.GET("/sse", h.handleSSE)
-		api.GET("/threads/:id/events", h.handleGetEvents)
 
 		api.GET("/threads", h.handleListThreads)
 		api.GET("/threads/:id", h.handleGetThread)
@@ -656,20 +653,6 @@ func (h *Handler) handleSSE(c *gin.Context) {
 			return
 		}
 	}
-}
-
-func (h *Handler) handleGetEvents(c *gin.Context) {
-	threadID := c.Param("id")
-	sinceID := int64(0)
-	if v := c.Query("since_id"); v != "" {
-		fmt.Sscanf(v, "%d", &sinceID)
-	}
-	events, err := h.DB.GetEvents(threadID, sinceID)
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(200, gin.H{"events": events})
 }
 
 // ── Thread CRUD ──

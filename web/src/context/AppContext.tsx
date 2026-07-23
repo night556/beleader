@@ -37,9 +37,6 @@ type Action =
   | { type: 'VIEW_WORKER'; threadId: string; parentId: string }
   | { type: 'BACK_TO_PARENT' };
 
-let _seq = 0;
-function newId() { return `ti${++_seq}_${Date.now()}`; }
-
 function initState(): AppState {
   return {
     page: 'chat',
@@ -72,7 +69,6 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, state: action.state };
     case 'PUSH_TIMELINE_ITEM': {
       const item = { ...action.item };
-      if (!item.id) item.id = newId();
       item.time = item.time || Date.now();
       const timeline = [...state.timeline, item];
       return { ...state, timeline };
@@ -427,7 +423,6 @@ export function useAppState() {
   return ctx;
 }
 
-export { newId };
 
 // ── Messages → Timeline ──
 

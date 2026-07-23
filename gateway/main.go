@@ -49,8 +49,6 @@ func main() {
 	logDir := flag.String("log-dir", "", "Log directory for rotating file logs (default: LOG_DIR env or stdout)")
 	flag.Parse()
 
-	os.MkdirAll(config.DefaultConfig().DataDir, 0755)
-
 	cfg := config.DefaultConfig()
 
 	dbCfg := db.LoadDBConfig()

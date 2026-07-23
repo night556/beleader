@@ -7,7 +7,7 @@ export interface TokenUsage {
   cached: number;
 }
 
-export type TimelineItemType = 'user' | 'agent' | 'tool_call' | 'tool_result' | 'error' | 'notice' | 'worker';
+export type TimelineItemType = 'user' | 'agent' | 'tool_call' | 'error' | 'worker';
 
 export interface TimelineItem {
   id: string;

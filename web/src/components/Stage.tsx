@@ -269,40 +269,6 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function WorkerCard({ item }: { item: TimelineItem }) {
-  const { dispatch, state } = useAppState();
-  const isCompleted = item.workerStatus === 'completed';
-  const isStopped = item.workerStatus === 'stopped';
-
-  const handleView = () => {
-    if (item.workerThreadId) {
-      dispatch({ type: 'VIEW_WORKER', threadId: item.workerThreadId, parentId: state.activeThreadId || '' });
-    }
-  };
-
-  let statusIcon = '🔄';
-  let statusClass = 'worker-status-running';
-  if (isCompleted) { statusIcon = '✓'; statusClass = 'worker-status-done'; }
-  if (isStopped) { statusIcon = '✗'; statusClass = 'worker-status-stopped'; }
-
-  return (
-    <div className={msgClass(item)}>
-      <div className="msg-bubble worker-bubble">
-        <div className="msg-header">
-          <span className={`worker-status ${statusClass}`}>{statusIcon}</span>
-          <span className="msg-label">{item.workerAgent || item.label}</span>
-        </div>
-        <div className="worker-task">{item.workerTask || item.content}</div>
-        {item.workerThreadId && (
-          <button className="worker-view-btn" onClick={handleView}>
-            View thread →
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function formatArgs(args: string): string {
   if (!args) return '';
   try {
@@ -315,41 +281,6 @@ function formatArgs(args: string): string {
   }
 }
 
-function ToolCard({ item }: { item: TimelineItem }) {
-  const isDone = item.status === 'done' || item.status === 'fail';
-  const [collapsed, setCollapsed] = useState(isDone);
-
-  useEffect(() => {
-    if (item.status === 'pending' || item.status === 'streaming') {
-      setCollapsed(false);
-    } else {
-      setCollapsed(true);
-    }
-  }, [item.status]);
-
-  const params = formatArgs(item.args || '');
-
-  return (
-    <div className={msgClass(item)}>
-      <div className="msg-bubble">
-        <div className="msg-header" onClick={() => setCollapsed(v => !v)} style={{ cursor: 'pointer' }}>
-          <span className="msg-chevron">{collapsed ? '▶' : '▼'}</span>
-          <span className="msg-label">{item.label}</span>
-          {params && <span className="tool-params">{params}</span>}
-          {item.status === 'pending' && <span className="msg-badge pending">running</span>}
-          {item.status === 'fail' && <span className="msg-badge error">error</span>}
-        </div>
-        {!collapsed && item.content && (
-          <div className="msg-content">
-            <pre>{item.content}</pre>
-            {item.status === 'done' && <CopyButton text={item.content} />}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function formatUsage(u: TokenUsage): string {
   const parts = [`${u.total.toLocaleString()} tokens`];
   parts.push(`in: ${u.prompt.toLocaleString()}`);
@@ -359,8 +290,6 @@ function formatUsage(u: TokenUsage): string {
 }
 
 const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) {
-  const isTool = item.type === 'tool_call';
-  const isWorker = item.type === 'worker';
   const isError = item.type === 'error';
 
   const content = useMemo(() => {
@@ -368,12 +297,6 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
       ? renderMarkdown(item.content)
       : item.content;
   }, [item.type, item.content]);
-
-  const hasThinking = item.type === 'agent' && item.thinking;
-  const usageText = item.type === 'agent' && item.usage ? formatUsage(item.usage) : '';
-
-  if (isTool) return <ToolCard item={item} />;
-  if (isWorker) return <WorkerCard item={item} />;
 
   if (isError) {
     return (
