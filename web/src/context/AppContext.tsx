@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback, useRef } from 'react';
 import type { AppState, AppStateName, TimelineItem, Thread, Agent, ModelProfile, ToolDef, MCPServer, SSEPayload, TokenUsage } from '../types';
+import type { Message } from '../api/client';
 
 // ── Actions ──
 
@@ -439,20 +440,6 @@ export { newId };
 
 // ── Messages → Timeline ──
 
-export interface APIMessage {
-  id: number;
-  thread_id: string;
-  turn_id: string;
-  kind: string;
-  content: string;
-  multi_content: string;
-  tool_calls: string;
-  tool_call_id: string;
-  reasoning_content: string;
-  usage?: string;
-  created_at: string;
-}
-
 function parseUsage(raw: string | undefined): import('../types').TokenUsage | undefined {
   if (!raw) return undefined;
   try { return JSON.parse(raw); } catch { return undefined; }
@@ -460,7 +447,7 @@ function parseUsage(raw: string | undefined): import('../types').TokenUsage | un
 
 // messagesToTimeline converts DB messages to timeline items for initial load.
 // tool_result rows update their matching tool_call item instead of creating separate entries.
-export function messagesToTimeline(messages: APIMessage[]): TimelineItem[] {
+export function messagesToTimeline(messages: Message[]): TimelineItem[] {
   const items: TimelineItem[] = [];
   for (const m of messages) {
     const time = new Date(m.created_at).getTime() || Date.now();

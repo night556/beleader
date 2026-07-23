@@ -66,6 +66,7 @@ export const client = {
 export interface Message {
   id: number;
   thread_id: string;
+  turn_id: string;
   kind: string;
   content: string;
   multi_content: string;
