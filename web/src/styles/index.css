@@ -507,6 +507,26 @@ a { color: var(--accent); }
   padding: 4px 0 0;
 }
 
+.msg-system {
+  justify-content: center;
+}
+
+.msg-system-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--wash);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+}
+
+.msg-system-icon {
+  font-size: 12px;
+}
+
 /* ─── Message Cards ─── */
 
 .msg {

@@ -249,6 +249,7 @@ function msgClass(item: TimelineItem): string {
     case 'tool_call': return `${base} msg-tool`;
     case 'worker': return `${base} msg-worker`;
     case 'error': return `${base} msg-error`;
+    case 'system': return `${base} msg-system`;
     default: return base;
   }
 }
@@ -291,12 +292,24 @@ function formatUsage(u: TokenUsage): string {
 
 const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) {
   const isError = item.type === 'error';
+  const isSystem = item.type === 'system';
 
   const content = useMemo(() => {
     return (item.type === 'agent' || item.type === 'user')
       ? renderMarkdown(item.content)
       : item.content;
   }, [item.type, item.content]);
+
+  if (isSystem) {
+    return (
+      <div className={msgClass(item)}>
+        <div className="msg-system-banner">
+          <span className="msg-system-icon">⚡</span>
+          <span>{item.content}</span>
+        </div>
+      </div>
+    );
+  }
 
   if (isError) {
     return (

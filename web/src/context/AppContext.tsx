@@ -387,6 +387,17 @@ export function processSSEEvent(
     }
 
     case 'context.compressed': {
+      dispatch({
+        type: 'PUSH_TIMELINE_ITEM', item: {
+          id: `comp_${Date.now()}`,
+          type: 'system',
+          label: 'System',
+          content: '上下文已压缩',
+          status: 'done',
+          time: Date.now(),
+          turnId: turnIdRef.current,
+        },
+      });
       break;
     }
   }
