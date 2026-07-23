@@ -383,13 +383,39 @@ func (h *Handler) buildToolList(thread *db.Thread, agent *db.Agent) []openai.Too
 		}
 	}
 
-	// Remote tools from Pool.ToolDefs
+	// Remote tools from Pool.ToolDefs (includes built-in remote + MCP tools)
+	// MCP tools are filtered by agent's MCPServers selection.
 	if thread.PoolID > 0 {
+		// Parse agent's allowed MCP servers
+		var allowedMCP []string
+		if agent.MCPServers != "" && agent.MCPServers != "[]" {
+			json.Unmarshal([]byte(agent.MCPServers), &allowedMCP)
+		}
+		mcpSet := map[string]bool{}
+		for _, m := range allowedMCP {
+			mcpSet[m] = true
+		}
+
 		pool, _ := h.DB.GetPool(thread.PoolID)
 		if pool != nil && pool.ToolDefs != "[]" && pool.ToolDefs != "" {
 			var remoteDefs []engine.ToolDef
 			if err := json.Unmarshal([]byte(pool.ToolDefs), &remoteDefs); err == nil {
 				for _, td := range remoteDefs {
+					// MCP tools: mcp__<server>__<tool> — check agent's MCP server whitelist
+					if strings.HasPrefix(td.Name, "mcp__") {
+						// Extract server name: mcp__<server>__<tool>
+						parts := strings.SplitN(td.Name, "__", 3)
+						if len(parts) == 3 {
+							serverName := parts[1]
+							if !mcpSet[serverName] {
+								continue // agent didn't select this MCP server
+							}
+						}
+						// MCP tools bypass the tool whitelist — controlled by MCPServers selection
+						result = append(result, engine.ToolDefsToOpenAI([]engine.ToolDef{td})[0])
+						continue
+					}
+					// Non-MCP remote tools: check tool whitelist
 					if len(agentToolNames) > 0 && toolNameSet[td.Name] {
 						result = append(result, engine.ToolDefsToOpenAI([]engine.ToolDef{td})[0])
 					}
