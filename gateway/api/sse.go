@@ -13,16 +13,20 @@ type SSEEvent struct {
 
 type SSEBroker struct {
 	clients map[string]map[chan string]struct{} // threadID → subscribed channels
-	mu      sync.RWMutex
+	buffers map[string][]string                 // threadID → buffered msgs while no subscribers
+	mu      sync.Mutex
 }
 
 func NewSSEBroker() *SSEBroker {
 	return &SSEBroker{
 		clients: make(map[string]map[chan string]struct{}),
+		buffers: make(map[string][]string),
 	}
 }
 
 // Subscribe returns a channel that receives SSE events for the given thread.
+// If events were buffered while no subscriber was connected, they are flushed
+// to the new channel before returning.
 func (b *SSEBroker) Subscribe(threadID string) chan string {
 	ch := make(chan string, 64)
 	b.mu.Lock()
@@ -31,6 +35,16 @@ func (b *SSEBroker) Subscribe(threadID string) chan string {
 		b.clients[threadID] = make(map[chan string]struct{})
 	}
 	b.clients[threadID][ch] = struct{}{}
+	// Flush buffered messages to this subscriber
+	if msgs, ok := b.buffers[threadID]; ok && len(msgs) > 0 {
+		for _, msg := range msgs {
+			select {
+			case ch <- msg:
+			default:
+			}
+		}
+		delete(b.buffers, threadID)
+	}
 	return ch
 }
 
@@ -48,6 +62,10 @@ func (b *SSEBroker) Unsubscribe(threadID string, ch chan string) {
 }
 
 // Broadcast sends an event to all channels subscribed to the given thread.
+// If there are no subscribers, the message is buffered so the first
+// subscriber will receive it. On turn.completed with no subscribers,
+// the buffer is cleared — the turn is done and history will be loaded
+// via getMessages on the next subscribe.
 func (b *SSEBroker) Broadcast(threadID string, event SSEEvent) {
 	payloadJSON, err := json.Marshal(event.Payload)
 	if err != nil {
@@ -55,10 +73,20 @@ func (b *SSEBroker) Broadcast(threadID string, event SSEEvent) {
 	}
 	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Type, string(payloadJSON))
 
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	for ch := range b.clients[threadID] {
+	subscribers := b.clients[threadID]
+	if len(subscribers) == 0 {
+		if event.Type == "turn.completed" {
+			delete(b.buffers, threadID)
+			return
+		}
+		b.buffers[threadID] = append(b.buffers[threadID], msg)
+		return
+	}
+
+	for ch := range subscribers {
 		select {
 		case ch <- msg:
 		default:
