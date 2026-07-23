@@ -383,10 +383,12 @@ export function processSSEEvent(
     case 'item.failed': {
       dispatch({ type: 'SET_STATE', state: 'error' });
       const item = data.payload?.item;
+      // LLM errors send detail directly in payload, not nested in item
+      const detail = item?.detail || data.payload?.detail || data.payload?.message || 'An error occurred';
       dispatch({
         type: 'PUSH_TIMELINE_ITEM', item: {
           id: '', type: 'error', label: 'Error',
-          content: item?.detail || data.payload?.message || 'An error occurred',
+          content: detail,
           status: 'fail', time: Date.now(),
         },
       });
