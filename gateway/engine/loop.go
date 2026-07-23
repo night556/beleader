@@ -117,7 +117,9 @@ func (e *Engine) RunLoop(
 
 		// LLM call
 		agentItemID := "item_" + uuid.New().String()[:8]
-		emit("item.started", turnID, agentItemID, map[string]any{"kind": "agent_message"})
+		emit("item.started", turnID, agentItemID, map[string]any{
+			"item": map[string]any{"id": agentItemID, "kind": "agent_message"},
+		})
 
 		resp, err := llmClient.ChatStream(ctx, msgs, toolList, func(delta string) error {
 			emit("item.delta", turnID, agentItemID, map[string]any{"delta": delta, "kind": "agent_message"})
@@ -128,17 +130,23 @@ func (e *Engine) RunLoop(
 		}, reasoningEffort)
 		if err != nil {
 			if ctx.Err() != nil {
-				emit("item.completed", turnID, agentItemID, map[string]any{"kind": "agent_message", "content": ""})
+				emit("item.completed", turnID, agentItemID, map[string]any{
+					"item": map[string]any{"id": agentItemID, "kind": "agent_message", "content": ""},
+				})
 				emit("turn.completed", turnID, "", map[string]any{"status": "interrupted"})
 				return &LoopResult{Stopped: true, Rounds: rounds, Usage: turnUsage}, nil
 			}
-			emit("item.failed", turnID, agentItemID, map[string]any{"kind": "agent_message", "detail": err.Error()})
+			emit("item.failed", turnID, agentItemID, map[string]any{
+				"item": map[string]any{"id": agentItemID, "kind": "agent_message", "detail": err.Error()},
+			})
 			emit("turn.completed", turnID, "", map[string]any{"status": "completed"})
 			return &LoopResult{Completed: false, Rounds: rounds, Usage: turnUsage, Error: err.Error()}, nil
 		}
 
 		if len(resp.Choices) == 0 {
-			emit("item.completed", turnID, agentItemID, map[string]any{"kind": "agent_message", "content": ""})
+			emit("item.completed", turnID, agentItemID, map[string]any{
+				"item": map[string]any{"id": agentItemID, "kind": "agent_message", "content": ""},
+			})
 			emit("turn.completed", turnID, "", map[string]any{"status": "completed"})
 			return &LoopResult{Completed: true, Rounds: rounds, Usage: turnUsage}, nil
 		}
@@ -147,7 +155,9 @@ func (e *Engine) RunLoop(
 		assistantMsg := choice.Message
 
 		if len(assistantMsg.ToolCalls) == 0 && strings.TrimSpace(assistantMsg.Content) == "" {
-			emit("item.completed", turnID, agentItemID, map[string]any{"kind": "agent_message", "content": ""})
+			emit("item.completed", turnID, agentItemID, map[string]any{
+				"item": map[string]any{"id": agentItemID, "kind": "agent_message", "content": ""},
+			})
 			continue
 		}
 
@@ -185,10 +195,17 @@ func (e *Engine) RunLoop(
 			Usage:            usageJSON,
 		})
 
+		itemMeta := map[string]any{}
+		if usageJSON != "" {
+			itemMeta["usage"] = usageJSON
+		}
 		emit("item.completed", turnID, agentItemID, map[string]any{
-			"kind":    "agent_message",
-			"content": assistantMsg.Content,
-			"usage":   usageJSON,
+			"item": map[string]any{
+				"id":       agentItemID,
+				"kind":     "agent_message",
+				"content":  assistantMsg.Content,
+				"metadata": itemMeta,
+			},
 		})
 
 		if len(assistantMsg.ToolCalls) == 0 {
@@ -213,9 +230,12 @@ func (e *Engine) RunLoop(
 				"arguments":   tc.Function.Arguments,
 			}
 			emit("item.started", turnID, toolItemID, map[string]any{
-				"kind":     "tool_call",
-				"summary":  tc.Function.Name,
-				"metadata": toolMeta,
+				"item": map[string]any{
+					"id":       toolItemID,
+					"kind":     "tool_call",
+					"summary":  tc.Function.Name,
+					"metadata": toolMeta,
+				},
 			})
 
 			// Reload thread (it may have been updated by spawn_worker etc.)
@@ -247,9 +267,12 @@ func (e *Engine) RunLoop(
 			})
 
 			emit("item.completed", turnID, toolItemID, map[string]any{
-				"kind":     "tool_call",
-				"detail":   string(dbJSON),
-				"metadata": toolMeta,
+				"item": map[string]any{
+					"id":       toolItemID,
+					"kind":     "tool_call",
+					"detail":   string(dbJSON),
+					"metadata": toolMeta,
+				},
 			})
 
 			// Inject images if vision enabled

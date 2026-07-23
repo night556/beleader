@@ -233,24 +233,22 @@ export function processSSEEvent(
     }
 
     case 'item.started': {
-      const kind = data.payload?.kind || '';
-      const summary = data.payload?.summary || '';
-      const metadata = data.payload?.metadata || {};
-      const itemId = data.payload?.item_id || '';
+      const item = data.payload?.item;
+      if (!item) break;
 
-      switch (kind) {
+      switch (item.kind) {
         case 'user_message':
           {
             const existing = timelineRef.current.find(ti =>
-              ti.type === 'user' && ti.content === (data.payload?.detail || summary || '') &&
+              ti.type === 'user' && ti.content === (item.detail || item.summary || '') &&
               Date.now() - ti.time < 10000
             );
             if (existing) break;
           }
           dispatch({
             type: 'PUSH_TIMELINE_ITEM', item: {
-              id: itemId || `item_${Date.now()}`, type: 'user', label: 'You',
-              content: data.payload?.detail || summary || '',
+              id: item.id, type: 'user', label: 'You',
+              content: item.detail || item.summary || '',
               status: 'done', time: Date.now(),
             },
           });
@@ -260,7 +258,7 @@ export function processSSEEvent(
           dispatch({ type: 'SET_STATE', state: 'thinking' });
           dispatch({
             type: 'PUSH_TIMELINE_ITEM', item: {
-              id: itemId || `item_${Date.now()}`, type: 'agent', label: 'AI',
+              id: item.id, type: 'agent', label: 'AI',
               content: '', status: 'streaming', time: Date.now(),
             },
           });
@@ -268,19 +266,20 @@ export function processSSEEvent(
 
         case 'tool_call': {
           dispatch({ type: 'SET_STATE', state: 'tool_calls' });
-          const rawArgs = metadata.arguments || '';
-          const toolName = metadata.tool_name || 'Tool';
+          const meta = item.metadata || {};
+          const rawArgs = meta.arguments || '';
+          const toolName = meta.tool_name || 'Tool';
           if (toolName === 'spawn_worker') {
             let agent = '';
             let task = '';
             try { const args = JSON.parse(rawArgs); agent = args.agent || ''; task = args.task || ''; } catch {}
             dispatch({
               type: 'PUSH_TIMELINE_ITEM', item: {
-                id: itemId || `item_${Date.now()}`, type: 'worker',
+                id: item.id, type: 'worker',
                 label: agent || 'Worker',
                 content: task,
                 args: rawArgs,
-                status: 'pending', toolName: 'spawn_worker', toolCallId: metadata.tool_use_id,
+                status: 'pending', toolName: 'spawn_worker', toolCallId: meta.tool_use_id,
                 workerAgent: agent, workerTask: task, workerStatus: 'running',
                 time: Date.now(),
               },
@@ -288,11 +287,11 @@ export function processSSEEvent(
           } else {
             dispatch({
               type: 'PUSH_TIMELINE_ITEM', item: {
-                id: itemId || `item_${Date.now()}`, type: 'tool_call',
+                id: item.id, type: 'tool_call',
                 label: toolName,
                 content: '',
                 args: rawArgs,
-                status: 'pending', toolName, toolCallId: metadata.tool_use_id, time: Date.now(),
+                status: 'pending', toolName, toolCallId: meta.tool_use_id, time: Date.now(),
               },
             });
           }
@@ -323,47 +322,48 @@ export function processSSEEvent(
 
     case 'item.completed': {
       dispatch({ type: 'SET_STATE', state: 'idle' });
-      const kind = data.payload?.kind || '';
-      const detail = data.payload?.detail || '';
-      const metadata = data.payload?.metadata || {};
-      const itemId = data.payload?.item_id || '';
+      const item = data.payload?.item;
+      if (!item) break;
 
-      if (kind === 'tool_call') {
-        const toolName = metadata.tool_name || '';
-        let output = detail;
+      if (item.kind === 'tool_call') {
+        const meta = item.metadata || {};
+        const toolName = meta.tool_name || '';
+        let output = item.detail || '';
         try {
           const parsed = JSON.parse(output);
           output = parsed.content || parsed.error || output;
         } catch {}
-        const toolCallId = metadata.tool_use_id;
+        const toolCallId = meta.tool_use_id;
         if (toolName === 'spawn_worker') {
           const m = output.match(/thread (\S+)\)/);
           const workerThreadId = m ? m[1] : '';
-          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { content: output, status: 'done', workerThreadId } });
+          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { content: output, status: 'done', workerThreadId } });
         } else {
-          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { content: output, status: 'done' } });
+          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { content: output, status: 'done' } });
         }
         if (toolCallId) {
           const t = timelineRef.current;
           for (let i = t.length - 1; i >= 0; i--) {
-            if (t[i].toolCallId === toolCallId && t[i].status === 'pending' && t[i].id !== itemId) {
+            if (t[i].toolCallId === toolCallId && t[i].status === 'pending' && t[i].id !== item.id) {
               dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: t[i].id, updates: { content: output, status: 'done' } });
               break;
             }
           }
         }
-      } else if (kind === 'agent_message') {
-        const usage = data.payload?.usage as string | undefined;
-        let usageObj: TokenUsage | undefined;
-        if (usage) { try { usageObj = JSON.parse(usage); } catch {} }
-        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { status: 'done', usage: usageObj } });
+      } else if (item.kind === 'agent_message') {
+        const meta = item.metadata || {};
+        let usage: TokenUsage | undefined;
+        const usageRaw = meta.usage as string | undefined;
+        if (usageRaw) { try { usage = JSON.parse(usageRaw); } catch {} }
+        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { status: 'done', usage } });
       }
       break;
     }
 
     case 'item.failed': {
       dispatch({ type: 'SET_STATE', state: 'error' });
-      const detail = data.payload?.detail || data.payload?.message || 'An error occurred';
+      const item = data.payload?.item;
+      const detail = item?.detail || data.payload?.message || 'An error occurred';
       dispatch({
         type: 'PUSH_TIMELINE_ITEM', item: {
           id: '', type: 'error', label: 'Error',

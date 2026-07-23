@@ -77,9 +77,6 @@ export interface SSEPayload {
     message?: string;
     status?: string;
     usage?: string;
-    detail?: string;
-    summary?: string;
-    metadata?: Record<string, any>;
   };
 }
 
