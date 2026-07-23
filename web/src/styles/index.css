@@ -552,6 +552,11 @@ a { color: var(--accent); }
   border-bottom-left-radius: 4px;
 }
 
+.turn-bubble {
+  width: 100%;
+  max-width: 100%;
+}
+
 .msg-tool .msg-bubble {
   max-width: 85%;
   background: var(--surface);
