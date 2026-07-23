@@ -64,6 +64,7 @@ export function PoolPage() {
                     </span>
                   </div>
                   <div className="card-actions">
+                    {!p.is_default && <button className="card-btn" onClick={async () => { await client.setDefaultPool(p.id); load(); }}>Set default</button>}
                     <button className="card-btn danger" onClick={() => delPool(p.id)}>Delete</button>
                   </div>
                 </div>

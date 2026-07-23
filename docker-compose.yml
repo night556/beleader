@@ -24,7 +24,6 @@ services:
       - PORT=8082
       - DB_DRIVER=sqlite
       - DB_PATH=/app/data/gateway.db
-      - DATA_DIR=/app/data
       - GATEWAY_TOKEN=${GATEWAY_TOKEN:-rt_dev_xxx}
     volumes:
       - workspace-data:/app/data
