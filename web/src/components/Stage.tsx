@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, memo, useMemo, Fragment } from 'react';
 import { marked } from 'marked';
 import hljs from 'highlight.js/lib/common';
 import type { AppState, TimelineItem, TokenUsage } from '../types';
@@ -143,15 +143,9 @@ function groupByTurn(items: TimelineItem[]): Array<TimelineItem | TimelineItem[]
 }
 
 const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }) {
-  const agentItem = items.find(i => i.type === 'agent');
-  const toolItems = items.filter(i => i.type === 'tool_call');
-  const workerItems = items.filter(i => i.type === 'worker');
-  const content = agentItem?.content || '';
-  const thinking = agentItem?.thinking;
-  const usage = agentItem?.usage;
-  const status = agentItem?.status || items[0].status;
-  const isStreaming = status === 'streaming';
-  const htmlContent = useMemo(() => renderMarkdown(content), [content]);
+  const hasStreaming = items.some(i => i.status === 'streaming');
+  const allContent = items.filter(i => i.type === 'agent').map(i => i.content).join('');
+  const usage = items.find(i => i.type === 'agent' && i.usage)?.usage;
   const usageText = usage ? formatUsage(usage) : '';
 
   return (
@@ -159,95 +153,88 @@ const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }
       <div className="msg-bubble turn-bubble">
         <div className="msg-header">
           <span className="msg-label">AI</span>
-          {isStreaming && <span className="msg-badge streaming">...</span>}
-          {status === 'done' && <CopyButton text={content} />}
+          {hasStreaming && <span className="msg-badge streaming">...</span>}
+          {!hasStreaming && <CopyButton text={allContent} />}
         </div>
-        {thinking && <ThinkingBlock thinking={thinking} streaming={isStreaming} />}
-        {content && (
-          <div className="msg-content" dangerouslySetInnerHTML={{ __html: htmlContent }} />
-        )}
-        {toolItems.length > 0 && <ToolsInline items={toolItems} />}
-        {workerItems.length > 0 && <WorkersInline items={workerItems} />}
+        {items.map(item => {
+          if (item.type === 'agent') {
+            const html = renderMarkdown(item.content);
+            return (
+              <Fragment key={item.id}>
+                {item.thinking && <ThinkingBlock thinking={item.thinking} streaming={item.status === 'streaming'} />}
+                {item.content && <div className="msg-content" dangerouslySetInnerHTML={{ __html: html }} />}
+              </Fragment>
+            );
+          }
+          if (item.type === 'tool_call') {
+            return <Fragment key={item.id}><ToolInlineItem item={item} /></Fragment>;
+          }
+          if (item.type === 'worker') {
+            return <Fragment key={item.id}><WorkerInlineItem item={item} /></Fragment>;
+          }
+          return null;
+        })}
         {usageText && <div className="msg-usage">{usageText}</div>}
       </div>
     </div>
   );
 });
 
-function ToolsInline({ items }: { items: TimelineItem[] }) {
-  const allDone = items.every(i => i.status === 'done' || i.status === 'fail');
-  const [open, setOpen] = useState(!allDone);
+function ToolInlineItem({ item }: { item: TimelineItem }) {
+  const isDone = item.status === 'done' || item.status === 'fail';
+  const [open, setOpen] = useState(!isDone);
 
   useEffect(() => {
-    if (!allDone) setOpen(true);
-  }, [allDone]);
+    setOpen(item.status === 'pending' || item.status === 'streaming');
+  }, [item.status]);
 
-  const names = items.map(i => i.label).join(', ');
-  const runningCount = items.filter(i => i.status === 'pending').length;
+  const params = formatArgs(item.args || '');
 
   return (
     <div className="tools-inline">
       <div className="tools-inline-header" onClick={() => setOpen(v => !v)}>
         <span className="tools-inline-chevron">{open ? '▼' : '▶'}</span>
-        <span className="tools-inline-label">
-          {runningCount > 0 ? `Using ${runningCount} tool${runningCount > 1 ? 's' : ''}...` : `${items.length} tool${items.length > 1 ? 's' : ''} used`}
-        </span>
-        {!open && <span className="tools-inline-names">{names}</span>}
+        <span className="tools-inline-item-name">{item.label}</span>
+        {params && <span className="tools-inline-item-args">{params}</span>}
+        {item.status === 'pending' && <span className="tools-inline-item-badge running">running</span>}
+        {item.status === 'fail' && <span className="tools-inline-item-badge error">error</span>}
       </div>
-      {open && (
+      {open && item.content && (
         <div className="tools-inline-body">
-          {items.map(ti => (
-            <div key={ti.id} className={`tools-inline-item ${ti.status}`}>
-              <span className="tools-inline-item-name">{ti.label}</span>
-              <span className="tools-inline-item-args">{formatArgs(ti.args || '')}</span>
-              {ti.status === 'pending' && <span className="tools-inline-item-badge running">running</span>}
-              {ti.status === 'fail' && <span className="tools-inline-item-badge error">error</span>}
-              {ti.status === 'done' && ti.content && (
-                <pre className="tools-inline-item-result">{ti.content}</pre>
-              )}
-            </div>
-          ))}
+          <div className="tools-inline-item done">
+            <pre className="tools-inline-item-result">{item.content}</pre>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function WorkersInline({ items }: { items: TimelineItem[] }) {
+function WorkerInlineItem({ item }: { item: TimelineItem }) {
   const { dispatch, state } = useAppState();
-  const allDone = items.every(i => i.workerStatus === 'completed' || i.workerStatus === 'stopped');
-  const [open, setOpen] = useState(!allDone);
-
-  useEffect(() => {
-    if (!allDone) setOpen(true);
-  }, [allDone]);
+  const isDone = item.workerStatus === 'completed';
+  const isStopped = item.workerStatus === 'stopped';
+  const [open, setOpen] = useState(!isDone && !isStopped);
 
   return (
     <div className="tools-inline">
       <div className="tools-inline-header" onClick={() => setOpen(v => !v)}>
         <span className="tools-inline-chevron">{open ? '▼' : '▶'}</span>
-        <span className="tools-inline-label">{items.length} worker{items.length > 1 ? 's' : ''}</span>
+        <span className="tools-inline-item-name">{item.workerAgent || item.label}</span>
+        <span className="tools-inline-item-args">{item.workerTask || item.content}</span>
+        {item.status === 'pending' && <span className="tools-inline-item-badge running">running</span>}
+        {isDone && <span className="tools-inline-item-badge done">done</span>}
+        {isStopped && <span className="tools-inline-item-badge error">stopped</span>}
       </div>
       {open && (
         <div className="tools-inline-body">
-          {items.map(wi => {
-            const isDone = wi.workerStatus === 'completed';
-            const isStopped = wi.workerStatus === 'stopped';
-            return (
-              <div key={wi.id} className={`tools-inline-item ${isDone ? 'done' : isStopped ? 'fail' : 'pending'}`}>
-                <span className="tools-inline-item-name">{wi.workerAgent || wi.label}</span>
-                <span className="tools-inline-item-args">{wi.workerTask || wi.content}</span>
-                {wi.status === 'pending' && <span className="tools-inline-item-badge running">running</span>}
-                {isDone && <span className="tools-inline-item-badge done">done</span>}
-                {isStopped && <span className="tools-inline-item-badge error">stopped</span>}
-                {wi.workerThreadId && (
-                  <button className="worker-view-btn" onClick={() => dispatch({ type: 'VIEW_WORKER', threadId: wi.workerThreadId!, parentId: state.activeThreadId || '' })}>
-                    View thread →
-                  </button>
-                )}
-              </div>
-            );
-          })}
+          <div className="tools-inline-item done">
+            {item.workerThreadId && (
+              <button className="worker-view-btn" onClick={() => dispatch({ type: 'VIEW_WORKER', threadId: item.workerThreadId!, parentId: state.activeThreadId || '' })}>
+                View thread →
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
