@@ -625,6 +625,29 @@ func (h *Handler) handleSSE(c *gin.Context) {
 	ch := h.SSE.Subscribe(threadID)
 	defer h.SSE.Unsubscribe(threadID, ch)
 
+	// Replay events from the current active turn to cover the gap between
+	// thread creation (runSession starts immediately) and SSE subscription.
+	events, _ := h.DB.GetEvents(threadID, 0)
+	// Find the last turn.started — only replay if the turn is still active
+	// (i.e. no turn.completed after it).
+	startIdx := -1
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Event == "turn.started" {
+			startIdx = i
+			break
+		}
+		if events[i].Event == "turn.completed" {
+			break // last event was turn.completed, no active turn
+		}
+	}
+	if startIdx >= 0 {
+		for _, e := range events[startIdx:] {
+			msg := fmt.Sprintf("event: %s\ndata: %s\n\n", e.Event, e.Payload)
+			fmt.Fprint(c.Writer, msg)
+		}
+		c.Writer.Flush()
+	}
+
 	for {
 		select {
 		case msg := <-ch:
