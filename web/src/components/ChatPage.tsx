@@ -30,6 +30,7 @@ export function ChatPage() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sseDisconnected, setSseDisconnected] = useState(false);
 
   const activeModel = models.find(m => m.id === activeModelId);
 
@@ -104,6 +105,7 @@ export function ChatPage() {
           }
           const res = await fetch(url, { signal: ctrl.signal });
           reconnectAttempt = 0;
+          setSseDisconnected(false);
 
           const reader = res.body!.getReader();
           const decoder = new TextDecoder();
@@ -158,14 +160,7 @@ export function ChatPage() {
           // Network error — reconnect with backoff
           reconnectAttempt++;
           if (reconnectAttempt === 1) {
-            dispatch({
-              type: 'PUSH_TIMELINE_ITEM', item: {
-                id: `sse_dc_${Date.now()}`,
-                type: 'notice', label: 'Connection',
-                content: '连接断开，正在重连...',
-                status: 'done', time: Date.now(),
-              },
-            });
+            setSseDisconnected(true);
           }
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 10000);
           await new Promise(r => setTimeout(r, delay));
@@ -423,6 +418,9 @@ export function ChatPage() {
             </div>
           ) : (
             <>
+              {sseDisconnected && (
+                <div className="sse-disconnect-banner">连接断开，正在重连...</div>
+              )}
               <Stage state={state} onLoadMore={loadMoreMessages} />
               {workerParentId ? (
                 <div className="worker-back-bar">
