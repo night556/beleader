@@ -27,6 +27,26 @@ type ToolHandler func(args string, workspace, workspaceRoot string, restrict boo
 
 var handlers = map[string]ToolHandler{}
 var toolDefs []ToolDef
+var enabledTools map[string]bool
+
+// SetEnabledTools filters which tools are available.
+// Comma-separated list of tool names. Must be called before AllToolDefs().
+func SetEnabledTools(list string) {
+	enabledTools = map[string]bool{}
+	for _, name := range strings.Split(list, ",") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			enabledTools[name] = true
+		}
+	}
+}
+
+func isToolEnabled(name string) bool {
+	if enabledTools == nil {
+		return true
+	}
+	return enabledTools[name]
+}
 
 func register(name, description string, params map[string]any, required []string, handler ToolHandler) {
 	if params == nil {
@@ -52,10 +72,13 @@ func register(name, description string, params map[string]any, required []string
 	})
 }
 
-// AllToolDefs returns all registered tool definitions.
+// AllToolDefs returns all registered (and enabled) tool definitions.
 func AllToolDefs() []json.RawMessage {
 	defs := make([]json.RawMessage, 0, len(toolDefs))
 	for _, td := range toolDefs {
+		if !isToolEnabled(td.Name) {
+			continue
+		}
 		b, _ := json.Marshal(td)
 		defs = append(defs, b)
 	}
@@ -64,12 +87,24 @@ func AllToolDefs() []json.RawMessage {
 
 // GetToolDefs returns tool definitions (for /tools endpoint).
 func GetToolDefs() []ToolDef {
-	return toolDefs
+	if enabledTools == nil {
+		return toolDefs
+	}
+	var filtered []ToolDef
+	for _, td := range toolDefs {
+		if isToolEnabled(td.Name) {
+			filtered = append(filtered, td)
+		}
+	}
+	return filtered
 }
 
 // ExecuteTool runs a tool by name. Returns a ToolResult.
 // This is called by the API server.
 func ExecuteTool(name, args, workspace, workspaceRoot string, restrict bool, threadID string) *ToolResult {
+	if !isToolEnabled(name) {
+		return &ToolResult{Error: fmt.Sprintf("tool not enabled: %s", name)}
+	}
 	handler, ok := handlers[name]
 	if !ok {
 		return &ToolResult{Error: fmt.Sprintf("unknown tool: %s", name)}

@@ -27,7 +27,7 @@ export const client = {
   stopWorker: (threadId: string, workerId: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(threadId)}/workers/${encodeURIComponent(workerId)}/stop`, { method: 'POST' }),
 
   // Chat
-  sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string; reasoning_effort?: string }, signal?: AbortSignal) =>
+  sendChat: (body: { message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string; reasoning_effort?: string; pool_id?: number }, signal?: AbortSignal) =>
     api<{ thread_id: string; status: string }>('/api/chat', { method: 'POST', body: JSON.stringify(body), signal }),
 
   // Agents
@@ -55,6 +55,7 @@ export const client = {
   // Pools
   listPools: () => api<Pool[]>('/api/pools'),
   createPool: (body: Partial<Pool>) => api<Pool>('/api/pools', { method: 'POST', body: JSON.stringify(body) }),
+  setDefaultPool: (id: number) => api<{ status: string }>(`/api/pools/${id}/default`, { method: 'PUT' }),
   updatePool: (id: number, body: Partial<Pool>) => api<Pool>(`/api/pools/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deletePool: (id: number) => api<{ status: string }>(`/api/pools/${id}`, { method: 'DELETE' }),
 

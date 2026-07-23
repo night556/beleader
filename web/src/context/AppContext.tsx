@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useCallback, useRef } from 'react';
-import type { AppState, AppStateName, TimelineItem, Thread, Agent, ModelProfile, ToolDef, MCPServer, SSEPayload, TokenUsage } from '../types';
+import type { AppState, AppStateName, TimelineItem, Thread, Agent, ModelProfile, ToolDef, MCPServer, SSEPayload, TokenUsage, Pool } from '../types';
 import type { Message } from '../api/client';
 
 // ── Actions ──
@@ -25,6 +25,8 @@ type Action =
   | { type: 'SET_ACTIVE_MODEL'; modelId: string }
   | { type: 'SET_HAS_MODELS'; has: boolean }
   | { type: 'SET_TOOLS'; tools: ToolDef[] }
+  | { type: 'SET_POOLS'; pools: Pool[] }
+  | { type: 'SET_ACTIVE_POOL'; poolId: number }
   | { type: 'SET_MCP_SERVERS'; servers: MCPServer[] }
   | { type: 'SET_CONTEXT_PCT'; pct: number }
   | { type: 'ADD_TOKENS'; n: number }
@@ -54,6 +56,8 @@ function initState(): AppState {
     hasModels: false,
     tools: [],
     mcpServers: [],
+    pools: [],
+    activePoolId: 0,
     contextPct: 0,
     totalTokens: 0,
     pendingImages: [],
@@ -144,6 +148,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, hasModels: action.has };
     case 'SET_TOOLS':
       return { ...state, tools: action.tools };
+    case 'SET_POOLS':
+      return { ...state, pools: action.pools };
+    case 'SET_ACTIVE_POOL':
+      return { ...state, activePoolId: action.poolId };
     case 'SET_MCP_SERVERS':
       return { ...state, mcpServers: action.servers };
     case 'SET_CONTEXT_PCT':

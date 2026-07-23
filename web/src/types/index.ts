@@ -214,6 +214,8 @@ export interface AppState {
   models: ModelProfile[];
   activeModelId: string;
   hasModels: boolean;
+  pools: Pool[];
+  activePoolId: number;
   tools: ToolDef[];
   mcpServers: MCPServer[];
   contextPct: number;

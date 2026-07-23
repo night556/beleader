@@ -87,6 +87,12 @@ func main() {
 
 	srv := api.NewServer(*dataDir, *restrict)
 
+	// Filter tools if TOOLS env is set
+	toolsList := os.Getenv("TOOLS")
+	if toolsList != "" {
+		tools.SetEnabledTools(toolsList)
+	}
+
 	// Build tool definitions
 	toolDefs := tools.AllToolDefs()
 

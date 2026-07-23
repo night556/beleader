@@ -12,7 +12,7 @@ const EFFORT_ICON: Record<string, string> = {
 
 export function ChatPage() {
   const { state, dispatch } = useAppState();
-  const { activeThreadId, threads, agents, activeAgentId, models, activeModelId, contextPct, totalTokens, workerParentId } = state;
+  const { activeThreadId, threads, agents, activeAgentId, models, activeModelId, contextPct, totalTokens, workerParentId, pools, activePoolId } = state;
 
   const sendingNewRef = useRef(false);
   const activeThreadRef = useRef(activeThreadId);
@@ -202,7 +202,7 @@ export function ChatPage() {
       sendingNewRef.current = true;
     }
 
-    const fullBody = { ...body, reasoning_effort: effortRef.current };
+    const fullBody = { ...body, reasoning_effort: effortRef.current, pool_id: activePoolId };
     try {
       const res = await client.sendChat(fullBody);
       if (!res.thread_id) return;
@@ -262,6 +262,7 @@ export function ChatPage() {
     const th = threads.find(t => t.id === threadId);
     if (th) {
       dispatch({ type: 'SET_THREAD_AGENT_MODEL', agentId: th.agent_id, modelId: th.model_id });
+      dispatch({ type: 'SET_ACTIVE_POOL', poolId: th.pool_id });
     }
     dispatch({ type: 'CLEAR_TIMELINE' });
     dispatch({ type: 'SET_ACTIVE_THREAD', threadId });
@@ -335,6 +336,19 @@ export function ChatPage() {
           {sidebarOpen ? '☰' : '▶'}
         </button>
         <div className="chat-top-controls">
+          <div className="chat-top-field">
+            <select
+              className="chat-top-select"
+              value={activePoolId}
+              disabled={!!activeThreadId}
+              onChange={e => dispatch({ type: 'SET_ACTIVE_POOL', poolId: Number(e.target.value) })}
+              title={activeThreadId ? 'Pool is locked after thread creation' : 'Select pool'}
+            >
+              {pools.length === 0 && <option value={0}>No pool</option>}
+              {pools.map(p => <option key={p.id} value={p.id}>{p.name}{p.is_default ? ' ★' : ''}</option>)}
+            </select>
+          </div>
+
           <div className="chat-top-field">
             <select className="chat-top-select" value={activeAgentId ?? ''} onChange={e => handleAgentChange(Number(e.target.value))}>
               {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}

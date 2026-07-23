@@ -123,6 +123,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/pools", h.handleListPools)
 		api.POST("/pools", h.handleCreatePool)
 		api.PUT("/pools/:id", h.handleUpdatePool)
+		api.PUT("/pools/:id/default", h.handleSetDefaultPool)
 		api.DELETE("/pools/:id", h.handleDeletePool)
 
 		// Tool Agent management (replaces runtime)

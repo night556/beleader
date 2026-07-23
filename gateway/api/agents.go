@@ -222,6 +222,15 @@ func (h *Handler) handleDeletePool(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "deleted"})
 }
 
+func (h *Handler) handleSetDefaultPool(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err := h.DB.SetDefaultPool(id); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
 // ── Tool Agent registration ──
 
 func (h *Handler) handleToolAgentRegister(c *gin.Context) {

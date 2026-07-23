@@ -217,6 +217,13 @@ func (db *DB) DeletePool(id int64) error {
 	return db.GORM.Where("id = ?", id).Delete(&Pool{}).Error
 }
 
+func (db *DB) SetDefaultPool(id int64) error {
+	return db.GORM.Transaction(func(tx *gorm.DB) error {
+		tx.Model(&Pool{}).Where("is_default = ?", true).Update("is_default", false)
+		return tx.Model(&Pool{}).Where("id = ?", id).Update("is_default", true).Error
+	})
+}
+
 func (db *DB) UpdatePoolToolDefs(id int64, toolDefs string) error {
 	return db.GORM.Model(&Pool{}).Where("id = ?", id).Update("tool_defs", toolDefs).Error
 }

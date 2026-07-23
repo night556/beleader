@@ -9,6 +9,7 @@ services:
       - GATEWAY_TOKEN=${GATEWAY_TOKEN:-rt_dev_xxx}
       - POOL=workers
       - WORKSPACE_ROOT=/app/data
+      # TOOLS=read_file,read_dir,write_file,run_command,web_search  # uncomment to restrict tools
     volumes:
       - workspace-data:/app/data
     depends_on:

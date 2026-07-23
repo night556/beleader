@@ -20,12 +20,19 @@ function AppInner() {
       client.listAgents(),
       client.listModels(),
       client.listTools(),
-    ]).then(([threads, agents, models, tools]) => {
+      client.listPools(),
+    ]).then(([threads, agents, models, tools, pools]) => {
       dispatch({ type: 'SET_THREADS', threads });
       dispatch({ type: 'SET_AGENTS', agents });
       dispatch({ type: 'SET_TOOLS', tools });
       dispatch({ type: 'SET_MODELS', models });
       dispatch({ type: 'SET_HAS_MODELS', has: models.length > 0 });
+      dispatch({ type: 'SET_POOLS', pools });
+      // Set default pool
+      const defaultPool = pools.find(p => p.is_default) || pools[0];
+      if (defaultPool) {
+        dispatch({ type: 'SET_ACTIVE_POOL', poolId: defaultPool.id });
+      }
       const defaultAgent = agents.find(a => a.name === 'Default') || agents[0];
       if (defaultAgent) {
         dispatch({ type: 'SET_ACTIVE_AGENT', agentId: defaultAgent.id });
