@@ -364,13 +364,21 @@ export function processSSEEvent(
       dispatch({ type: 'SET_STATE', state: 'error' });
       const item = data.payload?.item;
       const detail = item?.detail || data.payload?.message || 'An error occurred';
-      dispatch({
-        type: 'PUSH_TIMELINE_ITEM', item: {
-          id: '', type: 'error', label: 'Error',
-          content: detail,
-          status: 'fail', time: Date.now(),
-        },
-      });
+      if (item?.id) {
+        // Update the existing item (e.g. streaming agent message) to show the error
+        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: {
+          type: 'error', content: detail, status: 'fail', label: 'Error',
+        }});
+      } else {
+        // No matching item — push a new error card
+        dispatch({
+          type: 'PUSH_TIMELINE_ITEM', item: {
+            id: '', type: 'error', label: 'Error',
+            content: detail,
+            status: 'fail', time: Date.now(),
+          },
+        });
+      }
       break;
     }
 
