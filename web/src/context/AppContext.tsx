@@ -121,17 +121,8 @@ function reducer(state: AppState, action: Action): AppState {
           ),
         };
       }
-      // Fallback: no matching or pending card, create a placeholder.
-      const item: TimelineItem = {
-        id: `wk_${wId}`, type: 'worker',
-        label: '', content: '',
-        workerThreadId: wId, workerStatus: 'running',
-        status: 'pending', time: Date.now(),
-        ...action.updates,
-      };
-      if (!item.id) item.id = newId();
-      const timeline = [...state.timeline, item];
-      return { ...state, timeline };
+      // No matching card — ignore (the item.started event creates the card).
+      return state;
     }
     case 'SET_LIVE_ITEM':
       return { ...state, liveItem: action.item };
@@ -182,7 +173,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'VIEW_WORKER':
       return { ...state, activeThreadId: action.threadId, workerParentId: action.parentId };
     case 'BACK_TO_PARENT':
-      return { ...state, activeThreadId: state.workerParentId, workerParentId: null, timeline: [], liveItem: null };
+      return { ...state, activeThreadId: state.workerParentId, workerParentId: null };
     default:
       return state;
   }

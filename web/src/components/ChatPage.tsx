@@ -358,12 +358,6 @@ export function ChatPage() {
           </div>
         </div>
 
-        {workerParentId && (
-          <button className="worker-back-btn" onClick={() => dispatch({ type: 'BACK_TO_PARENT' })}>
-            ← Back to parent
-          </button>
-        )}
-
         <div className="chat-top-spacer" />
 
         {activeThreadId && (
@@ -430,7 +424,15 @@ export function ChatPage() {
           ) : (
             <>
               <Stage state={state} onLoadMore={loadMoreMessages} />
-              <InputArea onSendMessage={handleSendMessage} onStop={handleStop} />
+              {workerParentId ? (
+                <div className="worker-back-bar">
+                  <button className="worker-back-btn" onClick={() => dispatch({ type: 'BACK_TO_PARENT' })}>
+                    ← Back to parent
+                  </button>
+                </div>
+              ) : (
+                <InputArea onSendMessage={handleSendMessage} onStop={handleStop} />
+              )}
             </>
           )}
         </div>

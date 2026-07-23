@@ -167,14 +167,90 @@ function TurnBubble({ items }: { items: TimelineItem[] }) {
         {content && (
           <div className="msg-content" dangerouslySetInnerHTML={{ __html: htmlContent }} />
         )}
-        {toolItems.map(ti => (
-          <ToolCard key={ti.id} item={ti} />
-        ))}
-        {workerItems.map(wi => (
-          <WorkerCard key={wi.id} item={wi} />
-        ))}
+        {toolItems.length > 0 && <ToolsInline items={toolItems} />}
+        {workerItems.length > 0 && <WorkersInline items={workerItems} />}
         {usageText && <div className="msg-usage">{usageText}</div>}
       </div>
+    </div>
+  );
+}
+
+function ToolsInline({ items }: { items: TimelineItem[] }) {
+  const allDone = items.every(i => i.status === 'done' || i.status === 'fail');
+  const [open, setOpen] = useState(!allDone);
+
+  useEffect(() => {
+    if (!allDone) setOpen(true);
+  }, [allDone]);
+
+  const names = items.map(i => i.label).join(', ');
+  const runningCount = items.filter(i => i.status === 'pending').length;
+
+  return (
+    <div className="tools-inline">
+      <div className="tools-inline-header" onClick={() => setOpen(v => !v)}>
+        <span className="tools-inline-chevron">{open ? '▼' : '▶'}</span>
+        <span className="tools-inline-label">
+          {runningCount > 0 ? `Using ${runningCount} tool${runningCount > 1 ? 's' : ''}...` : `${items.length} tool${items.length > 1 ? 's' : ''} used`}
+        </span>
+        {!open && <span className="tools-inline-names">{names}</span>}
+      </div>
+      {open && (
+        <div className="tools-inline-body">
+          {items.map(ti => (
+            <div key={ti.id} className={`tools-inline-item ${ti.status}`}>
+              <span className="tools-inline-item-name">{ti.label}</span>
+              <span className="tools-inline-item-args">{formatArgs(ti.args || '')}</span>
+              {ti.status === 'pending' && <span className="tools-inline-item-badge running">running</span>}
+              {ti.status === 'fail' && <span className="tools-inline-item-badge error">error</span>}
+              {ti.status === 'done' && ti.content && (
+                <pre className="tools-inline-item-result">{ti.content}</pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkersInline({ items }: { items: TimelineItem[] }) {
+  const { dispatch, state } = useAppState();
+  const allDone = items.every(i => i.workerStatus === 'completed' || i.workerStatus === 'stopped');
+  const [open, setOpen] = useState(!allDone);
+
+  useEffect(() => {
+    if (!allDone) setOpen(true);
+  }, [allDone]);
+
+  return (
+    <div className="tools-inline">
+      <div className="tools-inline-header" onClick={() => setOpen(v => !v)}>
+        <span className="tools-inline-chevron">{open ? '▼' : '▶'}</span>
+        <span className="tools-inline-label">{items.length} worker{items.length > 1 ? 's' : ''}</span>
+      </div>
+      {open && (
+        <div className="tools-inline-body">
+          {items.map(wi => {
+            const isDone = wi.workerStatus === 'completed';
+            const isStopped = wi.workerStatus === 'stopped';
+            return (
+              <div key={wi.id} className={`tools-inline-item ${isDone ? 'done' : isStopped ? 'fail' : 'pending'}`}>
+                <span className="tools-inline-item-name">{wi.workerAgent || wi.label}</span>
+                <span className="tools-inline-item-args">{wi.workerTask || wi.content}</span>
+                {wi.status === 'pending' && <span className="tools-inline-item-badge running">running</span>}
+                {isDone && <span className="tools-inline-item-badge done">done</span>}
+                {isStopped && <span className="tools-inline-item-badge error">stopped</span>}
+                {wi.workerThreadId && (
+                  <button className="worker-view-btn" onClick={() => dispatch({ type: 'VIEW_WORKER', threadId: wi.workerThreadId, parentId: state.activeThreadId || '' })}>
+                    View thread →
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

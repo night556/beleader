@@ -378,8 +378,10 @@ func (h *Handler) buildToolList(thread *db.Thread, agent *db.Agent) []openai.Too
 	}
 
 	for _, td := range localDefs {
-		if len(agentToolNames) == 0 || toolNameSet[td.Name] {
+		if len(agentToolNames) > 0 && toolNameSet[td.Name] {
 			result = append(result, engine.ToolDefsToOpenAI([]engine.ToolDef{td})[0])
+		} else if len(agentToolNames) == 0 {
+			// Empty whitelist means no tools — don't add anything.
 		}
 	}
 
@@ -390,7 +392,7 @@ func (h *Handler) buildToolList(thread *db.Thread, agent *db.Agent) []openai.Too
 			var remoteDefs []engine.ToolDef
 			if err := json.Unmarshal([]byte(pool.ToolDefs), &remoteDefs); err == nil {
 				for _, td := range remoteDefs {
-					if len(agentToolNames) == 0 || toolNameSet[td.Name] {
+					if len(agentToolNames) > 0 && toolNameSet[td.Name] {
 						result = append(result, engine.ToolDefsToOpenAI([]engine.ToolDef{td})[0])
 					}
 				}
