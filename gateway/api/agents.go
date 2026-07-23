@@ -348,7 +348,15 @@ func (h *Handler) handleToolAgentHeartbeat(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, gin.H{"status": "ok"})
+
+	// Include MCP version so tool-agent can detect config changes
+	ta, _ := h.DB.GetToolAgent(req.ID)
+	mcpVersion := ""
+	if ta != nil {
+		mcpVersion = h.DB.GetMCPVersion(ta.PoolID)
+	}
+
+	c.JSON(200, gin.H{"status": "ok", "mcp_version": mcpVersion})
 }
 
 func (h *Handler) handleListToolAgents(c *gin.Context) {
