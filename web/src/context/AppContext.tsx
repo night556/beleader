@@ -233,23 +233,24 @@ export function processSSEEvent(
     }
 
     case 'item.started': {
-      const item = data.payload?.item;
-      if (!item) break;
+      const kind = data.payload?.kind || '';
+      const summary = data.payload?.summary || '';
+      const metadata = data.payload?.metadata || {};
+      const itemId = data.payload?.item_id || '';
 
-      switch (item.kind) {
+      switch (kind) {
         case 'user_message':
-          // Skip if we already added this optimistically (or if it's the same content as the last user msg)
           {
             const existing = timelineRef.current.find(ti =>
-              ti.type === 'user' && ti.content === (item.detail || item.summary || '') &&
-              Date.now() - ti.time < 10000 // within 10 seconds
+              ti.type === 'user' && ti.content === (data.payload?.detail || summary || '') &&
+              Date.now() - ti.time < 10000
             );
             if (existing) break;
           }
           dispatch({
             type: 'PUSH_TIMELINE_ITEM', item: {
-              id: item.id, type: 'user', label: 'You',
-              content: item.detail || item.summary || '',
+              id: itemId || `item_${Date.now()}`, type: 'user', label: 'You',
+              content: data.payload?.detail || summary || '',
               status: 'done', time: Date.now(),
             },
           });
@@ -259,7 +260,7 @@ export function processSSEEvent(
           dispatch({ type: 'SET_STATE', state: 'thinking' });
           dispatch({
             type: 'PUSH_TIMELINE_ITEM', item: {
-              id: item.id, type: 'agent', label: 'AI',
+              id: itemId || `item_${Date.now()}`, type: 'agent', label: 'AI',
               content: '', status: 'streaming', time: Date.now(),
             },
           });
@@ -267,21 +268,19 @@ export function processSSEEvent(
 
         case 'tool_call': {
           dispatch({ type: 'SET_STATE', state: 'tool_calls' });
-          const meta = item.metadata || {};
-          const rawArgs = meta.arguments || '';
-          const toolName = meta.tool_name || 'Tool';
-          // Worker spawn: render as a worker card instead of a regular tool card.
+          const rawArgs = metadata.arguments || '';
+          const toolName = metadata.tool_name || 'Tool';
           if (toolName === 'spawn_worker') {
             let agent = '';
             let task = '';
             try { const args = JSON.parse(rawArgs); agent = args.agent || ''; task = args.task || ''; } catch {}
             dispatch({
               type: 'PUSH_TIMELINE_ITEM', item: {
-                id: item.id, type: 'worker',
+                id: itemId || `item_${Date.now()}`, type: 'worker',
                 label: agent || 'Worker',
                 content: task,
                 args: rawArgs,
-                status: 'pending', toolName: 'spawn_worker', toolCallId: meta.tool_use_id,
+                status: 'pending', toolName: 'spawn_worker', toolCallId: metadata.tool_use_id,
                 workerAgent: agent, workerTask: task, workerStatus: 'running',
                 time: Date.now(),
               },
@@ -289,27 +288,14 @@ export function processSSEEvent(
           } else {
             dispatch({
               type: 'PUSH_TIMELINE_ITEM', item: {
-                id: item.id, type: 'tool_call',
+                id: itemId || `item_${Date.now()}`, type: 'tool_call',
                 label: toolName,
                 content: '',
                 args: rawArgs,
-                status: 'pending', toolName, toolCallId: meta.tool_use_id, time: Date.now(),
+                status: 'pending', toolName, toolCallId: metadata.tool_use_id, time: Date.now(),
               },
             });
           }
-          break;
-        }
-
-        case 'command_execution': {
-          const meta = item.metadata || {};
-          const cmd = meta.command || item.summary || 'run';
-          dispatch({
-            type: 'PUSH_TIMELINE_ITEM', item: {
-              id: item.id, type: 'tool_call',
-              label: cmd, content: cmd,
-              status: 'streaming', toolName: 'run_command', time: Date.now(),
-            },
-          });
           break;
         }
       }
@@ -337,54 +323,47 @@ export function processSSEEvent(
 
     case 'item.completed': {
       dispatch({ type: 'SET_STATE', state: 'idle' });
-      const item = data.payload?.item;
-      if (!item) break;
+      const kind = data.payload?.kind || '';
+      const detail = data.payload?.detail || '';
+      const metadata = data.payload?.metadata || {};
+      const itemId = data.payload?.item_id || '';
 
-      if (item.kind === 'tool_call') {
-        const meta = item.metadata || {};
-        const toolName = meta.tool_name || '';
-        let output = item.detail || '';
+      if (kind === 'tool_call') {
+        const toolName = metadata.tool_name || '';
+        let output = detail;
         try {
           const parsed = JSON.parse(output);
           output = parsed.content || parsed.error || output;
         } catch {}
-        const toolCallId = meta.tool_use_id;
-        // Worker dispatch: extract thread ID from result.
+        const toolCallId = metadata.tool_use_id;
         if (toolName === 'spawn_worker') {
           const m = output.match(/thread (\S+)\)/);
           const workerThreadId = m ? m[1] : '';
-          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { content: output, status: 'done', workerThreadId } });
+          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { content: output, status: 'done', workerThreadId } });
         } else {
-          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { content: output, status: 'done' } });
+          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { content: output, status: 'done' } });
         }
         if (toolCallId) {
           const t = timelineRef.current;
           for (let i = t.length - 1; i >= 0; i--) {
-            if (t[i].toolCallId === toolCallId && t[i].status === 'pending' && t[i].id !== item.id) {
+            if (t[i].toolCallId === toolCallId && t[i].status === 'pending' && t[i].id !== itemId) {
               dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: t[i].id, updates: { content: output, status: 'done' } });
               break;
             }
           }
         }
-      } else if (item.kind === 'agent_message') {
-        const meta = item.metadata || {};
-        const usage = meta.usage as TokenUsage | undefined;
-        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { status: 'done', usage } });
-      } else if (item.kind === 'command_execution') {
-        const meta = item.metadata || {};
-        const cmd = meta.command || item.summary || 'run';
-        const exitCode = meta.exit_code ?? 0;
-        const label = exitCode === 0 ? cmd : `${cmd} (exit ${exitCode})`;
-        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { status: 'done', label } });
+      } else if (kind === 'agent_message') {
+        const usage = data.payload?.usage as string | undefined;
+        let usageObj: TokenUsage | undefined;
+        if (usage) { try { usageObj = JSON.parse(usage); } catch {} }
+        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { status: 'done', usage: usageObj } });
       }
       break;
     }
 
     case 'item.failed': {
       dispatch({ type: 'SET_STATE', state: 'error' });
-      const item = data.payload?.item;
-      // LLM errors send detail directly in payload, not nested in item
-      const detail = item?.detail || data.payload?.detail || data.payload?.message || 'An error occurred';
+      const detail = data.payload?.detail || data.payload?.message || 'An error occurred';
       dispatch({
         type: 'PUSH_TIMELINE_ITEM', item: {
           id: '', type: 'error', label: 'Error',

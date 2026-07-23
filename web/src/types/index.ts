@@ -78,6 +78,8 @@ export interface SSEPayload {
     status?: string;
     usage?: string;
     detail?: string;
+    summary?: string;
+    metadata?: Record<string, any>;
   };
 }
 
