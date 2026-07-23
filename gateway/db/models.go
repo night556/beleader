@@ -147,7 +147,7 @@ func (ModelProfile) TableName() string { return "model_profiles" }
 
 func (db *DB) seedDefaultAgent() {
 	var count int64
-	defaultTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","run_command","task_output","task_stop","web_search","web_fetch","run_http_request","read_status","update_status","spawn_worker","list_workers","intervene_worker","terminate_worker","create_agent","update_agent","delete_agent","list_agents","create_model","list_resources","create_mcp_server","delete_mcp_server","list_mcp_servers"]`
+	defaultTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","run_command","task_output","task_stop","web_search","web_fetch","run_http_request","read_status","update_status"]`
 	if db.GORM.Model(&Agent{}).Where("name = 'Default'").Count(&count); count == 0 {
 		db.GORM.Create(&Agent{
 			Name:         "Default",
