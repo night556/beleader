@@ -73,11 +73,9 @@ export function ChatPage() {
     dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
     setLoadingThread(true);
 
-    client.getMessages(threadId).then(({ messages, has_more, last_event_id }) => {
+    client.getMessages(threadId).then(({ messages, has_more }) => {
       if (threadId !== activeThreadRef.current) return;
       dispatch({ type: 'LOAD_TIMELINE', items: messagesToTimeline(messages), hasMore: has_more });
-      // Set lastEventId so SSE reconnect replays only events after the loaded messages
-      lastEventIdRef.current = last_event_id || 0;
       setLoadedThreadId(threadId);
     }).catch(err => {
       console.error('load messages:', err);
