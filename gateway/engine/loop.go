@@ -113,13 +113,17 @@ func (e *Engine) RunLoop(
 				}
 				_, compErr := e.compress(ctx, thread, llmClient, turnID)
 				if compErr == nil {
+					beforeTokens := 0
+					for _, m := range msgs {
+						beforeTokens += countTokens(m.Content)
+					}
 					msgs, _ = BuildMessages(e.DB, thread, sysPrompt, turnMeta, toolList, visionEnabled)
 					afterTokens := 0
 					for _, m := range msgs {
 						afterTokens += countTokens(m.Content)
 					}
 					emit("context.compressed", turnID, "", map[string]any{
-						"before_tokens": lastPromptTokens,
+						"before_tokens": beforeTokens,
 						"after_tokens":  afterTokens,
 					})
 				}
