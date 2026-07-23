@@ -573,7 +573,6 @@ a { color: var(--accent); }
 }
 
 .turn-bubble {
-  width: fit-content;
   max-width: 85%;
   min-width: 120px;
 }
