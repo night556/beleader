@@ -355,7 +355,15 @@ export function processSSEEvent(
         let usage: TokenUsage | undefined;
         const usageRaw = meta.usage as string | undefined;
         if (usageRaw) { try { usage = JSON.parse(usageRaw); } catch {} }
-        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { status: 'done', usage } });
+        // item.completed carries full content — use it to overwrite,
+        // so reconnect/replay doesn't depend on accumulators.
+        const updates: Partial<TimelineItem> = { status: 'done', usage };
+        if (item.content) {
+          updates.content = item.content;
+          // Reset accumulator to match
+          contentAccRef.current[item.id] = item.content;
+        }
+        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates });
       }
       break;
     }
