@@ -53,7 +53,7 @@ function AppInner() {
     <div className="app-shell">
       <TopNav page={page} onPageChange={handlePageChange} />
       <div className="page">
-        <div style={{ display: page === 'chat' ? 'block' : 'none' }}>
+        <div style={{ display: page === 'chat' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
           <ChatPage />
         </div>
         {page === 'agent' && <AgentPage />}
