@@ -52,15 +52,21 @@ export function AgentPage() {
   };
 
   const save = async () => {
+    if (!form.name.trim()) { alert('Name is required'); return; }
+    if (!form.system_prompt.trim()) { alert('System prompt is required'); return; }
     const body = { ...form, tools: JSON.stringify(selectedTools), mcp_servers: JSON.stringify(selectedMCPServers), worker_agents: JSON.stringify(selectedWorkers) };
-    if (editId) {
-      const updated = await client.updateAgent(editId, body);
-      dispatch({ type: 'SET_AGENTS', agents: agents.map(a => a.id === editId ? updated : a) });
-    } else {
-      const created = await client.createAgent(body);
-      dispatch({ type: 'SET_AGENTS', agents: [...agents, created] });
+    try {
+      if (editId) {
+        const updated = await client.updateAgent(editId, body);
+        dispatch({ type: 'SET_AGENTS', agents: agents.map(a => a.id === editId ? updated : a) });
+      } else {
+        const created = await client.createAgent(body);
+        dispatch({ type: 'SET_AGENTS', agents: [...agents, created] });
+      }
+      setShowForm(false);
+    } catch (err: any) {
+      alert('Failed to save agent: ' + (err?.message || 'Unknown error'));
     }
-    setShowForm(false);
   };
 
   const remove = async (id: number) => {

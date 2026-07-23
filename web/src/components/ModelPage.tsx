@@ -30,26 +30,45 @@ export function ModelPage() {
 
   const save = async () => {
     const id = form.id.trim();
-    if (!id) return;
-    const cleaned = { ...form, id };
-    if (editingId) {
-      await client.updateModel(editingId, cleaned);
-      const updated = models.map(m => m.id === editingId ? cleaned : m);
-      dispatch({ type: 'SET_MODELS', models: updated });
-    } else {
-      if (models.find(m => m.id === id)) {
-        alert('A model with this ID already exists.');
-        return;
-      }
-      await client.createModel(cleaned);
-      const updated = [...models, cleaned];
-      dispatch({ type: 'SET_MODELS', models: updated });
-      if (!activeModelId) {
-        dispatch({ type: 'SET_ACTIVE_MODEL', modelId: id });
-      }
-      dispatch({ type: 'SET_HAS_MODELS', has: true });
+    if (!id) {
+      alert('Model ID is required');
+      return;
     }
-    setShowForm(false);
+    if (!form.base_url.trim()) {
+      alert('Base URL is required');
+      return;
+    }
+    if (!form.api_key.trim()) {
+      alert('API Key is required');
+      return;
+    }
+    if (!form.model.trim()) {
+      alert('Model name is required');
+      return;
+    }
+    const cleaned = { ...form, id };
+    try {
+      if (editingId) {
+        await client.updateModel(editingId, cleaned);
+        const updated = models.map(m => m.id === editingId ? cleaned : m);
+        dispatch({ type: 'SET_MODELS', models: updated });
+      } else {
+        if (models.find(m => m.id === id)) {
+          alert('A model with this ID already exists.');
+          return;
+        }
+        await client.createModel(cleaned);
+        const updated = [...models, cleaned];
+        dispatch({ type: 'SET_MODELS', models: updated });
+        if (!activeModelId) {
+          dispatch({ type: 'SET_ACTIVE_MODEL', modelId: id });
+        }
+        dispatch({ type: 'SET_HAS_MODELS', has: true });
+      }
+      setShowForm(false);
+    } catch (err: any) {
+      alert('Failed to save model: ' + (err?.message || 'Unknown error'));
+    }
   };
 
   const remove = async (id: string) => {
