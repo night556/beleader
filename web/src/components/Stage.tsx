@@ -69,6 +69,10 @@ export function Stage({ state, onLoadMore }: Props) {
     prevLenRef.current = timeline.length;
   }, [timeline, liveItem, scrollToBottom]);
 
+  const items = [...timeline];
+  if (liveItem) items.push(liveItem);
+  const grouped = useMemo(() => groupByTurn(items), [items]);
+
   if (timeline.length === 0 && !liveItem) {
     return (
       <main className="stage">
@@ -91,11 +95,6 @@ export function Stage({ state, onLoadMore }: Props) {
     );
   }
 
-  const items = [...timeline];
-  if (liveItem) items.push(liveItem);
-
-  const grouped = useMemo(() => groupByTurn(items), [items]);
-
   return (
     <main className="stage" ref={scrollRef} onScroll={handleScroll}>
       <div className="timeline">
@@ -106,7 +105,7 @@ export function Stage({ state, onLoadMore }: Props) {
         )}
         {grouped.map(g => {
           if (Array.isArray(g)) {
-            return <TurnBubble key={g[0].id} items={g} />;
+            return <TurnBubble key={g[0].turnId || g[0].id} items={g} />;
           }
           return <MessageCard key={g.id} item={g} />;
         })}
@@ -143,7 +142,7 @@ function groupByTurn(items: TimelineItem[]): Array<TimelineItem | TimelineItem[]
   return result;
 }
 
-function TurnBubble({ items }: { items: TimelineItem[] }) {
+const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }) {
   const agentItem = items.find(i => i.type === 'agent');
   const toolItems = items.filter(i => i.type === 'tool_call');
   const workerItems = items.filter(i => i.type === 'worker');
@@ -173,7 +172,7 @@ function TurnBubble({ items }: { items: TimelineItem[] }) {
       </div>
     </div>
   );
-}
+});
 
 function ToolsInline({ items }: { items: TimelineItem[] }) {
   const allDone = items.every(i => i.status === 'done' || i.status === 'fail');
