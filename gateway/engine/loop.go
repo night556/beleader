@@ -219,7 +219,6 @@ func (e *Engine) RunLoop(
 			"item": map[string]any{
 				"id":       agentItemID,
 				"kind":     "agent_message",
-				"content":  assistantMsg.Content,
 				"metadata": itemMeta,
 			},
 		})

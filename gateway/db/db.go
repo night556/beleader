@@ -436,6 +436,14 @@ func (db *DB) GetEvents(threadID string, sinceID int64) ([]Event, error) {
 	return events, err
 }
 
+// GetLastEventID returns the highest event ID for a thread, or 0 if none.
+func (db *DB) GetLastEventID(threadID string) int64 {
+	var id int64
+	db.GORM.Model(&Event{}).Where("thread_id = ?", threadID).
+		Select("COALESCE(MAX(id), 0)").Scan(&id)
+	return id
+}
+
 // GetEventsSinceLastCompleted returns events from the current active turn
 // (all events after the most recent turn.completed). Used for first SSE
 // connection to replay the in-progress turn.

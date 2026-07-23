@@ -789,7 +789,12 @@ func (h *Handler) handleGetMessages(c *gin.Context) {
 	if len(msgs) > 0 {
 		oldestID = msgs[0].ID
 	}
-	c.JSON(200, gin.H{"messages": msgs, "oldest_id": oldestID, "has_more": len(msgs) == limit})
+	c.JSON(200, gin.H{
+		"messages":      msgs,
+		"oldest_id":     oldestID,
+		"has_more":      len(msgs) == limit,
+		"last_event_id": h.DB.GetLastEventID(threadID),
+	})
 }
 
 // ── Pause / Resume / Intervene ──

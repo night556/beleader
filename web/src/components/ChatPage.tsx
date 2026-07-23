@@ -25,6 +25,7 @@ export function ChatPage() {
   const thinkingAccRef = useRef<Record<string, string>>({});
   const turnIdRef = useRef<string>('');
   const lastEventIdRef = useRef<number>(0);
+  const [sseReady, setSseReady] = useState(true);
 
   const [loadingThread, setLoadingThread] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -53,27 +54,34 @@ export function ChatPage() {
       dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
       turnIdRef.current = '';
       lastEventIdRef.current = 0;
+      setSseReady(true);
       return;
     }
     contentAccRef.current = {};
     thinkingAccRef.current = {};
     turnIdRef.current = '';
     lastEventIdRef.current = 0;
+    setSseReady(false);
 
     const threadId = activeThreadId;
     if (!threadId) {
       dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
+      setSseReady(true);
       return;
     }
 
     dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
     setLoadingThread(true);
 
-    client.getMessages(threadId).then(({ messages, has_more }) => {
+    client.getMessages(threadId).then(({ messages, has_more, last_event_id }) => {
       if (threadId !== activeThreadRef.current) return;
       dispatch({ type: 'LOAD_TIMELINE', items: messagesToTimeline(messages), hasMore: has_more });
+      // Set lastEventId so SSE reconnect replays only events after the loaded messages
+      lastEventIdRef.current = last_event_id || 0;
+      setSseReady(true);
     }).catch(err => {
       console.error('load messages:', err);
+      setSseReady(true);
     }).finally(() => {
       if (threadId === activeThreadRef.current) setLoadingThread(false);
     });
@@ -87,7 +95,7 @@ export function ChatPage() {
   const sseAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!activeThreadId || workerParentId) return;
+    if (!activeThreadId || workerParentId || !sseReady) return;
 
     let stopped = false;
     const threadId = activeThreadId;
@@ -174,7 +182,7 @@ export function ChatPage() {
       stopped = true;
       sseAbortRef.current?.abort();
     };
-  }, [activeThreadId, workerParentId]);
+  }, [activeThreadId, workerParentId, sseReady]);
 
   useEffect(() => {
     client.listThreads().then(ts => dispatch({ type: 'SET_THREADS', threads: ts })).catch(() => {});
