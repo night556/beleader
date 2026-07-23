@@ -19,6 +19,7 @@ export const client = {
   listThreads: () => api<Thread[]>('/api/threads'),
   getThread: (id: string) => api<Thread>(`/api/threads/${encodeURIComponent(id)}`),
   deleteThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  renameThread: (id: string, title: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ title }) }),
   getMessages: (threadId: string, afterId = 0, limit = 100) => api<{ messages: Message[]; oldest_id: number; has_more: boolean }>(`/api/threads/${encodeURIComponent(threadId)}/messages?after_id=${afterId}&limit=${limit}`),
   pauseThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
   resumeThread: (id: string) => api<{ status: string }>(`/api/threads/${encodeURIComponent(id)}/resume`, { method: 'POST' }),

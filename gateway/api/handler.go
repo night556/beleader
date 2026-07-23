@@ -95,6 +95,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 
 		api.GET("/threads", h.handleListThreads)
 		api.GET("/threads/:id", h.handleGetThread)
+		api.PUT("/threads/:id", h.handleRenameThread)
 		api.DELETE("/threads/:id", h.handleDeleteThread)
 		api.GET("/threads/:id/messages", h.handleGetMessages)
 		api.POST("/threads/:id/pause", h.handlePause)
@@ -642,6 +643,23 @@ func (h *Handler) handleGetThread(c *gin.Context) {
 		return
 	}
 	c.JSON(200, t)
+}
+
+func (h *Handler) handleRenameThread(c *gin.Context) {
+	var req struct{ Title string `json:"title"` }
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Title == "" {
+		c.JSON(400, gin.H{"error": "title is required"})
+		return
+	}
+	if err := h.DB.UpdateThreadTitle(c.Param("id"), req.Title); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok"})
 }
 
 func (h *Handler) handleDeleteThread(c *gin.Context) {

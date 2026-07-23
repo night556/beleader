@@ -25,14 +25,17 @@ export function ChatPage() {
   const thinkingAccRef = useRef<Record<string, string>>({});
   const turnIdRef = useRef<string>('');
 
+  const [loadingThread, setLoadingThread] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
   const activeModel = models.find(m => m.id === activeModelId);
 
-  // Per-conversation effort override. Defaults to the model's setting, cycles locally.
   const [effort, setEffort] = useState<string>(() => activeModel?.reasoning_effort || 'off');
   const effortRef = useRef(effort);
   effortRef.current = effort;
 
-  // Reset effort when model changes.
   useEffect(() => {
     const v = activeModel?.reasoning_effort || 'off';
     setEffort(v);
@@ -43,7 +46,6 @@ export function ChatPage() {
   useEffect(() => {
     if (sendingNewRef.current) {
       sendingNewRef.current = false;
-      // New thread: reset token tracking and turn ID
       dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
       turnIdRef.current = '';
       return;
@@ -59,12 +61,15 @@ export function ChatPage() {
     }
 
     dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
+    setLoadingThread(true);
 
     client.getMessages(threadId).then(({ messages, has_more }) => {
       if (threadId !== activeThreadRef.current) return;
       dispatch({ type: 'LOAD_TIMELINE', items: messagesToTimeline(messages), hasMore: has_more });
     }).catch(err => {
       console.error('load messages:', err);
+    }).finally(() => {
+      if (threadId === activeThreadRef.current) setLoadingThread(false);
     });
   }, [activeThreadId]);
 
@@ -95,7 +100,6 @@ export function ChatPage() {
             if (dataBuf) {
               try {
                 const data = JSON.parse(dataBuf);
-                // Worker events: create/update worker cards.
                 if (eventType === 'worker.dispatched') {
                   const wid = data.thread_id;
                   if (wid) {
@@ -108,7 +112,6 @@ export function ChatPage() {
                     dispatch({ type: 'UPDATE_TIMELINE_ITEM_BY_WORKER', workerThreadId: wid, updates: { workerStatus: st } });
                   }
                 } else {
-                  // Turn / item events: same processing as old chat SSE.
                   processSSEEvent(eventType, data, dispatch, timelineRef, contentAccRef, thinkingAccRef, turnIdRef);
                 }
               } catch {}
@@ -126,7 +129,6 @@ export function ChatPage() {
     return () => ctrl.abort();
   }, [activeThreadId, workerParentId]);
 
-  // Load threads list + runtimes on mount
   useEffect(() => {
     client.listThreads().then(ts => dispatch({ type: 'SET_THREADS', threads: ts })).catch(() => {});
   }, []);
@@ -136,14 +138,12 @@ export function ChatPage() {
     dispatch({ type: 'CLEAR_TIMELINE' });
   };
 
-  // Send message via POST /api/chat. Turn runs in background; events arrive via Gateway SSE.
   const handleSendMessage = useCallback(async (body: {
     message: string; images: string[]; agent_id: number; thread_id?: string; model_id?: string;
   }) => {
     contentAccRef.current = {};
     thinkingAccRef.current = {};
 
-    // Immediately show user message in timeline
     dispatch({
       type: 'PUSH_TIMELINE_ITEM', item: {
         id: `pending_${Date.now()}`, type: 'user', label: 'You',
@@ -184,7 +184,6 @@ export function ChatPage() {
   const loadMoreMessages = useCallback(() => {
     if (!activeThreadId || state.loadingMore || !state.hasMoreMessages) return;
 
-    // Get the oldest message ID in timeline (format: "msg123" or "tc123_456")
     const firstItem = state.timeline[0];
     if (!firstItem) return;
     const m = firstItem.id.match(/\d+/);
@@ -195,7 +194,6 @@ export function ChatPage() {
     dispatch({ type: 'SET_LOADING_MORE', loading: true });
 
     client.getMessages(activeThreadId, 0, 100).then(({ messages, has_more }) => {
-      // Filter out messages we already have (id <= oldestId)
       const newMsgs = messages.filter(msg => msg.id < oldestId);
       if (newMsgs.length === 0) {
         dispatch({ type: 'SET_HAS_MORE', hasMore: false });
@@ -206,15 +204,6 @@ export function ChatPage() {
       dispatch({ type: 'PREPEND_TIMELINE_ITEMS', items: newItems });
       dispatch({ type: 'SET_HAS_MORE', hasMore: has_more });
       dispatch({ type: 'SET_LOADING_MORE', loading: false });
-
-      // Preserve scroll position: adjust scrollTop by the height of added content
-      requestAnimationFrame(() => {
-        const el = document.querySelector('.stage') as HTMLElement;
-        if (!el) return;
-        // The new content was added at the top, so scrollHeight increased.
-        // We need to keep the user's viewport at the same position.
-        // This is handled by the Stage component's scroll preservation.
-      });
     }).catch(() => {
       dispatch({ type: 'SET_LOADING_MORE', loading: false });
     });
@@ -238,6 +227,22 @@ export function ChatPage() {
     }).catch(console.error);
   };
 
+  const startRename = (id: string, currentTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(id);
+    setRenameValue(currentTitle);
+  };
+
+  const commitRename = (id: string) => {
+    const title = renameValue.trim();
+    if (title) {
+      client.renameThread(id, title).then(() => {
+        client.listThreads().then(threads => dispatch({ type: 'SET_THREADS', threads }));
+      }).catch(console.error);
+    }
+    setRenamingId(null);
+  };
+
   const handleAgentChange = (agentId: number) => {
     dispatch({ type: 'SET_ACTIVE_AGENT', agentId });
   };
@@ -251,38 +256,35 @@ export function ChatPage() {
     setEffort(EFFORT_CYCLE[(idx + 1) % EFFORT_CYCLE.length]);
   };
 
+  const formatTime = (iso: string) => {
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return d.toLocaleDateString();
+  };
+
   return (
     <div className="chat-page">
       <div className="chat-top">
+        <button className="sidebar-toggle" onClick={() => setSidebarOpen(v => !v)} title="Toggle sidebar">
+          {sidebarOpen ? '☰' : '▶'}
+        </button>
         <div className="chat-top-controls">
           <div className="chat-top-field">
-            <select
-              className="chat-top-select"
-              value={activeAgentId ?? ''}
-              onChange={e => handleAgentChange(Number(e.target.value))}
-            >
-              {agents.map(a => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
+            <select className="chat-top-select" value={activeAgentId ?? ''} onChange={e => handleAgentChange(Number(e.target.value))}>
+              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
           <div className="chat-top-field">
-            <select
-              className="chat-top-select"
-              value={activeModelId}
-              onChange={e => handleModelChange(e.target.value)}
-            >
-              {models.map(m => (
-                <option key={m.id} value={m.id}>{m.id}</option>
-              ))}
+            <select className="chat-top-select" value={activeModelId} onChange={e => handleModelChange(e.target.value)}>
+              {models.map(m => <option key={m.id} value={m.id}>{m.id}</option>)}
             </select>
           </div>
           <div className="chat-top-field">
-            <button
-              className="chat-top-effort"
-              onClick={handleEffortChange}
-              title={`Reasoning effort: ${effort}`}
-            >
+            <button className="chat-top-effort" onClick={handleEffortChange} title={`Reasoning effort: ${effort}`}>
               <span className="chat-top-effort-icon">{EFFORT_ICON[effort] || EFFORT_ICON.off}</span>
               {effort}
             </button>
@@ -308,29 +310,62 @@ export function ChatPage() {
       </div>
 
       <div className="chat-body">
-        <div className="thread-list">
-          <div className="thread-list-head">
-            <span className="thread-list-title">Threads</span>
-            <button className="thread-new-btn" onClick={newThread} title="New Thread">+</button>
+        {sidebarOpen && (
+          <div className="thread-list">
+            <div className="thread-list-head">
+              <span className="thread-list-title">Threads</span>
+              <button className="thread-new-btn" onClick={newThread} title="New Thread">+</button>
+            </div>
+            {threads.length === 0 ? (
+              <div className="thread-list-empty">No threads yet</div>
+            ) : (
+              threads.map(th => (
+                <div
+                  key={th.id}
+                  className={`thread-item ${th.id === activeThreadId ? 'active' : ''}`}
+                  onClick={() => switchThread(th.id)}
+                >
+                  {renamingId === th.id ? (
+                    <input
+                      className="thread-rename-input"
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      onBlur={() => commitRename(th.id)}
+                      onKeyDown={e => { if (e.key === 'Enter') commitRename(th.id); if (e.key === 'Escape') setRenamingId(null); }}
+                      autoFocus
+                    />
+                  ) : (
+                    <>
+                      <div className="thread-item-info">
+                        <span className="thread-item-title">{th.title || th.id.slice(0, 8)}</span>
+                        <span className="thread-item-time">{formatTime(th.updated_at)}</span>
+                      </div>
+                      <div className="thread-item-actions">
+                        <button className="thread-item-rename" onClick={e => startRename(th.id, th.title || '', e)} title="Rename">✎</button>
+                        <button className="thread-item-del" onClick={e => deleteThread(th.id, e)}>×</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))
+            )}
           </div>
-          {threads.length === 0 ? (
-            <div className="thread-list-empty">No threads yet</div>
-          ) : (
-            threads.map(th => (
-              <div
-                key={th.id}
-                className={`thread-item ${th.id === activeThreadId ? 'active' : ''}`}
-                onClick={() => switchThread(th.id)}
-              >
-                {th.title || th.id.slice(0, 8)}
-                <button className="thread-item-del" onClick={e => deleteThread(th.id, e)}>×</button>
-              </div>
-            ))
-          )}
-        </div>
+        )}
         <div className="chat-col">
-          <Stage state={state} onLoadMore={loadMoreMessages} />
-          <InputArea onSendMessage={handleSendMessage} onStop={handleStop} />
+          {loadingThread && state.timeline.length === 0 ? (
+            <div className="stage">
+              <div className="idle-state">
+                <div className="idle-glow" style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>✦</div>
+                <div className="idle-text" style={{ color: 'var(--muted)' }}>Loading...</div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <Stage state={state} onLoadMore={loadMoreMessages} />
+              <InputArea onSendMessage={handleSendMessage} onStop={handleStop} />
+            </>
+          )}
         </div>
       </div>
     </div>

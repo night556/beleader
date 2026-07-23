@@ -1,9 +1,21 @@
 import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import { marked } from 'marked';
+import hljs from 'highlight.js/lib/common';
 import type { AppState, TimelineItem, TokenUsage } from '../types';
 import { useAppState } from '../context/AppContext';
 
-marked.setOptions({ breaks: true, gfm: true });
+// Configure marked with custom code block rendering
+const renderer = new marked.Renderer();
+renderer.code = function({ text, lang }: { text: string; lang?: string }) {
+  const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+  try {
+    const highlighted = hljs.highlight(text, { language }).value;
+    return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`;
+  } catch {
+    return `<pre><code class="hljs">${text}</code></pre>`;
+  }
+};
+marked.setOptions({ breaks: true, gfm: true, renderer });
 
 interface Props {
   state: AppState;
@@ -33,31 +45,25 @@ export function Stage({ state, onLoadMore }: Props) {
     atBottomRef.current = dist < 50;
     setShowScrollBtn(dist >= 50);
 
-    // Load more when scrolled to top
     if (el.scrollTop < 50 && hasMoreMessages && !loadingMore && onLoadMore) {
       prevScrollHeightRef.current = el.scrollHeight;
       onLoadMore();
     }
   }, [hasMoreMessages, loadingMore, onLoadMore]);
 
-  // Auto-scroll when content changes.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
 
     if (timeline.length > prevLenRef.current) {
-      // Check if new items were prepended (load more) vs appended (new message)
-      // If prepended, preserve scroll position
       if (prevScrollHeightRef.current > 0 && el.scrollHeight > prevScrollHeightRef.current) {
         const addedHeight = el.scrollHeight - prevScrollHeightRef.current;
         el.scrollTop = addedHeight;
         prevScrollHeightRef.current = 0;
       } else {
-        // New message was added → scroll to bottom
         scrollToBottom();
       }
     } else if (atBottomRef.current) {
-      // Streaming update + already at bottom → auto-scroll.
       el.scrollTop = el.scrollHeight;
     }
     prevLenRef.current = timeline.length;
@@ -114,6 +120,22 @@ function msgClass(item: TimelineItem): string {
     case 'error': return `${base} msg-error`;
     default: return base;
   }
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [text]);
+  return (
+    <button className="msg-copy-btn" onClick={copy} title="Copy">
+      {copied ? '✓' : '⎘'}
+    </button>
+  );
 }
 
 function WorkerCard({ item }: { item: TimelineItem }) {
@@ -189,6 +211,7 @@ function ToolCard({ item }: { item: TimelineItem }) {
         {!collapsed && item.content && (
           <div className="msg-content">
             <pre>{item.content}</pre>
+            {item.status === 'done' && <CopyButton text={item.content} />}
           </div>
         )}
       </div>
@@ -218,13 +241,8 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
   const hasThinking = item.type === 'agent' && item.thinking;
   const usageText = item.type === 'agent' && item.usage ? formatUsage(item.usage) : '';
 
-  if (isTool) {
-    return <ToolCard item={item} />;
-  }
-
-  if (isWorker) {
-    return <WorkerCard item={item} />;
-  }
+  if (isTool) return <ToolCard item={item} />;
+  if (isWorker) return <WorkerCard item={item} />;
 
   if (isError) {
     return (
@@ -247,6 +265,7 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
         <div className="msg-header">
           <span className="msg-label">{item.label}</span>
           {item.status === 'streaming' && <span className="msg-badge streaming">...</span>}
+          {item.status === 'done' && item.type === 'agent' && <CopyButton text={item.content} />}
         </div>
         {hasThinking && <ThinkingBlock thinking={item.thinking!} streaming={item.status === 'streaming'} />}
         <div
