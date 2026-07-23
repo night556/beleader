@@ -225,7 +225,9 @@ func (db *DB) UpdatePoolToolDefs(id int64, toolDefs string) error {
 
 func (db *DB) UpsertToolAgent(name, url string, poolID int64) (*ToolAgent, error) {
 	var ta ToolAgent
-	err := db.GORM.Where("name = ?", name).First(&ta).Error
+	// Dedup by pool_id + url: same pool, same address = same agent.
+	// Container hostnames change on restart, so name is not a stable key.
+	err := db.GORM.Where("pool_id = ? AND url = ?", poolID, url).First(&ta).Error
 	if err != nil {
 		ta = ToolAgent{Name: name, URL: url, PoolID: poolID, Status: "active", LastHeartbeat: time.Now()}
 		if createErr := db.GORM.Create(&ta).Error; createErr != nil {
@@ -233,6 +235,8 @@ func (db *DB) UpsertToolAgent(name, url string, poolID int64) (*ToolAgent, error
 		}
 		return &ta, nil
 	}
+	// Update name (hostname may have changed on restart), refresh heartbeat
+	ta.Name = name
 	ta.URL = url
 	ta.PoolID = poolID
 	ta.Status = "active"

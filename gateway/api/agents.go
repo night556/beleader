@@ -316,11 +316,9 @@ func (h *Handler) handleToolAgentHeartbeat(c *gin.Context) {
 }
 
 func (h *Handler) handleListToolAgents(c *gin.Context) {
-	// Lazy stale check
+	// Delete stale records: heartbeat older than 60s
 	cutoff := time.Now().Add(-60 * time.Second)
-	h.DB.GORM.Model(&db.ToolAgent{}).
-		Where("last_heartbeat < ? AND status = ?", cutoff, "active").
-		Update("status", "inactive")
+	h.DB.GORM.Where("last_heartbeat < ? AND status = ?", cutoff, "active").Delete(&db.ToolAgent{})
 
 	agents, err := h.DB.ListToolAgents()
 	if err != nil {
