@@ -288,7 +288,7 @@ export function processSSEEvent(
       dispatch({ type: 'SET_STATE', state: 'responding' });
       const kind = data.payload?.kind || '';
       const delta = data.payload?.delta || '';
-      const itemId = data.item_id;
+      const itemId = data.payload?.item_id;
       if (!itemId) break;
 
       if (kind === 'thinking') {
