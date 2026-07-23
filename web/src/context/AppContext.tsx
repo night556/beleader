@@ -205,6 +205,18 @@ export function processSSEEvent(
   switch (eventType) {
     case 'turn.completed': {
       dispatch({ type: 'SET_STATE', state: 'idle' });
+      // Extract usage from payload
+      const usageStr = data.payload?.usage as string | undefined;
+      if (usageStr) {
+        try {
+          const u = JSON.parse(usageStr) as TokenUsage;
+          if (u.total) dispatch({ type: 'ADD_TOKENS', n: u.total });
+          // Estimate context percentage (rough)
+          // Can't know exact context limit here, use 128000 as default
+          const pct = Math.round((u.prompt / 128000) * 100);
+          if (pct > 0) dispatch({ type: 'SET_CONTEXT_PCT', pct: Math.min(pct, 100) });
+        } catch {}
+      }
       return true;
     }
 

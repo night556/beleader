@@ -217,11 +217,6 @@ func (h *Handler) handleChat(c *gin.Context) {
 
 		if req.ParentThreadID != "" {
 			h.DB.CreateWorkerThread(threadID, title, req.ParentThreadID, agent.ID, modelID, poolID, workspacePath)
-			h.Notify(SessionEvent{Type: "worker.dispatched", SessionID: req.ParentThreadID, Data: map[string]any{
-				"thread_id":  threadID,
-				"agent_name": agent.Name,
-				"task":       req.Message,
-			}})
 		} else {
 			h.DB.CreateThread(threadID, title, agent.ID, modelID, poolID, workspacePath)
 		}
@@ -404,6 +399,13 @@ func (h *Handler) spawnWorker(ctx context.Context, parentThread *db.Thread, agen
 	}
 
 	h.DB.CreateWorkerThread(workerID, title, parentThread.ID, workerAgent.ID, modelID, poolID, workspacePath)
+
+	// Notify parent thread that a worker was dispatched
+	h.Notify(SessionEvent{Type: "worker.dispatched", SessionID: parentThread.ID, Data: map[string]any{
+		"thread_id":  workerID,
+		"agent_name": workerAgent.Name,
+		"task":       task,
+	}})
 
 	// Run worker agent loop asynchronously
 	go h.runSession(workerID, workerAgent, model, task, nil)

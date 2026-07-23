@@ -116,8 +116,14 @@ export function InputArea({ onSendMessage, onStop }: Props) {
       )}
 
       <div className="status-bar">
-        <span className="status-indicator" />
-        <span className="status-text">{t('status.ready')}</span>
+        <span className={`status-indicator ${state.state}`} />
+        <span className="status-text">
+          {state.state === 'thinking' ? t('status.thinking')
+           : state.state === 'responding' ? t('status.replying')
+           : state.state === 'tool_calls' ? t('status.executing')
+           : state.state === 'error' ? t('status.failed')
+           : t('status.ready')}
+        </span>
       </div>
 
       <div id="input-capsule">
