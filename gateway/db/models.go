@@ -147,23 +147,28 @@ func (ModelProfile) TableName() string { return "model_profiles" }
 
 func (db *DB) seedDefaultAgent() {
 	var count int64
-	defaultTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","run_command","task_output","task_stop","web_search","web_fetch","run_http_request","read_status","update_status"]`
+
+	// Default: general-purpose worker agent.
+	// Has file ops, shell, web, worker spawning, and STATUS.md.
+	defaultTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","run_command","task_output","task_stop","web_search","web_fetch","run_http_request","read_status","update_status","spawn_worker","list_workers","intervene_worker","terminate_worker"]`
 	if db.GORM.Model(&Agent{}).Where("name = 'Default'").Count(&count); count == 0 {
 		db.GORM.Create(&Agent{
 			Name:         "Default",
-			Desc:         "General-purpose assistant — read, write, edit files, run commands, search code and web",
-			SystemPrompt: "You are a helpful AI assistant. You can read and write files, run shell commands, search the web, and spawn sub-agents for complex tasks.\n\n## How to work\n- Before editing files, read them first to understand the current state\n- After making changes, verify they work — run tests or check the build\n- When a task is complex, use spawn_worker to delegate sub-tasks\n- When done, summarize what you accomplished",
+			Desc:         "General-purpose assistant — read, write, edit files, run commands, search the web, spawn workers for parallel tasks",
+			SystemPrompt: "You are a helpful AI assistant. You can read and write files, run shell commands, search the web, and spawn sub-agents for complex tasks.\n\n## How to work\n- Before editing files, read them first to understand the current state\n- After making changes, verify they work — run tests or check the build\n- When a task is complex or can be parallelized, use spawn_worker to delegate sub-tasks\n- Use read_status and update_status to persist important context, progress, and decisions across turns\n- When done, summarize what you accomplished",
 			Tools:        defaultTools,
 			WorkerAgents: "[]",
 		})
 	}
 
-	managerTools := `["create_agent","update_agent","delete_agent","list_agents","create_mcp_server","delete_mcp_server","list_mcp_servers","create_model","list_resources","run_http_request","read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","read_status","update_status","run_command","task_output","task_stop","web_search","web_fetch"]`
+	// Manager: system management agent.
+	// Has management tools + read-only file access + STATUS.md. No run_command, no spawn_worker.
+	managerTools := `["create_agent","update_agent","delete_agent","list_agents","create_mcp_server","delete_mcp_server","list_mcp_servers","create_model","list_resources","read_file","read_dir","search_content","read_status","update_status","web_search","web_fetch"]`
 	if db.GORM.Model(&Agent{}).Where("name = 'Manager'").Count(&count); count == 0 {
 		db.GORM.Create(&Agent{
 			Name:         "Manager",
 			Desc:         "System manager — create and configure agents, MCP servers, models, and other resources",
-			SystemPrompt: "You are a system management assistant. You can create, update, delete, and list agents, MCP servers, models, and other resources. Use the management tools to perform operations on behalf of the user. Before creating resources, list existing ones to understand the current state. When creating resources, validate that required fields are provided.",
+			SystemPrompt: "You are a system management assistant. You can create, update, delete, and list agents, MCP servers, models, and other resources.\n\n## How to work\n- Before creating resources, list existing ones to understand the current state\n- When creating resources, validate that required fields are provided\n- Use read_status and update_status to track system state across turns\n- You can read files and search code to understand the project, but you cannot run commands or modify files directly — delegate that to the Default agent or a worker",
 			Tools:        managerTools,
 			WorkerAgents: "[]",
 		})

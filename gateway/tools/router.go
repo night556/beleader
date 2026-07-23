@@ -67,8 +67,7 @@ func (r *Router) RegisterLocal(name string, handler func(ctx context.Context, th
 
 func isLocal(name string) bool {
 	switch name {
-	case "web_search", "web_fetch", "run_http_request",
-		"read_status", "update_status",
+	case "read_status", "update_status",
 		"spawn_worker", "list_workers", "intervene_worker", "terminate_worker",
 		"create_agent", "list_agents", "update_agent", "delete_agent",
 		"create_model", "list_resources",
@@ -205,22 +204,6 @@ func (c *AgentClient) CleanupWorkspace(ctx context.Context, threadID string) err
 
 func LocalToolDefs() []engine.ToolDef {
 	return []engine.ToolDef{
-		engine.MkTool("web_search", "Search the web using Bing and return results.",
-			map[string]any{
-				"query": map[string]any{"type": "string", "description": "Search query"},
-			}, []string{"query"}),
-		engine.MkTool("web_fetch", "Fetch content from a URL and return as text.",
-			map[string]any{
-				"url":   map[string]any{"type": "string", "description": "URL to fetch"},
-				"json":  map[string]any{"type": "boolean", "description": "Parse response as JSON"},
-			}, []string{"url"}),
-		engine.MkTool("run_http_request", "Make an HTTP request with custom method, headers, and body.",
-			map[string]any{
-				"url":     map[string]any{"type": "string", "description": "URL to request"},
-				"method":  map[string]any{"type": "string", "description": "HTTP method (GET, POST, etc.)"},
-				"headers": map[string]any{"type": "object", "description": "Request headers"},
-				"body":    map[string]any{"type": "string", "description": "Request body"},
-			}, []string{"url"}),
 		engine.MkTool("read_status", "Read the project STATUS.md content from the DB.",
 			map[string]any{}, []string{}),
 		engine.MkTool("update_status", "Update the project STATUS.md content in the DB. Use this ONLY for STATUS.md.",

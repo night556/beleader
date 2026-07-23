@@ -83,6 +83,13 @@ Clear throwaway scaffolding, preserve unrelated work, and make the remaining
 state legible. Hand back what changed, what was verified, and what remains —
 including the exact blocker when one exists.
 
+### STATUS.md
+Use read_status and update_status to maintain a persistent STATUS.md for each
+thread. This is your working memory across turns — record project state, progress,
+completed tasks, pending items, key decisions, and document references. Read it
+at the start of complex tasks to recover context; update it when you make progress
+or hit a blocker. A new thread starts with empty status.
+
 ### Whose word wins
 1. The user's request, this turn.
 2. These rules.

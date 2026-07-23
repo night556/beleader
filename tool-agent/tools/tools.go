@@ -17,12 +17,9 @@ type ToolDef struct {
 
 // ToolResult is returned to Gateway after execution.
 type ToolResult struct {
-	Content    string   `json:"content,omitempty"`
-	Error      string   `json:"error,omitempty"`
-	Images     []string `json:"images,omitempty"`
-	ImageLabel string   `json:"-"`
-	Width      int      `json:"-"`
-	Height     int      `json:"-"`
+	Content string   `json:"content,omitempty"`
+	Error   string   `json:"error,omitempty"`
+	Images  []string `json:"images,omitempty"`
 }
 
 // ToolHandler executes a tool and returns a result.
