@@ -251,6 +251,8 @@ export function processSSEEvent(
           break;
 
         case 'agent_message':
+          // Skip if already exists (reconnect replay)
+          if (timelineRef.current.some(ti => ti.id === item.id)) break;
           dispatch({ type: 'SET_STATE', state: 'thinking' });
           dispatch({
             type: 'PUSH_TIMELINE_ITEM', item: {
@@ -261,6 +263,8 @@ export function processSSEEvent(
           break;
 
         case 'tool_call': {
+          // Skip if already exists (reconnect replay)
+          if (timelineRef.current.some(ti => ti.id === item.id)) break;
           dispatch({ type: 'SET_STATE', state: 'tool_calls' });
           const meta = item.metadata || {};
           const rawArgs = meta.arguments || '';

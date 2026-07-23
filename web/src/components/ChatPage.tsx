@@ -75,60 +75,99 @@ export function ChatPage() {
     });
   }, [activeThreadId]);
 
-  // Gateway SSE — unified event stream for turns, items, and worker events.
+  // Gateway SSE with auto-reconnect.
+  // On disconnect the backend broker buffers events; on reconnect they are
+  // replayed from the buffer, so no events are lost.
+  const sseAbortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     if (!activeThreadId || workerParentId) return;
 
-    const ctrl = new AbortController();
-    const url = `/api/sse?thread_id=${encodeURIComponent(activeThreadId)}`;
+    let stopped = false;
+    const threadId = activeThreadId;
+    let reconnectAttempt = 0;
 
-    fetch(url, { signal: ctrl.signal }).then(async (res) => {
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let eventType = '';
-      let dataBuf = '';
+    const connect = async () => {
+      while (!stopped && activeThreadRef.current === threadId) {
+        const ctrl = new AbortController();
+        sseAbortRef.current = ctrl;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        try {
+          const res = await fetch(`/api/sse?thread_id=${encodeURIComponent(threadId)}`, { signal: ctrl.signal });
+          reconnectAttempt = 0;
 
-        for (let line of lines) {
-          if (line.endsWith('\r')) line = line.slice(0, -1);
-          if (line === '') {
-            if (dataBuf) {
-              try {
-                const data = JSON.parse(dataBuf);
-                if (eventType === 'worker.dispatched') {
-                  const wid = data.thread_id;
-                  if (wid) {
-                    dispatch({ type: 'UPDATE_TIMELINE_ITEM_BY_WORKER', workerThreadId: wid, updates: { workerThreadId: wid } });
-                  }
-                } else if (eventType === 'worker.completed') {
-                  const wid = data.thread_id;
-                  const st = data.status === 'stopped' ? 'stopped' : 'completed';
-                  if (wid) {
-                    dispatch({ type: 'UPDATE_TIMELINE_ITEM_BY_WORKER', workerThreadId: wid, updates: { workerStatus: st } });
-                  }
-                } else {
-                  processSSEEvent(eventType, data, dispatch, timelineRef, contentAccRef, thinkingAccRef, turnIdRef);
+          const reader = res.body!.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let eventType = '';
+          let dataBuf = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (let line of lines) {
+              if (line.endsWith('\r')) line = line.slice(0, -1);
+              if (line === '') {
+                if (dataBuf) {
+                  try {
+                    const data = JSON.parse(dataBuf);
+                    if (eventType === 'worker.dispatched') {
+                      const wid = data.thread_id;
+                      if (wid) {
+                        dispatch({ type: 'UPDATE_TIMELINE_ITEM_BY_WORKER', workerThreadId: wid, updates: { workerThreadId: wid } });
+                      }
+                    } else if (eventType === 'worker.completed') {
+                      const wid = data.thread_id;
+                      const st = data.status === 'stopped' ? 'stopped' : 'completed';
+                      if (wid) {
+                        dispatch({ type: 'UPDATE_TIMELINE_ITEM_BY_WORKER', workerThreadId: wid, updates: { workerStatus: st } });
+                      }
+                    } else {
+                      processSSEEvent(eventType, data, dispatch, timelineRef, contentAccRef, thinkingAccRef, turnIdRef);
+                    }
+                  } catch {}
+                  eventType = ''; dataBuf = '';
                 }
-              } catch {}
-              eventType = ''; dataBuf = '';
+              } else if (line.startsWith('event: ')) {
+                eventType = line.slice(7);
+              } else if (line.startsWith('data: ')) {
+                dataBuf += (dataBuf ? '\n' : '') + line.slice(6);
+              }
             }
-          } else if (line.startsWith('event: ')) {
-            eventType = line.slice(7);
-          } else if (line.startsWith('data: ')) {
-            dataBuf += (dataBuf ? '\n' : '') + line.slice(6);
           }
+          // Normal close (reader done) — break out of reconnect loop
+          break;
+        } catch (err: any) {
+          if (err?.name === 'AbortError') break;
+          if (stopped) break;
+          // Network error — reconnect with backoff
+          reconnectAttempt++;
+          if (reconnectAttempt === 1) {
+            dispatch({
+              type: 'PUSH_TIMELINE_ITEM', item: {
+                id: `sse_dc_${Date.now()}`,
+                type: 'notice', label: 'Connection',
+                content: '连接断开，正在重连...',
+                status: 'done', time: Date.now(),
+              },
+            });
+          }
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 10000);
+          await new Promise(r => setTimeout(r, delay));
         }
       }
-    }).catch(() => {});
+    };
 
-    return () => ctrl.abort();
+    connect();
+
+    return () => {
+      stopped = true;
+      sseAbortRef.current?.abort();
+    };
   }, [activeThreadId, workerParentId]);
 
   useEffect(() => {
