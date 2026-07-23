@@ -1,14 +1,17 @@
 import { useState, useCallback } from 'react';
 import { client } from '../api/client';
+import { useAppState } from '../context/AppContext';
 import type { MCPServer } from '../types';
 import { t } from '../i18n';
 
 const EMPTY_FORM = {
-  name: '', type: 'stdio' as 'stdio' | 'http', enabled: true,
-  command: '', args: '', env: '', url: '', headers: '',
+  name: '', type: 'http' as 'stdio' | 'http', enabled: true,
+  command: '', args: '', env: '', url: '', headers: '', pool_id: 0,
 };
 
 export function MCPPage() {
+  const { state } = useAppState();
+  const { pools } = state;
   const [servers, setServers] = useState<MCPServer[]>([]);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -37,7 +40,7 @@ export function MCPPage() {
     setEditId(s.id);
     setForm({
       name: s.name, type: s.type, enabled: s.enabled,
-      command: s.command, args: s.args, env: s.env, url: s.url, headers: s.headers,
+      command: s.command, args: s.args, env: s.env, url: s.url, headers: s.headers, pool_id: s.pool_id,
     });
     setShowForm(true);
   };
@@ -46,6 +49,7 @@ export function MCPPage() {
     const body: Record<string, unknown> = {
       name: form.name, type: form.type, enabled: form.enabled,
       command: form.command, args: form.args, env: form.env, url: form.url, headers: form.headers,
+      pool_id: form.pool_id,
     };
     if (editId) {
       const updated = await client.updateMCPServer(editId, body);
@@ -104,7 +108,7 @@ export function MCPPage() {
                   <span className={`mcp-status-dot mcp-status-${s.status}`} />
                   <div>
                     <div className="card-title" style={{ fontSize: 13 }}>{s.name}</div>
-                    <div className="card-subtitle">{s.type === 'stdio' ? 'STDIO' : 'HTTP'}</div>
+                    <div className="card-subtitle">{s.type === 'stdio' ? 'STDIO' : 'HTTP'} · {pools.find(p => p.id === s.pool_id)?.name || 'No pool'}</div>
                   </div>
                   <span className={`card-badge ${s.status === 'connected' ? 'connected' : s.status === 'error' ? 'error' : 'disconnected'}`}>
                     {s.status}
@@ -134,6 +138,15 @@ export function MCPPage() {
                 <div className="form-group">
                   <label className="form-label">Name</label>
                   <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Pool</label>
+                  <select className="form-select" value={form.pool_id} onChange={e => setForm({ ...form, pool_id: Number(e.target.value) })}>
+                    <option value={0}>— Select pool —</option>
+                    {pools.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <div className="form-hint">MCP server will be available to tool-agents in this pool</div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Type</label>
