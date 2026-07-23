@@ -226,6 +226,14 @@ export function processSSEEvent(
 
       switch (item.kind) {
         case 'user_message':
+          // Skip if we already added this optimistically (or if it's the same content as the last user msg)
+          {
+            const existing = timelineRef.current.find(ti =>
+              ti.type === 'user' && ti.content === (item.detail || item.summary || '') &&
+              Date.now() - ti.time < 10000 // within 10 seconds
+            );
+            if (existing) break;
+          }
           dispatch({
             type: 'PUSH_TIMELINE_ITEM', item: {
               id: item.id, type: 'user', label: 'You',

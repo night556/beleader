@@ -43,13 +43,22 @@ export function ChatPage() {
   useEffect(() => {
     if (sendingNewRef.current) {
       sendingNewRef.current = false;
+      // New thread: reset token tracking and turn ID
+      dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
+      turnIdRef.current = '';
       return;
     }
     contentAccRef.current = {};
     thinkingAccRef.current = {};
+    turnIdRef.current = '';
 
     const threadId = activeThreadId;
-    if (!threadId) return;
+    if (!threadId) {
+      dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
+      return;
+    }
+
+    dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
 
     client.getMessages(threadId).then(({ messages }) => {
       if (threadId !== activeThreadRef.current) return;
@@ -134,6 +143,14 @@ export function ChatPage() {
     contentAccRef.current = {};
     thinkingAccRef.current = {};
 
+    // Immediately show user message in timeline
+    dispatch({
+      type: 'PUSH_TIMELINE_ITEM', item: {
+        id: `pending_${Date.now()}`, type: 'user', label: 'You',
+        content: body.message, status: 'done', time: Date.now(),
+      },
+    });
+
     if (!body.thread_id) {
       sendingNewRef.current = true;
     }
@@ -150,6 +167,12 @@ export function ChatPage() {
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
       console.error('chat error:', err);
+      dispatch({
+        type: 'PUSH_TIMELINE_ITEM', item: {
+          id: `err_${Date.now()}`, type: 'error', label: 'Error',
+          content: err?.message || 'Failed to send message', status: 'fail', time: Date.now(),
+        },
+      });
     }
   }, []);
 
