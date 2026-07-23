@@ -55,6 +55,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleWorkspaceInit(w, r)
 	case r.Method == "POST" && path == "/workspace/cleanup":
 		s.handleWorkspaceCleanup(w, r)
+	case r.Method == "POST" && path == "/mcp/test":
+		s.handleMCPTest(w, r)
 	case r.Method == "GET" && path == "/tools":
 		s.handleListTools(w, r)
 	case r.Method == "GET" && path == "/health":
@@ -141,6 +143,30 @@ func (s *Server) handleListTools(w http.ResponseWriter, r *http.Request) {
 	defs := tools.GetToolDefs()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"tools": defs})
+}
+
+func (s *Server) handleMCPTest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, 400, err.Error())
+		return
+	}
+	if req.URL == "" {
+		jsonError(w, 400, "url is required")
+		return
+	}
+
+	count, names, err := tools.TestMCPConnection(req.URL, req.Headers)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"success": true, "tool_count": count, "tools": names})
 }
 
 func jsonError(w http.ResponseWriter, code int, msg string) {

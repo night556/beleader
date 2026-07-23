@@ -1,12 +1,11 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"beleader/gateway/db"
 
@@ -91,6 +90,9 @@ func (h *Handler) handleDeleteMCPServer(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "ok"})
 }
 
+// handleTestMCPServer proxies the test request to a tool-agent in the
+// MCP server's pool. The tool-agent has mcp-go and handles the actual
+// MCP protocol (initialize, list tools, SSE, etc.).
 func (h *Handler) handleTestMCPServer(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -105,92 +107,35 @@ func (h *Handler) handleTestMCPServer(c *gin.Context) {
 	}
 
 	if existing.Type != "http" {
-		c.JSON(200, gin.H{"success": false, "error": "only http type is supported for testing"})
+		c.JSON(200, gin.H{"success": false, "error": "only http type is supported"})
 		return
 	}
 
-	count, names, err := testHTTPMCPConnection(existing.URL, existing.Headers)
-	if err != nil {
-		c.JSON(200, gin.H{"success": false, "error": err.Error()})
+	// Find a tool-agent in the MCP server's pool
+	agents, _ := h.DB.ListActiveToolAgentsByPool(existing.PoolID)
+	if len(agents) == 0 {
+		c.JSON(200, gin.H{"success": false, "error": "no tool-agent available in pool"})
 		return
 	}
 
-	c.JSON(200, gin.H{"success": true, "tool_count": count, "tools": names})
-}
-
-// testHTTPMCPConnection connects to an HTTP MCP server via JSON-RPC,
-// initializes, and lists tools.
-func testHTTPMCPConnection(url, headersJSON string) (int, []string, error) {
+	// Forward to tool-agent's /mcp/test endpoint
 	var headers map[string]string
-	if headersJSON != "" && headersJSON != "{}" {
-		json.Unmarshal([]byte(headersJSON), &headers)
+	if existing.Headers != "" && existing.Headers != "{}" {
+		json.Unmarshal([]byte(existing.Headers), &headers)
 	}
 
-	// 1. Initialize
-	initReq, _ := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "initialize",
-		"params": map[string]any{
-			"protocolVersion": "2025-03-26",
-			"clientInfo":      map[string]string{"name": "BeLeader", "version": "1.0"},
-		},
+	testReq, _ := json.Marshal(map[string]any{
+		"url":     existing.URL,
+		"headers": headers,
 	})
-	if _, err := mcpHTTPPost(url, headers, initReq); err != nil {
-		return 0, nil, fmt.Errorf("initialize: %w", err)
-	}
 
-	// 2. List tools
-	listReq, _ := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      2,
-		"method":  "tools/list",
-		"params":  map[string]any{},
-	})
-	respBody, err := mcpHTTPPost(url, headers, listReq)
+	resp, err := http.Post(agents[0].URL+"/mcp/test", "application/json", strings.NewReader(string(testReq)))
 	if err != nil {
-		return 0, nil, fmt.Errorf("list tools: %w", err)
-	}
-
-	var listResp struct {
-		Result struct {
-			Tools []struct {
-				Name string `json:"name"`
-			} `json:"tools"`
-		} `json:"result"`
-		Error any `json:"error"`
-	}
-	json.Unmarshal(respBody, &listResp)
-	if listResp.Error != nil {
-		return 0, nil, fmt.Errorf("server error: %v", listResp.Error)
-	}
-
-	var names []string
-	for _, t := range listResp.Result.Tools {
-		names = append(names, t.Name)
-	}
-	return len(names), names, nil
-}
-
-func mcpHTTPPost(url string, headers map[string]string, body []byte) ([]byte, error) {
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
+		c.JSON(200, gin.H{"success": false, "error": "tool-agent unreachable: " + err.Error()})
+		return
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	return io.ReadAll(io.LimitReader(resp.Body, 500000))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 50000))
+	c.Data(resp.StatusCode, "application/json", body)
 }

@@ -193,3 +193,47 @@ func (m *MCPManager) Close() {
 	}
 	m.clients = make(map[string]*MCPClient)
 }
+
+// TestMCPConnection connects to an HTTP MCP server, initializes, lists tools,
+// and disconnects. Used for the "test connection" feature.
+func TestMCPConnection(url string, headers map[string]string) (int, []string, error) {
+	var opts []transport.StreamableHTTPCOption
+	if len(headers) > 0 {
+		opts = append(opts, transport.WithHTTPHeaders(headers))
+	}
+
+	c, err := client.NewStreamableHttpClient(url, opts...)
+	if err != nil {
+		return 0, nil, fmt.Errorf("create client: %w", err)
+	}
+	defer c.Close()
+
+	ctx := context.Background()
+	if err := c.Start(ctx); err != nil {
+		return 0, nil, fmt.Errorf("start: %w", err)
+	}
+
+	initReq := mcp.InitializeRequest{
+		Params: mcp.InitializeParams{
+			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+			ClientInfo: mcp.Implementation{
+				Name:    "beleader-tool-agent",
+				Version: "1.0",
+			},
+		},
+	}
+	if _, err := c.Initialize(ctx, initReq); err != nil {
+		return 0, nil, fmt.Errorf("initialize: %w", err)
+	}
+
+	listResult, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		return 0, nil, fmt.Errorf("list tools: %w", err)
+	}
+
+	var names []string
+	for _, t := range listResult.Tools {
+		names = append(names, t.Name)
+	}
+	return len(names), names, nil
+}
