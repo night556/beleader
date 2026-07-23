@@ -11,22 +11,21 @@ type SSEEvent struct {
 	Payload any    `json:"payload"`
 }
 
+// SSEBroker is a simple pub/sub for live SSE events.
+// Events are always persisted to DB (with auto-increment seq) by the
+// emit callback. On SSE connect, missed events are replayed from DB.
+// The broker only delivers events that arrive after subscription.
 type SSEBroker struct {
 	clients map[string]map[chan string]struct{} // threadID → subscribed channels
-	buffers map[string][]string                 // threadID → buffered msgs while no subscribers
-	mu      sync.Mutex
+	mu      sync.RWMutex
 }
 
 func NewSSEBroker() *SSEBroker {
 	return &SSEBroker{
 		clients: make(map[string]map[chan string]struct{}),
-		buffers: make(map[string][]string),
 	}
 }
 
-// Subscribe returns a channel that receives SSE events for the given thread.
-// If events were buffered while no subscriber was connected, they are flushed
-// to the new channel before returning.
 func (b *SSEBroker) Subscribe(threadID string) chan string {
 	ch := make(chan string, 64)
 	b.mu.Lock()
@@ -35,20 +34,9 @@ func (b *SSEBroker) Subscribe(threadID string) chan string {
 		b.clients[threadID] = make(map[chan string]struct{})
 	}
 	b.clients[threadID][ch] = struct{}{}
-	// Flush buffered messages to this subscriber
-	if msgs, ok := b.buffers[threadID]; ok && len(msgs) > 0 {
-		for _, msg := range msgs {
-			select {
-			case ch <- msg:
-			default:
-			}
-		}
-		delete(b.buffers, threadID)
-	}
 	return ch
 }
 
-// Unsubscribe removes the channel for the given thread and closes it.
 func (b *SSEBroker) Unsubscribe(threadID string, ch chan string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -61,11 +49,6 @@ func (b *SSEBroker) Unsubscribe(threadID string, ch chan string) {
 	close(ch)
 }
 
-// Broadcast sends an event to all channels subscribed to the given thread.
-// If there are no subscribers, the message is buffered so the first
-// subscriber will receive it. On turn.completed with no subscribers,
-// the buffer is cleared — the turn is done and history will be loaded
-// via getMessages on the next subscribe.
 func (b *SSEBroker) Broadcast(threadID string, event SSEEvent) {
 	payloadJSON, err := json.Marshal(event.Payload)
 	if err != nil {
@@ -73,20 +56,10 @@ func (b *SSEBroker) Broadcast(threadID string, event SSEEvent) {
 	}
 	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Type, string(payloadJSON))
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	subscribers := b.clients[threadID]
-	if len(subscribers) == 0 {
-		if event.Type == "turn.completed" {
-			delete(b.buffers, threadID)
-			return
-		}
-		b.buffers[threadID] = append(b.buffers[threadID], msg)
-		return
-	}
-
-	for ch := range subscribers {
+	for ch := range b.clients[threadID] {
 		select {
 		case ch <- msg:
 		default:
@@ -94,15 +67,6 @@ func (b *SSEBroker) Broadcast(threadID string, event SSEEvent) {
 	}
 }
 
-// OnSessionEvent implements SessionObserver.
 func (b *SSEBroker) OnSessionEvent(event SessionEvent) {
 	b.Broadcast(event.SessionID, SSEEvent{Type: event.Type, Payload: event.Data})
-}
-
-// ClearBuffer discards buffered events for a thread. Used after DB replay
-// to avoid duplicates when the client reconnects with a since_id.
-func (b *SSEBroker) ClearBuffer(threadID string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.buffers, threadID)
 }

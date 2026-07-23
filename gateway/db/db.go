@@ -432,6 +432,18 @@ func (db *DB) GetEvents(threadID string, sinceID int64) ([]Event, error) {
 	return events, err
 }
 
+// GetEventsSinceLastCompleted returns events from the current active turn
+// (all events after the most recent turn.completed). Used for first SSE
+// connection to replay the in-progress turn.
+func (db *DB) GetEventsSinceLastCompleted(threadID string) ([]Event, error) {
+	var lastCompletedID int64
+	db.GORM.Model(&Event{}).
+		Where("thread_id = ? AND event = ?", threadID, "turn.completed").
+		Select("COALESCE(MAX(id), 0)").
+		Scan(&lastCompletedID)
+	return db.GetEvents(threadID, lastCompletedID)
+}
+
 func (db *DB) DeleteEvents(threadID string) error {
 	return db.GORM.Where("thread_id = ?", threadID).Delete(&Event{}).Error
 }

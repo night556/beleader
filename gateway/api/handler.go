@@ -624,24 +624,26 @@ func (h *Handler) handleSSE(c *gin.Context) {
 		return
 	}
 
-	// Replay missed events from DB if client sent since_id
+	// Subscribe first — captures live events that arrive during DB replay.
+	ch := h.SSE.Subscribe(threadID)
+	defer h.SSE.Unsubscribe(threadID, ch)
+
+	// Replay missed events from DB.
 	sinceID := int64(0)
 	if v := c.Query("since_id"); v != "" {
 		fmt.Sscanf(v, "%d", &sinceID)
 	}
+	var events []db.Event
 	if sinceID > 0 {
-		events, _ := h.DB.GetEvents(threadID, sinceID)
-		for _, e := range events {
-			msg := fmt.Sprintf("event: %s\ndata: %s\n\n", e.Event, e.Payload)
-			fmt.Fprint(c.Writer, msg)
-		}
-		c.Writer.Flush()
-		// DB replay covered these events; discard broker buffer to avoid duplicates
-		h.SSE.ClearBuffer(threadID)
+		events, _ = h.DB.GetEvents(threadID, sinceID)
+	} else {
+		events, _ = h.DB.GetEventsSinceLastCompleted(threadID)
 	}
-
-	ch := h.SSE.Subscribe(threadID)
-	defer h.SSE.Unsubscribe(threadID, ch)
+	for _, e := range events {
+		msg := fmt.Sprintf("event: %s\ndata: %s\n\n", e.Event, e.Payload)
+		fmt.Fprint(c.Writer, msg)
+	}
+	c.Writer.Flush()
 
 	for {
 		select {
