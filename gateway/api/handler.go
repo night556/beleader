@@ -253,6 +253,9 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 
 	thread, err := h.DB.GetThread(threadID)
 	if err != nil {
+		h.Notify(SessionEvent{Type: "error", SessionID: threadID, Data: map[string]any{
+			"message": "Failed to load thread: " + err.Error(),
+		}})
 		return
 	}
 
@@ -264,6 +267,14 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 
 	// Build tool list
 	toolList := h.buildToolList(thread, agent)
+
+	// Check if we have a model configured
+	if model == nil {
+		h.Notify(SessionEvent{Type: "error", SessionID: threadID, Data: map[string]any{
+			"message": "No model configured. Add a model in the Model tab.",
+		}})
+		return
+	}
 
 	// Get model config
 	modelContextLimit := 128000
@@ -303,7 +314,13 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 		h.Notify(ev)
 	}
 
-	h.Engine.RunLoop(ctx, thread, sysPrompt, turnMeta, message, images, toolList, llmClient, modelContextLimit, visionEnabled, reasoningEffort, emit)
+	result, err := h.Engine.RunLoop(ctx, thread, sysPrompt, turnMeta, message, images, toolList, llmClient, modelContextLimit, visionEnabled, reasoningEffort, emit)
+	if err != nil {
+		h.Notify(SessionEvent{Type: "error", SessionID: threadID, Data: map[string]any{
+			"message": "Agent loop error: " + err.Error(),
+		}})
+	}
+	_ = result
 }
 
 func (h *Handler) buildTurnMeta(thread *db.Thread) string {

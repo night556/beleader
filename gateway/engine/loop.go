@@ -74,7 +74,9 @@ func (e *Engine) RunLoop(
 	}
 
 	// Emit turn.started
-	emit("turn.started", turnID, "", map[string]any{})
+	emit("turn.started", turnID, "", map[string]any{
+		"turn": map[string]any{"id": turnID, "status": "in_progress"},
+	})
 
 	for {
 		select {
@@ -110,6 +112,9 @@ func (e *Engine) RunLoop(
 				}
 				_, compErr := e.compress(ctx, thread, llmClient)
 				if compErr == nil {
+					emit("context.compressed", turnID, "", map[string]any{
+						"summary": "Context compressed to save space",
+					})
 					msgs, _ = BuildMessages(e.DB, thread, sysPrompt, turnMeta, toolList, visionEnabled)
 				}
 			}

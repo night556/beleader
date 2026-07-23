@@ -40,6 +40,7 @@ export type SSEEventType =
   | 'item.completed'
   | 'item.failed'
   | 'error'
+  | 'context.compressed'
   | 'worker.dispatched'
   | 'worker.completed';
 

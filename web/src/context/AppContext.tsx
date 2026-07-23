@@ -374,16 +374,22 @@ export function processSSEEvent(
       break;
     }
 
-    case 'error':
+    case 'error': {
       dispatch({ type: 'SET_STATE', state: 'error' });
       dispatch({
         type: 'PUSH_TIMELINE_ITEM', item: {
           id: '', type: 'error', label: 'Error',
-          content: (data as any).message || 'An error occurred',
+          content: data.payload?.message || 'An error occurred',
           status: 'fail', time: Date.now(),
         },
       });
       break;
+    }
+
+    case 'context.compressed': {
+      // Could show a notice, but for now just log it
+      break;
+    }
   }
   return false;
 }
