@@ -573,8 +573,9 @@ a { color: var(--accent); }
 }
 
 .turn-bubble {
-  width: 100%;
-  max-width: 100%;
+  width: fit-content;
+  max-width: 85%;
+  min-width: 120px;
 }
 
 .msg-tool .msg-bubble {
