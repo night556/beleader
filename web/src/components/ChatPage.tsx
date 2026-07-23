@@ -97,13 +97,13 @@ export function ChatPage() {
                 const data = JSON.parse(dataBuf);
                 // Worker events: create/update worker cards.
                 if (eventType === 'worker.dispatched') {
-                  const wid = data.payload?.thread_id;
+                  const wid = data.thread_id;
                   if (wid) {
                     dispatch({ type: 'UPDATE_TIMELINE_ITEM_BY_WORKER', workerThreadId: wid, updates: { workerThreadId: wid } });
                   }
                 } else if (eventType === 'worker.completed') {
-                  const wid = data.payload?.thread_id;
-                  const st = data.payload?.status === 'stopped' ? 'stopped' : 'completed';
+                  const wid = data.thread_id;
+                  const st = data.status === 'stopped' ? 'stopped' : 'completed';
                   if (wid) {
                     dispatch({ type: 'UPDATE_TIMELINE_ITEM_BY_WORKER', workerThreadId: wid, updates: { workerStatus: st } });
                   }

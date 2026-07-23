@@ -66,19 +66,16 @@ export interface SSETurn {
 }
 
 export interface SSEPayload {
-  type: string;
-  payload: {
-    thread_id: string;
-    turn_id: string;
-    item_id: string;
-    item?: SSEItem;
-    turn?: SSETurn;
-    delta?: string;
-    kind?: string;
-    message?: string;
-    status?: string;
-    usage?: string;
-  };
+  thread_id: string;
+  turn_id: string;
+  item_id: string;
+  item?: SSEItem;
+  turn?: SSETurn;
+  delta?: string;
+  kind?: string;
+  message?: string;
+  status?: string;
+  usage?: string;
 }
 
 // ── Thread ──

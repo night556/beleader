@@ -200,11 +200,11 @@ export function processSSEEvent(
   thinkingAccRef: React.MutableRefObject<Record<string, string>>,
   turnIdRef: React.MutableRefObject<string>,
 ): boolean {
-  const turnId = data.payload?.turn_id || '';
+  const turnId = data.turn_id || '';
 
   // turn.started always processes to track the new turn ID.
   if (eventType === 'turn.started') {
-    const turn = data.payload?.turn;
+    const turn = data.turn;
     turnIdRef.current = turn?.id || turnId;
     dispatch({ type: 'PRUNE_TIMELINE' });
     dispatch({ type: 'SET_STATE', state: 'thinking' });
@@ -217,14 +217,11 @@ export function processSSEEvent(
   switch (eventType) {
     case 'turn.completed': {
       dispatch({ type: 'SET_STATE', state: 'idle' });
-      // Extract usage from payload
-      const usageStr = data.payload?.usage as string | undefined;
+      const usageStr = data.usage as string | undefined;
       if (usageStr) {
         try {
           const u = JSON.parse(usageStr) as TokenUsage;
           if (u.total) dispatch({ type: 'ADD_TOKENS', n: u.total });
-          // Estimate context percentage (rough)
-          // Can't know exact context limit here, use 128000 as default
           const pct = Math.round((u.prompt / 128000) * 100);
           if (pct > 0) dispatch({ type: 'SET_CONTEXT_PCT', pct: Math.min(pct, 100) });
         } catch {}
@@ -233,7 +230,7 @@ export function processSSEEvent(
     }
 
     case 'item.started': {
-      const item = data.payload?.item;
+      const item = data.item;
       if (!item) break;
 
       switch (item.kind) {
@@ -303,9 +300,9 @@ export function processSSEEvent(
 
     case 'item.delta': {
       dispatch({ type: 'SET_STATE', state: 'responding' });
-      const kind = data.payload?.kind || '';
-      const delta = data.payload?.delta || '';
-      const itemId = data.payload?.item_id;
+      const kind = data.kind || '';
+      const delta = data.delta || '';
+      const itemId = data.item_id;
       if (!itemId) break;
 
       if (kind === 'thinking') {
@@ -322,7 +319,7 @@ export function processSSEEvent(
 
     case 'item.completed': {
       dispatch({ type: 'SET_STATE', state: 'idle' });
-      const item = data.payload?.item;
+      const item = data.item;
       if (!item) break;
 
       if (item.kind === 'tool_call') {
@@ -362,15 +359,13 @@ export function processSSEEvent(
 
     case 'item.failed': {
       dispatch({ type: 'SET_STATE', state: 'error' });
-      const item = data.payload?.item;
-      const detail = item?.detail || data.payload?.message || 'An error occurred';
+      const item = data.item;
+      const detail = item?.detail || data.message || 'An error occurred';
       if (item?.id) {
-        // Update the existing item (e.g. streaming agent message) to show the error
         dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: {
           type: 'error', content: detail, status: 'fail', label: 'Error',
         }});
       } else {
-        // No matching item — push a new error card
         dispatch({
           type: 'PUSH_TIMELINE_ITEM', item: {
             id: '', type: 'error', label: 'Error',
@@ -387,7 +382,7 @@ export function processSSEEvent(
       dispatch({
         type: 'PUSH_TIMELINE_ITEM', item: {
           id: '', type: 'error', label: 'Error',
-          content: data.payload?.message || 'An error occurred',
+          content: data.message || 'An error occurred',
           status: 'fail', time: Date.now(),
         },
       });
@@ -395,7 +390,6 @@ export function processSSEEvent(
     }
 
     case 'context.compressed': {
-      // Could show a notice, but for now just log it
       break;
     }
   }
