@@ -367,6 +367,23 @@ func (db *DB) GetMessages(threadID string, afterID int64) ([]Message, error) {
 	return msgs, err
 }
 
+// GetRecentMessagesByCount returns the last N messages for a thread.
+func (db *DB) GetRecentMessagesByCount(threadID string, limit int) ([]Message, error) {
+	var msgs []Message
+	err := db.GORM.Where("thread_id = ?", threadID).
+		Order("id DESC").
+		Limit(limit).
+		Find(&msgs).Error
+	if err != nil {
+		return nil, err
+	}
+	// Reverse to chronological order
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	return msgs, nil
+}
+
 func (db *DB) GetMessagesByIDs(threadID string, ids []int64) ([]Message, error) {
 	var msgs []Message
 	err := db.GORM.Where("thread_id = ? AND id IN ?", threadID, ids).

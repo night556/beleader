@@ -653,12 +653,34 @@ func (h *Handler) handleGetMessages(c *gin.Context) {
 	if v := c.Query("after_id"); v != "" {
 		fmt.Sscanf(v, "%d", &afterID)
 	}
-	msgs, err := h.DB.GetMessages(threadID, afterID)
+	limit := 100
+	if v := c.Query("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+
+	var msgs []db.Message
+	var err error
+	if afterID > 0 {
+		msgs, err = h.DB.GetMessages(threadID, afterID)
+	} else {
+		msgs, err = h.DB.GetRecentMessagesByCount(threadID, limit)
+	}
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, gin.H{"messages": msgs})
+	if msgs == nil {
+		msgs = []db.Message{}
+	}
+	// Return the oldest message ID so frontend can request older messages
+	oldestID := int64(0)
+	if len(msgs) > 0 {
+		oldestID = msgs[0].ID
+	}
+	c.JSON(200, gin.H{"messages": msgs, "oldest_id": oldestID, "has_more": len(msgs) == limit})
 }
 
 // ── Pause / Resume / Intervene ──

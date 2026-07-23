@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import { marked } from 'marked';
 import type { AppState, TimelineItem, TokenUsage } from '../types';
 import { useAppState } from '../context/AppContext';
@@ -183,14 +183,16 @@ function formatUsage(u: TokenUsage): string {
   return parts.join(' · ');
 }
 
-function MessageCard({ item }: { item: TimelineItem }) {
+const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) {
   const isTool = item.type === 'tool_call';
   const isWorker = item.type === 'worker';
   const isError = item.type === 'error';
 
-  const content = (item.type === 'agent' || item.type === 'user')
-    ? renderMarkdown(item.content)
-    : item.content;
+  const content = useMemo(() => {
+    return (item.type === 'agent' || item.type === 'user')
+      ? renderMarkdown(item.content)
+      : item.content;
+  }, [item.type, item.content]);
 
   const hasThinking = item.type === 'agent' && item.thinking;
   const usageText = item.type === 'agent' && item.usage ? formatUsage(item.usage) : '';
@@ -242,7 +244,7 @@ function MessageCard({ item }: { item: TimelineItem }) {
       </div>
     </div>
   );
-}
+});
 
 function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
   const [collapsed, setCollapsed] = useState(true);
