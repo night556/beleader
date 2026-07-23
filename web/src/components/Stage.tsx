@@ -242,7 +242,7 @@ function WorkersInline({ items }: { items: TimelineItem[] }) {
                 {isDone && <span className="tools-inline-item-badge done">done</span>}
                 {isStopped && <span className="tools-inline-item-badge error">stopped</span>}
                 {wi.workerThreadId && (
-                  <button className="worker-view-btn" onClick={() => dispatch({ type: 'VIEW_WORKER', threadId: wi.workerThreadId, parentId: state.activeThreadId || '' })}>
+                  <button className="worker-view-btn" onClick={() => dispatch({ type: 'VIEW_WORKER', threadId: wi.workerThreadId!, parentId: state.activeThreadId || '' })}>
                     View thread →
                   </button>
                 )}
