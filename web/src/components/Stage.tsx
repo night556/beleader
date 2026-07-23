@@ -75,7 +75,12 @@ export function Stage({ state, onLoadMore }: Props) {
         <div className="idle-state">
           <div className="idle-glow">✦</div>
           <div className="idle-text">Start a conversation</div>
-          {!hasModels && (
+          {hasModels ? (
+            <div className="idle-hints">
+              <div className="idle-hint">💡 Ask me to write code, analyze files, or search the web</div>
+              <div className="idle-hint">💡 Use spawn_worker for parallel tasks</div>
+            </div>
+          ) : (
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No models configured</div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Add a model in the Model tab to get started.</div>

@@ -14,6 +14,8 @@ export function InputArea({ onSendMessage, onStop }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isRunning = state.state === 'thinking' || state.state === 'responding' || state.state === 'tool_calls';
+
   const sendMsg = useCallback(() => {
     const text = textareaRef.current?.value.trim() || '';
     const imgs = state.pendingImages.slice();
@@ -91,10 +93,6 @@ export function InputArea({ onSendMessage, onStop }: Props) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const stopSession = () => {
-    onStop();
-  };
-
   return (
     <footer className="input-area">
       {state.pendingImages.length > 0 && (
@@ -127,7 +125,9 @@ export function InputArea({ onSendMessage, onStop }: Props) {
       </div>
 
       <div id="input-capsule">
-        <button className="capsule-btn stop-btn" onClick={stopSession} title={t('input.stop_title')}>■</button>
+        {isRunning && (
+          <button className="capsule-btn stop-btn" onClick={onStop} title={t('input.stop_title')}>■</button>
+        )}
         <textarea
           id="msg-input"
           ref={textareaRef}
