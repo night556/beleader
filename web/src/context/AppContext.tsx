@@ -319,7 +319,7 @@ export function processSSEEvent(
         const toolCallId = meta.tool_use_id;
         // Worker dispatch: extract thread ID from result.
         if (toolName === 'spawn_worker') {
-          const m = output.match(/Worker dispatched: (\S+)/);
+          const m = output.match(/thread (\S+)\)/);
           const workerThreadId = m ? m[1] : '';
           dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: item.id, updates: { content: output, status: 'done', workerThreadId } });
         } else {

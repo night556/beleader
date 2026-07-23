@@ -10,9 +10,10 @@ export function AgentPage() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
-  const [form, setForm] = useState({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '', mcp_servers: '[]' });
+  const [form, setForm] = useState({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '', mcp_servers: '[]', worker_agents: '[]' });
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [selectedMCPServers, setSelectedMCPServers] = useState<string[]>([]);
+  const [selectedWorkers, setSelectedWorkers] = useState<string[]>([]);
   const [toolSearch, setToolSearch] = useState('');
   const [mcpServers, setMCPServers] = useState<MCPServer[]>([]);
 
@@ -22,15 +23,16 @@ export function AgentPage() {
 
   const openNew = () => {
     setEditId(null);
-    setForm({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '', mcp_servers: '[]' });
+    setForm({ name: '', desc: '', system_prompt: '', tools: '[]', default_model_id: '', mcp_servers: '[]', worker_agents: '[]' });
     setSelectedTools([]);
     setSelectedMCPServers([]);
+    setSelectedWorkers([]);
     setShowForm(true);
   };
 
   const openEdit = (a: Agent) => {
     setEditId(a.id);
-    setForm({ name: a.name, desc: a.desc, system_prompt: a.system_prompt, tools: a.tools, default_model_id: a.default_model_id || '', mcp_servers: a.mcp_servers || '[]' });
+    setForm({ name: a.name, desc: a.desc, system_prompt: a.system_prompt, tools: a.tools, default_model_id: a.default_model_id || '', mcp_servers: a.mcp_servers || '[]', worker_agents: a.worker_agents || '[]' });
     try {
       setSelectedTools(JSON.parse(a.tools || '[]'));
     } catch {
@@ -41,11 +43,16 @@ export function AgentPage() {
     } catch {
       setSelectedMCPServers([]);
     }
+    try {
+      setSelectedWorkers(JSON.parse(a.worker_agents || '[]'));
+    } catch {
+      setSelectedWorkers([]);
+    }
     setShowForm(true);
   };
 
   const save = async () => {
-    const body = { ...form, tools: JSON.stringify(selectedTools), mcp_servers: JSON.stringify(selectedMCPServers) };
+    const body = { ...form, tools: JSON.stringify(selectedTools), mcp_servers: JSON.stringify(selectedMCPServers), worker_agents: JSON.stringify(selectedWorkers) };
     if (editId) {
       const updated = await client.updateAgent(editId, body);
       dispatch({ type: 'SET_AGENTS', agents: agents.map(a => a.id === editId ? updated : a) });
@@ -199,6 +206,30 @@ export function AgentPage() {
                       ))}
                     </div>
                   )}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Worker Agents</label>
+                  <div className="tools-chips">
+                    {selectedWorkers.map(wn => (
+                      <span key={wn} className="tool-chip">
+                        {wn}
+                        <button className="tool-chip-remove" onClick={() => setSelectedWorkers(prev => prev.filter(n => n !== wn))}>×</button>
+                      </span>
+                    ))}
+                    {selectedWorkers.length === 0 && <span className="form-hint">No workers selected</span>}
+                  </div>
+                  <div className="tools-picker">
+                    {agents.filter(a => a.id !== editId).map(a => (
+                      <div
+                        key={a.id}
+                        className={`tool-pick-item ${selectedWorkers.includes(a.name) ? 'selected' : ''}`}
+                        onClick={() => setSelectedWorkers(prev => prev.includes(a.name) ? prev.filter(n => n !== a.name) : [...prev, a.name])}
+                      >
+                        <span className="tool-pick-name">{a.name}</span>
+                        <span className="tool-pick-desc">{a.desc}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('agents.tools')}</label>
