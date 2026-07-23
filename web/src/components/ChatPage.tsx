@@ -24,6 +24,7 @@ export function ChatPage() {
   const contentAccRef = useRef<Record<string, string>>({});
   const thinkingAccRef = useRef<Record<string, string>>({});
   const turnIdRef = useRef<string>('');
+  const lastEventIdRef = useRef<number>(0);
 
   const [loadingThread, setLoadingThread] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -50,11 +51,13 @@ export function ChatPage() {
       sendingNewRef.current = false;
       dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
       turnIdRef.current = '';
+      lastEventIdRef.current = 0;
       return;
     }
     contentAccRef.current = {};
     thinkingAccRef.current = {};
     turnIdRef.current = '';
+    lastEventIdRef.current = 0;
 
     const threadId = activeThreadId;
     if (!threadId) {
@@ -76,8 +79,10 @@ export function ChatPage() {
   }, [activeThreadId]);
 
   // Gateway SSE with auto-reconnect.
-  // On disconnect the backend broker buffers events; on reconnect they are
-  // replayed from the buffer, so no events are lost.
+  // On first connect broker buffer delivers initial events.
+  // On reconnect, since_id=lastEventId tells the server to replay
+  // missed events from the DB (ordered by auto-increment seq), then
+  // clear the broker buffer to avoid duplicates.
   const sseAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -93,7 +98,11 @@ export function ChatPage() {
         sseAbortRef.current = ctrl;
 
         try {
-          const res = await fetch(`/api/sse?thread_id=${encodeURIComponent(threadId)}`, { signal: ctrl.signal });
+          let url = `/api/sse?thread_id=${encodeURIComponent(threadId)}`;
+          if (lastEventIdRef.current > 0) {
+            url += `&since_id=${lastEventIdRef.current}`;
+          }
+          const res = await fetch(url, { signal: ctrl.signal });
           reconnectAttempt = 0;
 
           const reader = res.body!.getReader();
@@ -115,6 +124,8 @@ export function ChatPage() {
                 if (dataBuf) {
                   try {
                     const data = JSON.parse(dataBuf);
+                    // Track last event ID for reconnect replay
+                    if (data.event_id) lastEventIdRef.current = data.event_id;
                     if (eventType === 'worker.dispatched') {
                       const wid = data.thread_id;
                       if (wid) {

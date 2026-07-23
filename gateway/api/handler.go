@@ -322,7 +322,7 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 	emit := func(eventType, turnID, itemID string, payload map[string]any) {
 		// Store event in DB
 		payloadJSON, _ := json.Marshal(payload)
-		h.DB.InsertEvent(&db.Event{
+		eventID, _ := h.DB.InsertEvent(&db.Event{
 			ThreadID: threadID,
 			TurnID:   turnID,
 			ItemID:   itemID,
@@ -336,6 +336,7 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 		payload["thread_id"] = threadID
 		payload["turn_id"] = turnID
 		payload["item_id"] = itemID
+		payload["event_id"] = eventID
 		ev := SessionEvent{Type: eventType, SessionID: threadID, Data: payload}
 		h.Notify(ev)
 	}
@@ -622,6 +623,23 @@ func (h *Handler) handleSSE(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "thread_id query param required"})
 		return
 	}
+
+	// Replay missed events from DB if client sent since_id
+	sinceID := int64(0)
+	if v := c.Query("since_id"); v != "" {
+		fmt.Sscanf(v, "%d", &sinceID)
+	}
+	if sinceID > 0 {
+		events, _ := h.DB.GetEvents(threadID, sinceID)
+		for _, e := range events {
+			msg := fmt.Sprintf("event: %s\ndata: %s\n\n", e.Event, e.Payload)
+			fmt.Fprint(c.Writer, msg)
+		}
+		c.Writer.Flush()
+		// DB replay covered these events; discard broker buffer to avoid duplicates
+		h.SSE.ClearBuffer(threadID)
+	}
+
 	ch := h.SSE.Subscribe(threadID)
 	defer h.SSE.Unsubscribe(threadID, ch)
 

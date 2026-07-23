@@ -69,6 +69,7 @@ export interface SSEPayload {
   thread_id: string;
   turn_id: string;
   item_id: string;
+  event_id?: number;
   item?: SSEItem;
   turn?: SSETurn;
   delta?: string;

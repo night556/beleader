@@ -98,3 +98,11 @@ func (b *SSEBroker) Broadcast(threadID string, event SSEEvent) {
 func (b *SSEBroker) OnSessionEvent(event SessionEvent) {
 	b.Broadcast(event.SessionID, SSEEvent{Type: event.Type, Payload: event.Data})
 }
+
+// ClearBuffer discards buffered events for a thread. Used after DB replay
+// to avoid duplicates when the client reconnects with a since_id.
+func (b *SSEBroker) ClearBuffer(threadID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.buffers, threadID)
+}
