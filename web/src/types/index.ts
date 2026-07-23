@@ -76,6 +76,7 @@ export interface SSEPayload {
     kind?: string;
     message?: string;
     status?: string;
+    usage?: string;
   };
 }
 
