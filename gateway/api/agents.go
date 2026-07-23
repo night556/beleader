@@ -50,7 +50,9 @@ func (h *Handler) handleCreateAgent(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(201, gin.H{"status": "ok"})
+	// Fetch and return the created agent
+	agent, _ := h.DB.GetAgentByName(req.Name)
+	c.JSON(201, agent)
 }
 
 func (h *Handler) handleUpdateAgent(c *gin.Context) {

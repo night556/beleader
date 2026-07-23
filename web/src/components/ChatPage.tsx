@@ -32,15 +32,17 @@ export function ChatPage() {
 
   const activeModel = models.find(m => m.id === activeModelId);
 
-  const [effort, setEffort] = useState<string>(() => activeModel?.reasoning_effort || 'off');
+  const [effort, setEffort] = useState<string>('high');
   const effortRef = useRef(effort);
   effortRef.current = effort;
 
+  // Sync effort from model's default whenever model changes or models load
   useEffect(() => {
-    const v = activeModel?.reasoning_effort || 'off';
-    setEffort(v);
-    effortRef.current = v;
-  }, [activeModelId]);
+    if (activeModel?.reasoning_effort) {
+      setEffort(activeModel.reasoning_effort);
+      effortRef.current = activeModel.reasoning_effort;
+    }
+  }, [activeModelId, activeModel?.reasoning_effort]);
 
   // Thread switch: load history via messages API.
   useEffect(() => {
