@@ -274,15 +274,16 @@ func (db *DB) ListActiveToolAgentsByPool(poolID int64) ([]ToolAgent, error) {
 	return agents, err
 }
 
-// GetMCPVersion returns the latest updated_at of MCP servers in a pool,
-// used as a version stamp to detect config changes.
-func (db *DB) GetMCPVersion(poolID int64) string {
-	var maxTime time.Time
-	db.GORM.Model(&MCPServer{}).
-		Where("pool_id = ?", poolID).
-		Select("COALESCE(MAX(updated_at), '1970-01-01')").
-		Scan(&maxTime)
-	return maxTime.Format("2006-01-02 15:04:05")
+// GetMCPVersion returns per-server version stamps: {name: updated_at}.
+// Tool-agent compares to detect which servers changed and need reconnect.
+func (db *DB) GetMCPVersion(poolID int64) map[string]string {
+	var servers []MCPServer
+	db.GORM.Where("pool_id = ?", poolID).Find(&servers)
+	versions := make(map[string]string)
+	for _, s := range servers {
+		versions[s.Name] = s.UpdatedAt.Format("2006-01-02T15:04:05")
+	}
+	return versions
 }
 
 func (db *DB) GetToolAgent(id int64) (*ToolAgent, error) {
