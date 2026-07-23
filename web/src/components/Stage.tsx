@@ -334,7 +334,7 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
           {item.status === 'streaming' && <span className="msg-badge streaming">...</span>}
           {item.status === 'done' && item.type === 'agent' && <CopyButton text={item.content} />}
         </div>
-        {hasThinking && <ThinkingBlock thinking={item.thinking!} streaming={item.status === 'streaming'} />}
+        {item.type === 'agent' && item.thinking && <ThinkingBlock thinking={item.thinking} streaming={item.status === 'streaming'} />}
         <div
           className="msg-content"
           dangerouslySetInnerHTML={
@@ -347,7 +347,7 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
             <pre>{content}</pre>
           ) : null}
         </div>
-        {usageText && <div className="msg-usage">{usageText}</div>}
+        {item.type === 'agent' && item.usage && <div className="msg-usage">{formatUsage(item.usage)}</div>}
       </div>
     </div>
   );
