@@ -210,7 +210,6 @@ func deleteFileHandler(args, workspace, workspaceRoot string, restrict bool, thr
 func searchContentHandler(args, workspace, workspaceRoot string, restrict bool, threadID string) *ToolResult {
 	var p struct {
 		Pattern      string `json:"pattern"`
-		FilePattern  string `json:"file_pattern"`
 		Path         string `json:"path"`
 		ContextLines int    `json:"context_lines"`
 		Offset       int    `json:"offset"`
@@ -222,22 +221,19 @@ func searchContentHandler(args, workspace, workspaceRoot string, restrict bool, 
 	}
 	searchPath := p.Path
 	if searchPath == "" {
-		searchPath = workspace
-	} else {
-		var err error
-		searchPath, err = resolvePath(searchPath, workspace, restrict)
-		if err != nil {
-			return &ToolResult{Error: err.Error()}
-		}
+		return &ToolResult{Error: "path is required (must be a single file)"}
 	}
-	if fi, err := os.Stat(searchPath); err != nil {
+	var err error
+	searchPath, err = resolvePath(searchPath, workspace, restrict)
+	if err != nil {
+		return &ToolResult{Error: err.Error()}
+	}
+	fi, err := os.Stat(searchPath)
+	if err != nil {
 		return &ToolResult{Error: fmt.Sprintf("path not found: %s", searchPath)}
-	} else if fi.IsDir() {
-		return &ToolResult{Error: fmt.Sprintf("path must be a file, not a directory: %s", searchPath)}
 	}
-	pattern := p.FilePattern
-	if pattern == "" {
-		pattern = "*"
+	if fi.IsDir() {
+		return &ToolResult{Error: fmt.Sprintf("path must be a file, not a directory: %s", searchPath)}
 	}
 	if p.ContextLines > 10 {
 		p.ContextLines = 10
@@ -250,7 +246,43 @@ func searchContentHandler(args, workspace, workspaceRoot string, restrict bool, 
 	if p.Offset < 0 {
 		p.Offset = 0
 	}
-	allResults, _ := searchInFiles(searchPath, pattern, p.Pattern, p.ContextLines)
+
+	data, err := os.ReadFile(searchPath)
+	if err != nil {
+		return &ToolResult{Error: err.Error()}
+	}
+	if isBinary(data) {
+		return &ToolResult{Error: "binary file — cannot search as text"}
+	}
+
+	query := strings.ToLower(p.Pattern)
+	lines := strings.Split(string(data), "\n")
+	var allResults []string
+	for i, line := range lines {
+		if strings.Contains(strings.ToLower(line), query) {
+			if p.ContextLines > 0 {
+				start := i - p.ContextLines
+				if start < 0 {
+					start = 0
+				}
+				end := i + p.ContextLines + 1
+				if end > len(lines) {
+					end = len(lines)
+				}
+				for j := start; j < end; j++ {
+					marker := "  "
+					if j == i {
+						marker = "> "
+					}
+					allResults = append(allResults, fmt.Sprintf("%s:%d:%s%s", searchPath, j+1, marker, lines[j]))
+				}
+				allResults = append(allResults, "---")
+			} else {
+				allResults = append(allResults, fmt.Sprintf("%s:%d: %s", searchPath, i+1, strings.TrimSpace(line)))
+			}
+		}
+	}
+
 	total := len(allResults)
 	if total == 0 {
 		return &ToolResult{Content: "No matches found."}
@@ -333,63 +365,6 @@ func searchFilesHandler(args, workspace, workspaceRoot string, restrict bool, th
 
 // ── Helpers ──
 
-func searchInFiles(root, pattern, query string, ctxLines int) ([]string, error) {
-	const maxResults = 500
-	var results []string
-	query = strings.ToLower(query)
-
-	if pattern == "" {
-		pattern = "*"
-	}
-
-	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		if len(results) >= maxResults {
-			return nil
-		}
-		match, _ := filepath.Match(pattern, filepath.Base(path))
-		if !match {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		lines := strings.Split(string(data), "\n")
-		for i, line := range lines {
-			if len(results) >= maxResults {
-				break
-			}
-			if strings.Contains(strings.ToLower(line), query) {
-				if ctxLines > 0 {
-					start := i - ctxLines
-					if start < 0 {
-						start = 0
-					}
-					end := i + ctxLines + 1
-					if end > len(lines) {
-						end = len(lines)
-					}
-					for j := start; j < end; j++ {
-						marker := "  "
-						if j == i {
-							marker = "> "
-						}
-						results = append(results, fmt.Sprintf("%s:%d:%s%s", path, j+1, marker, lines[j]))
-					}
-					results = append(results, "---")
-				} else {
-					results = append(results, fmt.Sprintf("%s:%d: %s", path, i+1, strings.TrimSpace(line)))
-				}
-			}
-		}
-		return nil
-	})
-	return results, nil
-}
-
 func isBinary(data []byte) bool {
 	n := len(data)
 	if n > 8192 {
@@ -450,15 +425,14 @@ func init() {
 		}, []string{"paths"}, deleteFileHandler)
 
 	register("search_content",
-		"Search for a pattern in file contents. path must be a single file, not a directory.",
+		"Search for a text pattern in a single file. Returns matching lines with optional context. Use search_files to find files by name first.",
 		map[string]any{
-			"pattern":       map[string]any{"type": "string", "description": "Text pattern to search for."},
-			"file_pattern":  map[string]any{"type": "string", "description": "Glob pattern for file matching. Defaults to all files."},
-			"path":          map[string]any{"type": "string", "description": "Path to a file to search."},
+			"pattern":       map[string]any{"type": "string", "description": "Text pattern to search for (case-insensitive)."},
+			"path":          map[string]any{"type": "string", "description": "Path to the file to search."},
 			"context_lines": map[string]any{"type": "integer", "description": "Lines of context around matches (max 10)."},
 			"offset":        map[string]any{"type": "integer", "description": "Result offset for pagination."},
 			"limit":         map[string]any{"type": "integer", "description": "Max results (max 200)."},
-		}, []string{"pattern"}, searchContentHandler)
+		}, []string{"pattern", "path"}, searchContentHandler)
 
 	register("search_files",
 		"Find files by glob pattern recursively.",
