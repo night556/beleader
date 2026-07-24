@@ -149,10 +149,17 @@ func main() {
 		checkPath := strings.TrimPrefix(r.URL.Path, "/")
 		f, err := webFS.Open(checkPath)
 		if err != nil {
-			r.URL.Path = "/"
-		} else {
-			f.Close()
+			// File not found — serve index.html for SPA routing
+			indexData, indexErr := fs.ReadFile(webFS, "index.html")
+			if indexErr != nil {
+				http.Error(w, "Not found", 404)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(indexData)
+			return
 		}
+		f.Close()
 		webHandler.ServeHTTP(w, r)
 	})
 
