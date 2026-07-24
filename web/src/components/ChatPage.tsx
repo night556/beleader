@@ -73,9 +73,13 @@ export function ChatPage() {
     dispatch({ type: 'SET_CONTEXT_PCT', pct: 0 });
     setLoadingThread(true);
 
-    client.getMessages(threadId).then(({ messages, has_more }) => {
+    client.getMessages(threadId).then(({ messages, has_more, last_event_id }) => {
       if (threadId !== activeThreadRef.current) return;
       dispatch({ type: 'LOAD_TIMELINE', items: messagesToTimeline(messages), hasMore: has_more });
+      // Set since_id to the last turn.completed event — SSE replays only
+      // events after that (the active turn's item.started + deltas).
+      // This avoids race condition vs GetEventsSinceLastCompleted.
+      lastEventIdRef.current = last_event_id || 0;
       setLoadedThreadId(threadId);
     }).catch(err => {
       console.error('load messages:', err);

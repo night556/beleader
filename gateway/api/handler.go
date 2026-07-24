@@ -793,7 +793,7 @@ func (h *Handler) handleGetMessages(c *gin.Context) {
 		"messages":      msgs,
 		"oldest_id":     oldestID,
 		"has_more":      len(msgs) == limit,
-		"last_event_id": h.DB.GetLastEventID(threadID),
+		"last_event_id": h.DB.GetLastCompletedEventID(threadID),
 	})
 }
 
