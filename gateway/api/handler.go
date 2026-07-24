@@ -318,13 +318,7 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 
 	// Emit callback: stores event to DB + pushes SSE
 	emit := func(eventType, turnID, itemID string, payload map[string]any) {
-		// Add metadata before storing so DB replay has all fields
-		if payload == nil {
-			payload = map[string]any{}
-		}
-		payload["thread_id"] = threadID
-		payload["turn_id"] = turnID
-		payload["item_id"] = itemID
+		// Store event in DB (payload only, metadata in Event columns)
 		payloadJSON, _ := json.Marshal(payload)
 		eventID, _ := h.DB.InsertEvent(&db.Event{
 			ThreadID: threadID,
@@ -333,6 +327,13 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 			Event:    eventType,
 			Payload:  string(payloadJSON),
 		})
+		// Push to SSE with metadata added
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		payload["thread_id"] = threadID
+		payload["turn_id"] = turnID
+		payload["item_id"] = itemID
 		payload["event_id"] = eventID
 		ev := SessionEvent{Type: eventType, SessionID: threadID, Data: payload}
 		h.Notify(ev)
@@ -665,7 +666,19 @@ func (h *Handler) handleSSE(c *gin.Context) {
 		events, _ = h.DB.GetEventsSinceLastCompleted(threadID)
 	}
 	for _, e := range events {
-		msg := fmt.Sprintf("event: %s\ndata: %s\n\n", e.Event, e.Payload)
+		// Merge Event columns into payload JSON so replay has same
+		// structure as live SSE (thread_id, turn_id, item_id, event_id)
+		var data map[string]any
+		json.Unmarshal([]byte(e.Payload), &data)
+		if data == nil {
+			data = map[string]any{}
+		}
+		data["thread_id"] = e.ThreadID
+		data["turn_id"] = e.TurnID
+		data["item_id"] = e.ItemID
+		data["event_id"] = e.ID
+		mergedJSON, _ := json.Marshal(data)
+		msg := fmt.Sprintf("event: %s\ndata: %s\n\n", e.Event, string(mergedJSON))
 		fmt.Fprint(c.Writer, msg)
 	}
 	c.Writer.Flush()
