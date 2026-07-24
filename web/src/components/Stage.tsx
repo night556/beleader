@@ -373,6 +373,7 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
 function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
   const [collapsed, setCollapsed] = useState(true);
   const blockRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const lockedWidthRef = useRef(0);
 
   useEffect(() => {
@@ -382,6 +383,13 @@ function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: b
       setCollapsed(true);
     }
   }, [streaming]);
+
+  // Auto-scroll thinking body to bottom as new content streams in
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || !streaming) return;
+    body.scrollTop = body.scrollHeight;
+  }, [thinking, streaming]);
 
   // Lock bubble width: when thinking is expanded the bubble can be wide;
   // when it collapses we pin min-width so the bubble doesn't shrink.
@@ -417,7 +425,7 @@ function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: b
         <span>{streaming ? 'Thinking...' : 'Thought Process'}</span>
       </div>
       {!collapsed && (
-        <div className="thinking-body">
+        <div className="thinking-body" ref={bodyRef}>
           <pre>{thinking}</pre>
         </div>
       )}
