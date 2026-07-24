@@ -22,6 +22,7 @@ export interface TimelineItem {
   toolCallId?: string;
   toolName?: string;
   thinking?: string;
+  thinkingDone?: boolean;
   args?: string;
   usage?: TokenUsage;
   time: number;

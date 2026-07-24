@@ -181,7 +181,7 @@ const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }
             const html = renderMarkdown(item.content);
             return (
               <Fragment key={item.id}>
-                {item.thinking && <ThinkingBlock thinking={item.thinking} streaming={item.status === 'streaming'} />}
+                {item.thinking && <ThinkingBlock thinking={item.thinking} streaming={item.status === 'streaming'} thinkingDone={item.thinkingDone} />}
                 {item.content && <div className="msg-content" dangerouslySetInnerHTML={{ __html: html }} />}
               </Fragment>
             );
@@ -354,7 +354,7 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
           {item.status === 'streaming' && <span className="msg-badge streaming">...</span>}
           {item.status === 'done' && item.type === 'agent' && <CopyButton text={item.content} />}
         </div>
-        {item.type === 'agent' && item.thinking && <ThinkingBlock thinking={item.thinking} streaming={item.status === 'streaming'} />}
+        {item.type === 'agent' && item.thinking && <ThinkingBlock thinking={item.thinking} streaming={item.status === 'streaming'} thinkingDone={item.thinkingDone} />}
         <div
           className="msg-content"
           dangerouslySetInnerHTML={
@@ -373,18 +373,18 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
   );
 });
 
-function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
+function ThinkingBlock({ thinking, streaming, thinkingDone }: { thinking: string; streaming: boolean; thinkingDone?: boolean }) {
   const [collapsed, setCollapsed] = useState(true);
   const blockRef = useRef<HTMLDivElement>(null);
   const lockedWidthRef = useRef(0);
 
   useEffect(() => {
-    if (streaming) {
+    if (streaming && !thinkingDone) {
       setCollapsed(false);
     } else {
       setCollapsed(true);
     }
-  }, [streaming]);
+  }, [streaming, thinkingDone]);
 
   // Lock bubble width: when thinking is expanded the bubble can be wide;
   // when it collapses we pin min-width so the bubble doesn't shrink.
@@ -413,11 +413,13 @@ function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: b
     }
   }, [collapsed, thinking]);
 
+  const isActive = streaming && !thinkingDone;
+
   return (
-    <div ref={blockRef} className={`thinking-block ${streaming ? 'thinking-streaming' : ''}`}>
+    <div ref={blockRef} className={`thinking-block ${isActive ? 'thinking-streaming' : ''}`}>
       <div className="thinking-header" onClick={() => setCollapsed(v => !v)}>
         <span className="thinking-chevron">{collapsed ? '▶' : '▼'}</span>
-        <span>{streaming ? 'Thinking...' : 'Thought Process'}</span>
+        <span>{isActive ? 'Thinking...' : 'Thought Process'}</span>
       </div>
       {!collapsed && (
         <div className="thinking-body">

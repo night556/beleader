@@ -328,6 +328,10 @@ export function processSSEEvent(
         } else {
           dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { content: acc[itemId] } });
         }
+        // First non-thinking delta → thinking phase is done, collapse it
+        if (thinkingAccRef.current[itemId]) {
+          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { thinkingDone: true } });
+        }
       }
       break;
     }
