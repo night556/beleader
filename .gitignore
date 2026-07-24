@@ -10,3 +10,4 @@ bin/
 *.log
 desktop/src-tauri/binaries/*
 /data/*.ssh/
+dist/
