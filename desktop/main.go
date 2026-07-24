@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"beleader/gateway/api"
@@ -143,9 +144,10 @@ func main() {
 			proxy.ServeHTTP(w, r)
 			return
 		}
-		// SPA fallback: serve index.html for non-file paths
-		path := r.URL.Path
-		f, err := webFS.Open(path)
+		// SPA fallback: serve index.html for non-file paths.
+		// fs.FS paths must not have a leading slash.
+		checkPath := strings.TrimPrefix(r.URL.Path, "/")
+		f, err := webFS.Open(checkPath)
 		if err != nil {
 			r.URL.Path = "/"
 		} else {

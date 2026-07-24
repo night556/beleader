@@ -1,3 +1,4 @@
-webdist/
+webdist/*
+!webdist/.gitkeep
 *.exe
 beleader-*
