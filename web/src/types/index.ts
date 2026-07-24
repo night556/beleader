@@ -41,6 +41,7 @@ export type SSEEventType =
   | 'item.delta'
   | 'item.completed'
   | 'item.failed'
+  | 'thinking.completed'
   | 'error'
   | 'context.compressed'
   | 'worker.dispatched'

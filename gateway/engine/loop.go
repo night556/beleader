@@ -142,6 +142,8 @@ func (e *Engine) RunLoop(
 		}, func(reasoningDelta string) error {
 			emit("item.delta", turnID, agentItemID, map[string]any{"delta": reasoningDelta, "kind": "thinking"})
 			return nil
+		}, func() {
+			emit("thinking.completed", turnID, agentItemID, map[string]any{})
 		}, reasoningEffort)
 		if err != nil {
 			if ctx.Err() != nil {

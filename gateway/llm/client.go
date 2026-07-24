@@ -39,7 +39,7 @@ func (c *Client) Model() string {
 	return c.model
 }
 
-func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletionMessage, tools []openai.Tool, onChunk func(deltaContent string) error, onReasoningChunk func(deltaReasoning string) error, reasoningEffort string) (*openai.ChatCompletionResponse, error) {
+func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletionMessage, tools []openai.Tool, onChunk func(deltaContent string) error, onReasoningChunk func(deltaReasoning string) error, onThinkingDone func(), reasoningEffort string) (*openai.ChatCompletionResponse, error) {
 	var toolNames []string
 	for _, t := range tools {
 		if t.Function != nil {
@@ -131,6 +131,7 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 	var reasoningContent string
 	tcAcc := make(map[int]*openai.ToolCall)
 	var usage openai.Usage
+	var thinkingDone bool
 
 	scanner := bufio.NewScanner(httpResp.Body)
 	for scanner.Scan() {
@@ -158,6 +159,11 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 		delta := chunk.Choices[0].Delta
 
 		if delta.Content != "" {
+			// First content delta after reasoning → thinking phase is done
+			if !thinkingDone && reasoningContent != "" && onThinkingDone != nil {
+				thinkingDone = true
+				onThinkingDone()
+			}
 			fullContent += delta.Content
 			if onChunk != nil {
 				if err := onChunk(delta.Content); err != nil {
