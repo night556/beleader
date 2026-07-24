@@ -378,12 +378,30 @@ func (db *DB) InsertMessage(m *Message) (int64, error) {
 	return m.ID, nil
 }
 
-func (db *DB) GetMessages(threadID string, afterID int64) ([]Message, error) {
+func (db *DB) GetMessages(threadID string, afterID int64, limit int) ([]Message, error) {
 	var msgs []Message
 	err := db.GORM.Where("thread_id = ? AND id > ?", threadID, afterID).
 		Order("id ASC").
+		Limit(limit).
 		Find(&msgs).Error
 	return msgs, err
+}
+
+// GetMessagesBefore returns messages with id < beforeID, newest first, limited.
+func (db *DB) GetMessagesBefore(threadID string, beforeID int64, limit int) ([]Message, error) {
+	var msgs []Message
+	err := db.GORM.Where("thread_id = ? AND id < ?", threadID, beforeID).
+		Order("id DESC").
+		Limit(limit).
+		Find(&msgs).Error
+	if err != nil {
+		return nil, err
+	}
+	// Reverse to chronological order
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	return msgs, nil
 }
 
 // GetRecentMessagesByCount returns the last N messages for a thread.

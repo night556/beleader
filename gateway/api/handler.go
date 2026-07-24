@@ -774,6 +774,10 @@ func (h *Handler) handleGetMessages(c *gin.Context) {
 	if v := c.Query("after_id"); v != "" {
 		fmt.Sscanf(v, "%d", &afterID)
 	}
+	beforeID := int64(0)
+	if v := c.Query("before_id"); v != "" {
+		fmt.Sscanf(v, "%d", &beforeID)
+	}
 	limit := 100
 	if v := c.Query("limit"); v != "" {
 		fmt.Sscanf(v, "%d", &limit)
@@ -784,8 +788,10 @@ func (h *Handler) handleGetMessages(c *gin.Context) {
 
 	var msgs []db.Message
 	var err error
-	if afterID > 0 {
-		msgs, err = h.DB.GetMessages(threadID, afterID)
+	if beforeID > 0 {
+		msgs, err = h.DB.GetMessagesBefore(threadID, beforeID, limit)
+	} else if afterID > 0 {
+		msgs, err = h.DB.GetMessages(threadID, afterID, limit)
 	} else {
 		msgs, err = h.DB.GetRecentMessagesByCount(threadID, limit)
 	}

@@ -253,14 +253,13 @@ export function ChatPage() {
 
     dispatch({ type: 'SET_LOADING_MORE', loading: true });
 
-    client.getMessages(activeThreadId, 0, 100).then(({ messages, has_more }) => {
-      const newMsgs = messages.filter(msg => msg.id < oldestId);
-      if (newMsgs.length === 0) {
+    client.getMessages(activeThreadId, { beforeId: oldestId }).then(({ messages, has_more }) => {
+      if (messages.length === 0) {
         dispatch({ type: 'SET_HAS_MORE', hasMore: false });
         dispatch({ type: 'SET_LOADING_MORE', loading: false });
         return;
       }
-      const newItems = messagesToTimeline(newMsgs);
+      const newItems = messagesToTimeline(messages);
       dispatch({ type: 'PREPEND_TIMELINE_ITEMS', items: newItems });
       dispatch({ type: 'SET_HAS_MORE', hasMore: has_more });
       dispatch({ type: 'SET_LOADING_MORE', loading: false });

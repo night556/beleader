@@ -358,7 +358,7 @@ func (e *Engine) injectImageMessage(threadID string, images []string, label stri
 // that fall within the last PinTurnCount user turns.
 func computePinWindow(database *db.DB, threadID string) []int64 {
 	const pinTurnCount = 4
-	msgs, _ := database.GetMessages(threadID, 0)
+	msgs, _ := database.GetMessages(threadID, 0, 100000)
 	if len(msgs) == 0 {
 		return nil
 	}

@@ -22,7 +22,7 @@ func BuildMessages(database *db.DB, thread *db.Thread, sysPrompt, turnMeta strin
 		pinnedSet[id] = true
 	}
 
-	dbMsgs, err := database.GetMessages(thread.ID, 0)
+	dbMsgs, err := database.GetMessages(thread.ID, 0, 100000)
 	if err != nil {
 		return nil, err
 	}
