@@ -74,6 +74,11 @@ function reducer(state: AppState, action: Action): AppState {
     case 'PUSH_TIMELINE_ITEM': {
       const item = { ...action.item };
       item.time = item.time || Date.now();
+      // Dedup by id — replay may send item.started for an item that
+      // already exists in timeline (ref-based check is async/unreliable)
+      if (state.timeline.some(ti => ti.id === item.id)) {
+        return state;
+      }
       const timeline = [...state.timeline, item];
       return { ...state, timeline };
     }
@@ -248,8 +253,6 @@ export function processSSEEvent(
           break;
 
         case 'agent_message':
-          // Skip if already exists (reconnect replay)
-          if (timelineRef.current.some(ti => ti.id === item.id)) break;
           dispatch({ type: 'SET_STATE', state: 'thinking' });
           dispatch({
             type: 'PUSH_TIMELINE_ITEM', item: {
@@ -261,8 +264,6 @@ export function processSSEEvent(
           break;
 
         case 'tool_call': {
-          // Skip if already exists (reconnect replay)
-          if (timelineRef.current.some(ti => ti.id === item.id)) break;
           dispatch({ type: 'SET_STATE', state: 'tool_calls' });
           const meta = item.metadata || {};
           const rawArgs = meta.arguments || '';
