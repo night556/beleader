@@ -318,7 +318,13 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 
 	// Emit callback: stores event to DB + pushes SSE
 	emit := func(eventType, turnID, itemID string, payload map[string]any) {
-		// Store event in DB
+		// Add metadata before storing so DB replay has all fields
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		payload["thread_id"] = threadID
+		payload["turn_id"] = turnID
+		payload["item_id"] = itemID
 		payloadJSON, _ := json.Marshal(payload)
 		eventID, _ := h.DB.InsertEvent(&db.Event{
 			ThreadID: threadID,
@@ -327,13 +333,6 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 			Event:    eventType,
 			Payload:  string(payloadJSON),
 		})
-		// Push to SSE
-		if payload == nil {
-			payload = map[string]any{}
-		}
-		payload["thread_id"] = threadID
-		payload["turn_id"] = turnID
-		payload["item_id"] = itemID
 		payload["event_id"] = eventID
 		ev := SessionEvent{Type: eventType, SessionID: threadID, Data: payload}
 		h.Notify(ev)
