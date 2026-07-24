@@ -26,6 +26,7 @@ export function Stage({ state, onLoadMore }: Props) {
   const { timeline, liveItem, hasModels, hasMoreMessages, loadingMore } = state;
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
+  const userScrolledUpRef = useRef(false);
   const prevLenRef = useRef(timeline.length);
   const prevScrollHeightRef = useRef(0);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -35,6 +36,7 @@ export function Stage({ state, onLoadMore }: Props) {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     atBottomRef.current = true;
+    userScrolledUpRef.current = false;
     setShowScrollBtn(false);
   }, []);
 
@@ -42,8 +44,16 @@ export function Stage({ state, onLoadMore }: Props) {
     const el = scrollRef.current;
     if (!el) return;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    atBottomRef.current = dist < 50;
-    setShowScrollBtn(dist >= 50);
+    const atBottom = dist < 50;
+    atBottomRef.current = atBottom;
+    setShowScrollBtn(!atBottom);
+
+    // Track intentional scroll-up by the user (not caused by content growth)
+    if (!atBottom) {
+      userScrolledUpRef.current = true;
+    } else {
+      userScrolledUpRef.current = false;
+    }
 
     if (el.scrollTop < 50 && hasMoreMessages && !loadingMore && onLoadMore) {
       prevScrollHeightRef.current = el.scrollHeight;
@@ -64,7 +74,9 @@ export function Stage({ state, onLoadMore }: Props) {
       } else {
         scrollToBottom();
       }
-    } else if (atBottomRef.current) {
+    } else if (!userScrolledUpRef.current) {
+      // Content update (thinking delta, etc.) — auto-scroll unless user
+      // has intentionally scrolled up to read earlier content.
       el.scrollTop = el.scrollHeight;
     } else {
       // Timeline replaced (thread switch / replay) — force scroll to bottom
