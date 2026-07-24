@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -235,10 +237,6 @@ func searchContentHandler(args, workspace, workspaceRoot string, restrict bool, 
 	if fi.IsDir() {
 		return &ToolResult{Error: fmt.Sprintf("path must be a file, not a directory: %s", searchPath)}
 	}
-	const maxSize = 2 * 1024 * 1024
-	if fi.Size() > maxSize {
-		return &ToolResult{Error: fmt.Sprintf("file too large (%s), use read_file with offset/limit", formatFileSize(fi.Size()))}
-	}
 	if p.ContextLines > 10 {
 		p.ContextLines = 10
 	}
@@ -251,39 +249,58 @@ func searchContentHandler(args, workspace, workspaceRoot string, restrict bool, 
 		p.Offset = 0
 	}
 
-	data, err := os.ReadFile(searchPath)
+	f, err := os.Open(searchPath)
 	if err != nil {
 		return &ToolResult{Error: err.Error()}
 	}
-	if isBinary(data) {
-		return &ToolResult{Error: "binary file — cannot search as text"}
-	}
+	defer f.Close()
 
 	query := strings.ToLower(p.Pattern)
-	lines := strings.Split(string(data), "\n")
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	var allResults []string
-	for i, line := range lines {
+	lineNum := 0
+	// Ring buffer for context lines before match
+	var ctxBefore []string
+	ctxCap := p.ContextLines
+
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Text()
+
+		if isBinaryLine([]byte(line)) {
+			return &ToolResult{Error: "binary file — cannot search as text"}
+		}
+
 		if strings.Contains(strings.ToLower(line), query) {
 			if p.ContextLines > 0 {
-				start := i - p.ContextLines
-				if start < 0 {
-					start = 0
+				// Output context before
+				startLine := lineNum - len(ctxBefore)
+				for j, ctxLine := range ctxBefore {
+					allResults = append(allResults, fmt.Sprintf("%s:%d:  %s", searchPath, startLine+j, ctxLine))
 				}
-				end := i + p.ContextLines + 1
-				if end > len(lines) {
-					end = len(lines)
-				}
-				for j := start; j < end; j++ {
-					marker := "  "
-					if j == i {
-						marker = "> "
+				// Matched line
+				allResults = append(allResults, fmt.Sprintf("%s:%d:> %s", searchPath, lineNum, line))
+				// Read context after
+				for k := 0; k < p.ContextLines; k++ {
+					if !scanner.Scan() {
+						break
 					}
-					allResults = append(allResults, fmt.Sprintf("%s:%d:%s%s", searchPath, j+1, marker, lines[j]))
+					lineNum++
+					allResults = append(allResults, fmt.Sprintf("%s:%d:  %s", searchPath, lineNum, scanner.Text()))
 				}
 				allResults = append(allResults, "---")
 			} else {
-				allResults = append(allResults, fmt.Sprintf("%s:%d: %s", searchPath, i+1, strings.TrimSpace(line)))
+				allResults = append(allResults, fmt.Sprintf("%s:%d: %s", searchPath, lineNum, strings.TrimSpace(line)))
 			}
+		}
+
+		// Update context ring buffer
+		if ctxCap > 0 {
+			if len(ctxBefore) >= ctxCap {
+				ctxBefore = ctxBefore[1:]
+			}
+			ctxBefore = append(ctxBefore, line)
 		}
 	}
 
@@ -380,6 +397,11 @@ func isBinary(data []byte) bool {
 		}
 	}
 	return false
+}
+
+// isBinaryLine checks if a single line contains null bytes.
+func isBinaryLine(data []byte) bool {
+	return bytes.IndexByte(data, 0) >= 0
 }
 
 func formatFileSize(n int64) string {
