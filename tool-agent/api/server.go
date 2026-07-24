@@ -193,145 +193,161 @@ type heartbeatRequest struct {
 	Status string `json:"status"`
 }
 
+type registerResponse struct {
+	ID         int64                    `json:"id"`
+	MCPServers []tools.MCPServerConfig  `json:"mcp_servers"`
+}
+
+// doRegister sends a single registration request. Returns the assigned agent ID
+// and any MCP server configs for the pool. Does NOT connect to MCP servers.
+func doRegister(client *http.Client, gatewayURL string, req registerRequest) (*registerResponse, error) {
+	body, _ := json.Marshal(req)
+	resp, err := client.Post(gatewayURL+"/api/tool-agents/register", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("register failed: %s", resp.Status)
+	}
+	var result registerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode register response: %w", err)
+	}
+	return &result, nil
+}
+
+// connectMCP connects to MCP servers, updates global tool defs, and re-registers
+// the combined (built-in + MCP) tool list with the gateway.
+func connectMCP(client *http.Client, gatewayURL string, req registerRequest, mcpMgr MCPManagerInterface, configs []tools.MCPServerConfig) {
+	combinedDefs := mcpMgr.ConnectAll(configs)
+	req.ToolDefs = combinedDefs
+	body, _ := json.Marshal(req)
+	resp, err := client.Post(gatewayURL+"/api/tool-agents/register", "application/json", strings.NewReader(string(body)))
+	if err == nil {
+		resp.Body.Close()
+	}
+}
+
+// doHeartbeat sends a heartbeat and returns MCP version stamps.
+func doHeartbeat(client *http.Client, gatewayURL string, id int64, status string) (map[string]string, error) {
+	body, _ := json.Marshal(heartbeatRequest{ID: id, Status: status})
+	req, _ := http.NewRequest("POST", gatewayURL+"/api/tool-agents/heartbeat", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		MCPVersions map[string]string `json:"mcp_versions"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.MCPVersions, nil
+}
+
+// mapsEqual compares two string maps for equality.
+func mapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// initialRegister retries registration up to maxAttempts times, then connects
+// to MCP servers and re-registers the combined tool list.
+func initialRegister(client *http.Client, gatewayURL string, req registerRequest, mcpMgr MCPManagerInterface, maxAttempts int, done chan struct{}) int64 {
+	for i := 0; i < maxAttempts; i++ {
+		result, err := doRegister(client, gatewayURL, req)
+		if err == nil {
+			log.Printf("[registration] registered as %q (id=%d) at %s", req.Pool, result.ID, req.URL)
+
+			// Phase 2: connect MCP servers and report combined tools
+			if mcpMgr != nil && len(result.MCPServers) > 0 {
+				connectMCP(client, gatewayURL, req, mcpMgr, result.MCPServers)
+			}
+			return result.ID
+		}
+		log.Printf("[registration] attempt %d/%d failed: %v", i+1, maxAttempts, err)
+		select {
+		case <-done:
+			return 0
+		case <-time.After(time.Duration(i+1) * time.Second):
+		}
+	}
+	log.Printf("[registration] all %d attempts failed, giving up", maxAttempts)
+	return 0
+}
+
+// runHeartbeatLoop sends periodic heartbeats and reconnects MCP servers when
+// their configuration changes on the gateway side.
+func runHeartbeatLoop(client *http.Client, gatewayURL string, agentID int64, req registerRequest, mcpMgr MCPManagerInterface, done chan struct{}) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	lastVersions := map[string]string{}
+
+	for {
+		select {
+		case <-ticker.C:
+			versions, err := doHeartbeat(client, gatewayURL, agentID, "active")
+			if err != nil {
+				log.Printf("[registration] heartbeat failed: %v", err)
+				continue
+			}
+
+			if mapsEqual(lastVersions, versions) {
+				continue
+			}
+
+			log.Printf("[registration] MCP config changed, reconnecting")
+			lastVersions = versions
+
+			// Re-register to get fresh MCP configs, then reconnect
+			result, err := doRegister(client, gatewayURL, req)
+			if err != nil {
+				log.Printf("[registration] re-register failed: %v", err)
+				continue
+			}
+			if len(result.MCPServers) > 0 && mcpMgr != nil {
+				connectMCP(client, gatewayURL, req, mcpMgr, result.MCPServers)
+			}
+
+		case <-done:
+			log.Println("[registration] deregistering...")
+			doHeartbeat(client, gatewayURL, agentID, "inactive")
+			return
+		}
+	}
+}
+
 func StartRegistration(gatewayURL, token, poolName, myURL, workspaceRoot string, restrict bool, env map[string]string, toolDefs []json.RawMessage, mcpMgr MCPManagerInterface) chan struct{} {
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	register := func() (int64, error) {
-		body, _ := json.Marshal(registerRequest{
-			Name:              poolName + "-" + hostname(),
-			URL:               myURL,
-			Token:             token,
-			Pool:              poolName,
-			WorkspaceRoot:     workspaceRoot,
-			RestrictWorkspace: restrict,
-			Env:               env,
-			ToolDefs:          toolDefs,
-		})
-		resp, err := client.Post(gatewayURL+"/api/tool-agents/register", "application/json", strings.NewReader(string(body)))
-		if err != nil {
-			return 0, err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			return 0, fmt.Errorf("register failed: %s", resp.Status)
-		}
-		var result struct {
-			ID        int64 `json:"id"`
-			MCPServers []struct {
-				Name    string            `json:"name"`
-				URL     string            `json:"url"`
-				Headers map[string]string `json:"headers"`
-			} `json:"mcp_servers"`
-		}
-		json.NewDecoder(resp.Body).Decode(&result)
-
-		// Connect to MCP servers and re-register with combined tool defs
-		if mcpMgr != nil && len(result.MCPServers) > 0 {
-			configs := make([]tools.MCPServerConfig, len(result.MCPServers))
-			for i, s := range result.MCPServers {
-				configs[i] = tools.MCPServerConfig{
-					Name:    s.Name,
-					URL:     s.URL,
-					Headers: s.Headers,
-				}
-			}
-			combinedDefs := mcpMgr.ConnectAll(configs)
-			// Re-register with combined tool defs
-			reRegBody, _ := json.Marshal(registerRequest{
-				Name:              poolName + "-" + hostname(),
-				URL:               myURL,
-				Token:             token,
-				Pool:              poolName,
-				WorkspaceRoot:     workspaceRoot,
-				RestrictWorkspace: restrict,
-				Env:               env,
-				ToolDefs:          combinedDefs,
-			})
-			reResp, err := client.Post(gatewayURL+"/api/tool-agents/register", "application/json", strings.NewReader(string(reRegBody)))
-			if err == nil {
-				reResp.Body.Close()
-			}
-		}
-
-		return result.ID, nil
-	}
-
-	sendHeartbeat := func(id int64, status string) (map[string]string, error) {
-		body, _ := json.Marshal(heartbeatRequest{ID: id, Status: status})
-		req, _ := http.NewRequest("POST", gatewayURL+"/api/tool-agents/heartbeat", strings.NewReader(string(body)))
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		var result struct {
-			MCPVersions map[string]string `json:"mcp_versions"`
-		}
-		json.NewDecoder(resp.Body).Decode(&result)
-		return result.MCPVersions, nil
+	req := registerRequest{
+		Name:              poolName + "-" + hostname(),
+		URL:               myURL,
+		Token:             token,
+		Pool:              poolName,
+		WorkspaceRoot:     workspaceRoot,
+		RestrictWorkspace: restrict,
+		Env:               env,
+		ToolDefs:          toolDefs,
 	}
 
 	done := make(chan struct{})
 
 	go func() {
-		var agentID int64
-		for i := 0; i < 10; i++ {
-			id, err := register()
-			if err == nil {
-				agentID = id
-				log.Printf("[registration] registered as %q (id=%d) at %s", poolName, agentID, myURL)
-				break
-			}
-			log.Printf("[registration] attempt %d/10 failed: %v", i+1, err)
-			select {
-			case <-done:
-				return
-			case <-time.After(time.Duration(i+1) * time.Second):
-			}
-		}
+		agentID := initialRegister(client, gatewayURL, req, mcpMgr, 10, done)
 		if agentID == 0 {
-			log.Printf("[registration] all attempts failed, giving up")
 			return
 		}
-
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-
-		lastMCPVersions := map[string]string{}
-		for {
-			select {
-			case <-ticker.C:
-				versions, err := sendHeartbeat(agentID, "active")
-				if err != nil {
-					log.Printf("[registration] heartbeat failed: %v", err)
-					continue
-				}
-				// Compare per-server versions
-				changed := false
-				if len(versions) != len(lastMCPVersions) {
-					changed = true
-				} else {
-					for k, v := range versions {
-						if lastMCPVersions[k] != v {
-							changed = true
-							break
-						}
-					}
-				}
-				if changed {
-					log.Printf("[registration] MCP config changed, re-registering")
-					lastMCPVersions = versions
-					if _, err := register(); err != nil {
-						log.Printf("[registration] re-register failed: %v", err)
-					}
-				}
-			case <-done:
-				log.Println("[registration] deregistering...")
-				sendHeartbeat(agentID, "inactive")
-				return
-			}
-		}
+		runHeartbeatLoop(client, gatewayURL, agentID, req, mcpMgr, done)
 	}()
 
 	return done
