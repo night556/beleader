@@ -134,6 +134,39 @@ cd beleader/desktop
 
 exe 包含一切：内嵌 Web UI、SQLite 数据库、所有服务合一进程。数据存储于 `~/.beleader/`。
 
+## 配置项
+
+### Gateway
+
+复制 `gateway/.env.example` 为 `gateway/.env` 并修改。
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `PORT` | `8082` | HTTP 服务端口 |
+| `DB_DRIVER` | `sqlite` | 数据库驱动：`sqlite`、`mysql`、`postgres` |
+| `DB_PATH` | `./data/gateway/gateway.db` | SQLite 数据库路径 |
+| `DB_HOST` | `127.0.0.1` | MySQL/PostgreSQL 主机 |
+| `DB_PORT` | `3306` / `5432` | MySQL/PostgreSQL 端口 |
+| `DB_USER` | `beleader` | 数据库用户 |
+| `DB_PASSWORD` | | 数据库密码 |
+| `DB_NAME` | `beleader` | 数据库名 |
+| `GATEWAY_TOKEN` | `rt_dev_xxx` | Tool-agent 注册密钥 |
+| `LOG_DIR` | (stdout) | 日志文件目录 |
+
+### Tool Agent
+
+复制 `tool-agent/.env.example` 为 `tool-agent/.env` 并修改。
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `PORT` | `8083` | HTTP 服务端口 |
+| `GATEWAY_URL` | `http://gateway:8082` | Gateway 地址，用于自动注册 |
+| `GATEWAY_TOKEN` | `rt_dev_xxx` | 须与 Gateway 的 `GATEWAY_TOKEN` 一致 |
+| `POOL` | (hostname) | 加入的 Pool 名称 |
+| `WORKSPACE_ROOT` | `/app/data` | 线程工作区根目录 |
+| `RESTRICT_WORKSPACE` | `false` | 设为 `true` 时限制文件操作在工作区内 |
+| `TOOLS` | (全部启用) | 逗号分隔的工具名列表。可用：`read_file`、`read_dir`、`write_file`、`edit_file`、`delete_file`、`search_content`、`search_files`、`run_command`、`task_output`、`task_stop`、`web_search`、`web_fetch`、`run_http_request` |
+
 ## 协议
 
 MIT

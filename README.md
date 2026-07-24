@@ -102,29 +102,34 @@ The .exe bundles everything: embedded web UI, SQLite database, all services in o
 
 ### Gateway
 
+Copy `gateway/.env.example` to `gateway/.env` and adjust.
+
 | Env | Default | Description |
 |-----|---------|-------------|
-| `PORT` | 8082 | HTTP server port |
-| `DB_DRIVER` | sqlite | Database driver: sqlite, mysql, postgres |
-| `DB_PATH` | ~/.beleader/beleader.db | SQLite database path |
-| `DB_HOST` | 127.0.0.1 | MySQL/PostgreSQL host |
-| `DB_PORT` | 3306/5432 | MySQL/PostgreSQL port |
-| `DB_USER` | beleader | Database user |
+| `PORT` | `8082` | HTTP server port |
+| `DB_DRIVER` | `sqlite` | Database driver: `sqlite`, `mysql`, `postgres` |
+| `DB_PATH` | `./data/gateway/gateway.db` | SQLite database path |
+| `DB_HOST` | `127.0.0.1` | MySQL/PostgreSQL host |
+| `DB_PORT` | `3306` / `5432` | MySQL/PostgreSQL port |
+| `DB_USER` | `beleader` | Database user |
 | `DB_PASSWORD` | | Database password |
-| `DB_NAME` | beleader | Database name |
-| `GATEWAY_TOKEN` | | Shared secret for tool agent registration |
-| `DATA_DIR` | ~/.beleader/runtime | Data directory |
+| `DB_NAME` | `beleader` | Database name |
+| `GATEWAY_TOKEN` | `rt_dev_xxx` | Shared secret for tool-agent registration |
+| `LOG_DIR` | (stdout) | Directory for rotating file logs |
 
 ### Tool Agent
 
+Copy `tool-agent/.env.example` to `tool-agent/.env` and adjust.
+
 | Env | Default | Description |
 |-----|---------|-------------|
-| `PORT` | 8083 | HTTP server port |
-| `GATEWAY_URL` | | Gateway URL for auto-registration |
-| `GATEWAY_TOKEN` | | Registration token |
-| `POOL` | hostname | Pool name to join |
-| `WORKSPACE_ROOT` | ~/.beleader | Workspace root directory |
-| `RESTRICT_WORKSPACE` | false | Restrict file operations to workspace |
+| `PORT` | `8083` | HTTP server port |
+| `GATEWAY_URL` | `http://gateway:8082` | Gateway URL for auto-registration |
+| `GATEWAY_TOKEN` | `rt_dev_xxx` | Must match gateway's `GATEWAY_TOKEN` |
+| `POOL` | (hostname) | Pool name to join |
+| `WORKSPACE_ROOT` | `/app/data` | Root directory for all thread workspaces |
+| `RESTRICT_WORKSPACE` | `false` | If `true`, file ops restricted to workspace |
+| `TOOLS` | (all enabled) | Comma-separated tool names to enable. Available: `read_file`, `read_dir`, `write_file`, `edit_file`, `delete_file`, `search_content`, `search_files`, `run_command`, `task_output`, `task_stop`, `web_search`, `web_fetch`, `run_http_request` |
 
 ## API Endpoints
 
