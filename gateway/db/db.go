@@ -436,24 +436,24 @@ func (db *DB) GetEvents(threadID string, sinceID int64) ([]Event, error) {
 	return events, err
 }
 
-// GetLastCompletedEventID returns the event ID of the last turn.completed
+// GetLastCompletedEventID returns the event ID of the last item.completed
 // for a thread, or 0 if none. Used by getMessages so SSE can replay from
-// the right point without a separate query (avoids race condition).
+// the right point — only the currently streaming item's deltas.
 func (db *DB) GetLastCompletedEventID(threadID string) int64 {
 	var id int64
 	db.GORM.Model(&Event{}).
-		Where("thread_id = ? AND event = ?", threadID, "turn.completed").
+		Where("thread_id = ? AND event = ?", threadID, "item.completed").
 		Select("COALESCE(MAX(id), 0)").Scan(&id)
 	return id
 }
 
-// GetEventsSinceLastCompleted returns events from the current active turn
-// (all events after the most recent turn.completed). Used for first SSE
-// connection to replay the in-progress turn.
+// GetEventsSinceLastCompleted returns events after the most recent
+// item.completed. Used for first SSE connection (since_id=0) to replay
+// only the currently streaming item.
 func (db *DB) GetEventsSinceLastCompleted(threadID string) ([]Event, error) {
 	var lastCompletedID int64
 	db.GORM.Model(&Event{}).
-		Where("thread_id = ? AND event = ?", threadID, "turn.completed").
+		Where("thread_id = ? AND event = ?", threadID, "item.completed").
 		Select("COALESCE(MAX(id), 0)").
 		Scan(&lastCompletedID)
 	return db.GetEvents(threadID, lastCompletedID)
