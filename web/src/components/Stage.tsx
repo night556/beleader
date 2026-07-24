@@ -28,6 +28,7 @@ export function Stage({ state, onLoadMore }: Props) {
   const atBottomRef = useRef(true);
   const userScrolledUpRef = useRef(false);
   const prevLenRef = useRef(timeline.length);
+  const prevThreadIdRef = useRef(state.activeThreadId);
   const prevScrollHeightRef = useRef(0);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -65,6 +66,9 @@ export function Stage({ state, onLoadMore }: Props) {
     const el = scrollRef.current;
     if (!el) return;
 
+    const threadChanged = state.activeThreadId !== prevThreadIdRef.current;
+    prevThreadIdRef.current = state.activeThreadId;
+
     // When timeline grows, scroll to bottom if we were at bottom
     if (timeline.length > prevLenRef.current) {
       if (prevScrollHeightRef.current > 0 && el.scrollHeight > prevScrollHeightRef.current) {
@@ -74,17 +78,16 @@ export function Stage({ state, onLoadMore }: Props) {
       } else {
         scrollToBottom();
       }
+    } else if (threadChanged) {
+      // Thread switch / replay — force scroll to bottom
+      scrollToBottom();
     } else if (!userScrolledUpRef.current) {
       // Content update (thinking delta, etc.) — auto-scroll unless user
       // has intentionally scrolled up to read earlier content.
       el.scrollTop = el.scrollHeight;
-    } else {
-      // Timeline replaced (thread switch / replay) — force scroll to bottom
-      // since we can't track per-thread scroll position
-      scrollToBottom();
     }
     prevLenRef.current = timeline.length;
-  }, [timeline, liveItem, scrollToBottom]);
+  }, [timeline, liveItem, scrollToBottom, state.activeThreadId]);
 
   const items = [...timeline];
   if (liveItem) items.push(liveItem);
