@@ -31,6 +31,11 @@ import (
 var webDist embed.FS
 
 func main() {
+	// Default token for local tool-agent registration
+	if os.Getenv("GATEWAY_TOKEN") == "" {
+		os.Setenv("GATEWAY_TOKEN", "beleader_desktop")
+	}
+
 	// Data directory: ~/.beleader or next to the exe
 	dataDir := os.Getenv("BELEADER_DATA")
 	if dataDir == "" {
