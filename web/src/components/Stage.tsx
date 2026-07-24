@@ -55,6 +55,7 @@ export function Stage({ state, onLoadMore }: Props) {
     const el = scrollRef.current;
     if (!el) return;
 
+    // When timeline grows, scroll to bottom if we were at bottom
     if (timeline.length > prevLenRef.current) {
       if (prevScrollHeightRef.current > 0 && el.scrollHeight > prevScrollHeightRef.current) {
         const addedHeight = el.scrollHeight - prevScrollHeightRef.current;
@@ -65,6 +66,10 @@ export function Stage({ state, onLoadMore }: Props) {
       }
     } else if (atBottomRef.current) {
       el.scrollTop = el.scrollHeight;
+    } else {
+      // Timeline replaced (thread switch / replay) — force scroll to bottom
+      // since we can't track per-thread scroll position
+      scrollToBottom();
     }
     prevLenRef.current = timeline.length;
   }, [timeline, liveItem, scrollToBottom]);
