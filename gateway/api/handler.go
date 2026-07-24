@@ -778,12 +778,12 @@ func (h *Handler) handleGetMessages(c *gin.Context) {
 	if v := c.Query("before_id"); v != "" {
 		fmt.Sscanf(v, "%d", &beforeID)
 	}
-	limit := 100
+	limit := 50
 	if v := c.Query("limit"); v != "" {
 		fmt.Sscanf(v, "%d", &limit)
 	}
 	if limit <= 0 || limit > 500 {
-		limit = 100
+		limit = 50
 	}
 
 	var msgs []db.Message

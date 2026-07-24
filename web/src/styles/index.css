@@ -1009,6 +1009,21 @@ a { color: var(--accent); }
   word-break: break-word;
 }
 
+.tools-inline-expand-btn {
+  display: block;
+  margin: 4px 0 0;
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.tools-inline-expand-btn:hover {
+  text-decoration: underline;
+}
+
 /* ─── Input Area ─── */
 
 .input-area {

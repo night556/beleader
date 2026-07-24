@@ -200,15 +200,19 @@ const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }
   );
 });
 
-function ToolInlineItem({ item }: { item: TimelineItem }) {
+const ToolInlineItem = memo(function ToolInlineItem({ item }: { item: TimelineItem }) {
   const isDone = item.status === 'done' || item.status === 'fail';
   const [open, setOpen] = useState(!isDone);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     setOpen(item.status === 'pending' || item.status === 'streaming');
   }, [item.status]);
 
   const params = formatArgs(item.args || '');
+  const content = item.content || '';
+  const isLarge = content.length > 5000;
+  const displayContent = (isLarge && !expanded) ? content.slice(0, 5000) : content;
 
   return (
     <div className="tools-inline">
@@ -219,18 +223,23 @@ function ToolInlineItem({ item }: { item: TimelineItem }) {
         {item.status === 'pending' && <span className="tools-inline-item-badge running">running</span>}
         {item.status === 'fail' && <span className="tools-inline-item-badge error">error</span>}
       </div>
-      {open && item.content && (
+      {open && content && (
         <div className="tools-inline-body">
           <div className="tools-inline-item done">
-            <pre className="tools-inline-item-result">{item.content}</pre>
+            <pre className="tools-inline-item-result">{displayContent}</pre>
+            {isLarge && (
+              <button className="tools-inline-expand-btn" onClick={() => setExpanded(v => !v)}>
+                {expanded ? 'Show less' : `Show all (${(content.length / 1024).toFixed(1)}KB)`}
+              </button>
+            )}
           </div>
         </div>
       )}
     </div>
   );
-}
+});
 
-function WorkerInlineItem({ item }: { item: TimelineItem }) {
+const WorkerInlineItem = memo(function WorkerInlineItem({ item }: { item: TimelineItem }) {
   const { dispatch, state } = useAppState();
   const isDone = item.workerStatus === 'completed';
   const isStopped = item.workerStatus === 'stopped';
