@@ -315,7 +315,18 @@ export function processSSEEvent(
       } else {
         const acc = contentAccRef.current;
         acc[itemId] = (acc[itemId] || '') + delta;
-        dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { content: acc[itemId] } });
+        // If the item doesn't exist yet (replay race), create it
+        if (!timelineRef.current.some(ti => ti.id === itemId)) {
+          dispatch({
+            type: 'PUSH_TIMELINE_ITEM', item: {
+              id: itemId, type: 'agent', label: 'AI',
+              content: acc[itemId], status: 'streaming', time: Date.now(),
+              turnId: turnIdRef.current,
+            },
+          });
+        } else {
+          dispatch({ type: 'UPDATE_TIMELINE_ITEM', id: itemId, updates: { content: acc[itemId] } });
+        }
       }
       break;
     }
