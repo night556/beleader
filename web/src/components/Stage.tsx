@@ -268,7 +268,7 @@ const WorkerInlineItem = memo(function WorkerInlineItem({ item }: { item: Timeli
       )}
     </div>
   );
-}
+});
 
 function msgClass(item: TimelineItem): string {
   const base = 'msg';
