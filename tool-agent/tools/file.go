@@ -235,6 +235,10 @@ func searchContentHandler(args, workspace, workspaceRoot string, restrict bool, 
 	if fi.IsDir() {
 		return &ToolResult{Error: fmt.Sprintf("path must be a file, not a directory: %s", searchPath)}
 	}
+	const maxSize = 2 * 1024 * 1024
+	if fi.Size() > maxSize {
+		return &ToolResult{Error: fmt.Sprintf("file too large (%s), use read_file with offset/limit", formatFileSize(fi.Size()))}
+	}
 	if p.ContextLines > 10 {
 		p.ContextLines = 10
 	}
