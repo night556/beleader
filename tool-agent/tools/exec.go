@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -131,10 +132,13 @@ func execHandler(args, workspace, workspaceRoot string, restrict bool, threadID 
 		p.Timeout = 120
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(p.Timeout)*time.Second)
+	defer cancel()
+
 	sh := detectShell()
 	command := sh.prefix + p.Command
 
-	cmd := exec.Command(sh.exe, sh.flag, command)
+	cmd := exec.CommandContext(ctx, sh.exe, sh.flag, command)
 	cmd.Dir = workDir
 
 	output, err := cmd.CombinedOutput()

@@ -232,8 +232,15 @@ func searchContentHandler(args, workspace, workspaceRoot string, restrict bool, 
 	}
 	if fi, err := os.Stat(searchPath); err != nil {
 		return &ToolResult{Error: fmt.Sprintf("path not found: %s", searchPath)}
-	} else if fi.IsDir() {
-		return &ToolResult{Error: fmt.Sprintf("path must be a file, not a directory: %s", searchPath)}
+	} else if !fi.IsDir() {
+		// Single file — search directly
+		results, err := searchInFiles(searchPath, "*", p.Pattern, p.ContextLines)
+		if err != nil || len(results) == 0 {
+			return &ToolResult{Content: "No matches found."}
+		}
+		var out strings.Builder
+		fmt.Fprintf(&out, "Found %d matches.\n\n%s", len(results), strings.Join(results, "\n"))
+		return &ToolResult{Content: out.String()}
 	}
 	pattern := p.FilePattern
 	if pattern == "" {
@@ -338,6 +345,10 @@ func searchInFiles(root, pattern, query string, ctxLines int) ([]string, error) 
 	var results []string
 	query = strings.ToLower(query)
 
+	if pattern == "" {
+		pattern = "*"
+	}
+
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
@@ -347,39 +358,37 @@ func searchInFiles(root, pattern, query string, ctxLines int) ([]string, error) 
 		}
 		match, _ := filepath.Match(pattern, filepath.Base(path))
 		if !match {
-			match, _ = filepath.Match("*."+pattern, filepath.Base(path))
+			return nil
 		}
-		if match {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			if len(results) >= maxResults {
+				break
 			}
-			lines := strings.Split(string(data), "\n")
-			for i, line := range lines {
-				if len(results) >= maxResults {
-					break
-				}
-				if strings.Contains(strings.ToLower(line), query) {
-					if ctxLines > 0 {
-						start := i - ctxLines
-						if start < 0 {
-							start = 0
-						}
-						end := i + ctxLines + 1
-						if end > len(lines) {
-							end = len(lines)
-						}
-						for j := start; j < end; j++ {
-							marker := "  "
-							if j == i {
-								marker = "> "
-							}
-							results = append(results, fmt.Sprintf("%s:%d:%s%s", path, j+1, marker, lines[j]))
-						}
-						results = append(results, "---")
-					} else {
-						results = append(results, fmt.Sprintf("%s:%d: %s", path, i+1, strings.TrimSpace(line)))
+			if strings.Contains(strings.ToLower(line), query) {
+				if ctxLines > 0 {
+					start := i - ctxLines
+					if start < 0 {
+						start = 0
 					}
+					end := i + ctxLines + 1
+					if end > len(lines) {
+						end = len(lines)
+					}
+					for j := start; j < end; j++ {
+						marker := "  "
+						if j == i {
+							marker = "> "
+						}
+						results = append(results, fmt.Sprintf("%s:%d:%s%s", path, j+1, marker, lines[j]))
+					}
+					results = append(results, "---")
+				} else {
+					results = append(results, fmt.Sprintf("%s:%d: %s", path, i+1, strings.TrimSpace(line)))
 				}
 			}
 		}
@@ -448,11 +457,11 @@ func init() {
 		}, []string{"paths"}, deleteFileHandler)
 
 	register("search_content",
-		"Search for a pattern in file contents. path must be a single file, not a directory.",
+		"Search for a pattern in file contents. Can search a single file or recursively in a directory.",
 		map[string]any{
 			"pattern":       map[string]any{"type": "string", "description": "Text pattern to search for."},
-			"file_pattern":  map[string]any{"type": "string", "description": "Glob pattern for file matching."},
-			"path":          map[string]any{"type": "string", "description": "Path to a file to search."},
+			"file_pattern":  map[string]any{"type": "string", "description": "Glob pattern for file matching (e.g. '*.go'). Defaults to all files."},
+			"path":          map[string]any{"type": "string", "description": "Path to a file or directory to search. Defaults to workspace."},
 			"context_lines": map[string]any{"type": "integer", "description": "Lines of context around matches (max 10)."},
 			"offset":        map[string]any{"type": "integer", "description": "Result offset for pagination."},
 			"limit":         map[string]any{"type": "integer", "description": "Max results (max 200)."},
