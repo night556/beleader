@@ -573,12 +573,12 @@ a { color: var(--accent); }
 }
 
 .turn-bubble {
-  max-width: 85%;
+  max-width: 70%;
   min-width: 120px;
 }
 
 .msg-tool .msg-bubble {
-  max-width: 85%;
+  max-width: 70%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -587,7 +587,7 @@ a { color: var(--accent); }
 }
 
 .msg-error .msg-bubble {
-  max-width: 85%;
+  max-width: 70%;
   background: rgba(239, 68, 68, 0.04);
   border: 1px solid rgba(239, 68, 68, 0.2);
   border-left: 3px solid var(--red);
@@ -736,7 +736,7 @@ a { color: var(--accent); }
 }
 
 .msg-worker .msg-bubble {
-  max-width: 85%;
+  max-width: 70%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;

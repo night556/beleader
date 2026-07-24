@@ -360,6 +360,8 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
 
 function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
   const [collapsed, setCollapsed] = useState(true);
+  const blockRef = useRef<HTMLDivElement>(null);
+  const lockedWidthRef = useRef(0);
 
   useEffect(() => {
     if (streaming) {
@@ -369,8 +371,35 @@ function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: b
     }
   }, [streaming]);
 
+  // Lock bubble width: when thinking is expanded the bubble can be wide;
+  // when it collapses we pin min-width so the bubble doesn't shrink.
+  useEffect(() => {
+    const el = blockRef.current;
+    if (!el) return;
+
+    const bubble = el.closest('.msg-bubble') as HTMLElement;
+    if (!bubble) return;
+
+    const isExpanded = !collapsed;
+    const prevBubbleWidth = lockedWidthRef.current;
+
+    if (isExpanded) {
+      // Track the widest value seen while expanded
+      const w = bubble.getBoundingClientRect().width;
+      if (w > prevBubbleWidth) {
+        lockedWidthRef.current = w;
+        bubble.style.minWidth = w + 'px';
+      }
+    } else {
+      // When collapsing, pin to the widest seen
+      if (prevBubbleWidth > 0) {
+        bubble.style.minWidth = prevBubbleWidth + 'px';
+      }
+    }
+  }, [collapsed, thinking]);
+
   return (
-    <div className={`thinking-block ${streaming ? 'thinking-streaming' : ''}`}>
+    <div ref={blockRef} className={`thinking-block ${streaming ? 'thinking-streaming' : ''}`}>
       <div className="thinking-header" onClick={() => setCollapsed(v => !v)}>
         <span className="thinking-chevron">{collapsed ? '▶' : '▼'}</span>
         <span>{streaming ? 'Thinking...' : 'Thought Process'}</span>
