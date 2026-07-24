@@ -79,18 +79,60 @@ Project
 ### 环境要求
 
 - [Go](https://go.dev/dl/) 1.21+
-- [Rust](https://rustup.rs/)（桌面 Agent，可选）
-- [Node.js](https://nodejs.org/)（Tauri 桌面版，可选）
+- [Node.js](https://nodejs.org/) 22+
 
-### 启动
+### 开发模式
 
 ```bash
-make dev-backend     # macOS / Linux
-# 或
-.\make.ps1 dev-backend   # Windows
+# 终端 1 — Gateway
+cd gateway
+cp .env.example .env    # 编辑 API Key
+go run .
+
+# 终端 2 — Tool Agent
+cd tool-agent
+cp .env.example .env
+go run .
+
+# 终端 3 — Web
+cd web
+npm install
+npm run dev
 ```
 
-浏览器打开 http://localhost:8080。在 Settings 中添加 API Key。
+浏览器打开 http://localhost:5173。在 Settings 中添加 API Key 即可开始。
+
+### Docker
+
+```bash
+docker compose up -d
+```
+
+浏览器打开 http://localhost:8080。
+
+### 桌面版（单个 .exe）
+
+构建一个自包含的可执行文件，无需 Docker，无需命令行。双击即用。
+
+**环境要求：** Go 1.21+、Node.js
+
+**Windows（PowerShell）：**
+```powershell
+git clone https://github.com/night556/beleader.git
+cd beleader\desktop
+.\build.ps1
+# → dist\beleader-windows-amd64.exe
+```
+
+**macOS / Linux：**
+```bash
+git clone https://github.com/night556/beleader.git
+cd beleader/desktop
+./build.sh
+# → dist/beleader-<os>-<arch>
+```
+
+exe 包含一切：内嵌 Web UI、SQLite 数据库、所有服务合一进程。数据存储于 `~/.beleader/`。
 
 ## 协议
 

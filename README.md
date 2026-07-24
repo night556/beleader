@@ -72,6 +72,32 @@ Open http://localhost:5173. Add a model in Settings, then start chatting.
 docker compose up -d
 ```
 
+Open http://localhost:8080. Add a model in Settings, then start chatting.
+
+### Desktop (Single .exe)
+
+Build a self-contained Windows executable — no Docker, no terminal commands. Double-click to run.
+
+**Prerequisites:** Go 1.21+, Node.js
+
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/night556/beleader.git
+cd beleader\desktop
+.\build.ps1
+# → dist\beleader-windows-amd64.exe
+```
+
+**macOS / Linux:**
+```bash
+git clone https://github.com/night556/beleader.git
+cd beleader/desktop
+./build.sh
+# → dist/beleader-<os>-<arch>
+```
+
+The .exe bundles everything: embedded web UI, SQLite database, all services in one process. Data is stored in `~/.beleader/`.
+
 ## Configuration
 
 ### Gateway
