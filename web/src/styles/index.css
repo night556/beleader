@@ -2010,10 +2010,14 @@ a { color: var(--accent); }
 @media (max-width: 768px) {
   .chat-body { flex-direction: column; }
   .thread-list {
+    display: none;
     width: 100% !important;
-    max-height: 200px;
+    max-height: 40vh;
     border-right: none !important;
     border-bottom: 1px solid var(--border);
+  }
+  .chat-body.sidebar-open .thread-list {
+    display: flex;
   }
   .chat-top-controls { flex-wrap: wrap; }
   .chat-top-select { max-width: 120px; font-size: 11px; }

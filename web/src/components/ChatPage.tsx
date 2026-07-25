@@ -30,7 +30,7 @@ export function ChatPage() {
   const [loadingThread, setLoadingThread] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 768);
   const [sseDisconnected, setSseDisconnected] = useState(false);
 
   const activeModel = models.find(m => m.id === activeModelId);
@@ -344,7 +344,7 @@ export function ChatPage() {
     <div className="chat-page">
       <div className="chat-top">
         <button className="sidebar-toggle" onClick={() => setSidebarOpen(v => !v)} title="Toggle sidebar">
-          {sidebarOpen ? '☰' : '▶'}
+          {sidebarOpen ? '\u2715' : '\u2630'}
         </button>
         <div className="chat-top-controls">
           <div className="chat-top-field">
@@ -390,7 +390,7 @@ export function ChatPage() {
         )}
       </div>
 
-      <div className="chat-body">
+      <div className={`chat-body${sidebarOpen ? ' sidebar-open' : ''}`}>
         {sidebarOpen && (
           <div className="thread-list">
             <div className="thread-list-head">
