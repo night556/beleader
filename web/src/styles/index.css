@@ -910,6 +910,7 @@ a { color: var(--accent); }
   cursor: pointer;
   user-select: none;
   background: var(--wash);
+  min-width: 0;
 }
 
 .tools-inline-header:hover {
@@ -960,6 +961,10 @@ a { color: var(--accent); }
   color: var(--accent);
   font-family: var(--font-mono);
   font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }
 
 .tools-inline-item-args {
@@ -977,6 +982,8 @@ a { color: var(--accent); }
   padding: 1px 5px;
   border-radius: 3px;
   font-weight: 500;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .tools-inline-item-badge.running {
