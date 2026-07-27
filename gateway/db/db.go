@@ -449,10 +449,10 @@ func (db *DB) DeleteToolAgent(id int64) error {
 
 // ── Thread methods ──
 
-func (db *DB) CreateThread(id, title string, agentID int64, modelID string, poolID int64, tenantID int64, workspacePath string) error {
+func (db *DB) CreateThread(id, title string, agentID int64, modelID string, poolID int64, tenantID int64, userID, workspacePath string) error {
 	return db.GORM.Create(&Thread{
 		ID: id, Title: title, AgentID: agentID, ModelID: modelID,
-		PoolID: poolID, TenantID: tenantID, WorkspacePath: workspacePath,
+		PoolID: poolID, TenantID: tenantID, UserID: userID, WorkspacePath: workspacePath,
 	}).Error
 }
 

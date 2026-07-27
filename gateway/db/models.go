@@ -117,6 +117,7 @@ type Thread struct {
 	ModelID         string    `gorm:"size:64;default:''" json:"model_id"`
 	PoolID          int64     `gorm:"default:0;index" json:"pool_id"`
 	TenantID        int64     `gorm:"default:0;index" json:"tenant_id"`
+	UserID          string    `gorm:"size:64;default:''" json:"user_id"`
 	WorkspacePath   string    `gorm:"size:512;default:''" json:"workspace_path"`
 	ParentThreadID  string    `gorm:"size:64;default:'';index;column:parent_thread_id" json:"parent_thread_id"`
 	Status          string    `gorm:"size:16;default:'idle';column:status" json:"status"`

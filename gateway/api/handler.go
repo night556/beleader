@@ -232,13 +232,16 @@ func (h *Handler) handleChat(c *gin.Context) {
 			}
 		}
 
-		// Init workspace on a tool agent
+		// Init workspace on a tool agent with tenant+user isolation
 		workspacePath := ""
 		if poolID > 0 {
 			agents, _ := h.DB.ListActiveToolAgentsByPool(poolID)
 			if len(agents) > 0 {
+				tenantID := TenantIDFromAuth(c)
+				userID := GetAuth(c).UserID
+				wsPath := fmt.Sprintf("t%d/%s/%s", tenantID, userID, threadID)
 				client := tools.NewAgentClient(agents[0].URL)
-				ws, err := client.InitWorkspace(c.Request.Context(), threadID)
+				ws, err := client.InitWorkspace(c.Request.Context(), wsPath)
 				if err == nil {
 					workspacePath = ws
 				}
@@ -258,7 +261,12 @@ func (h *Handler) handleChat(c *gin.Context) {
 		if req.ParentThreadID != "" {
 			h.DB.CreateWorkerThread(threadID, title, req.ParentThreadID, agent.ID, modelID, poolID, TenantIDFromAuth(c), workspacePath)
 		} else {
-			h.DB.CreateThread(threadID, title, agent.ID, modelID, poolID, TenantIDFromAuth(c), workspacePath)
+			auth := GetAuth(c)
+			userID := ""
+			if auth != nil {
+				userID = auth.UserID
+			}
+			h.DB.CreateThread(threadID, title, agent.ID, modelID, poolID, TenantIDFromAuth(c), userID, workspacePath)
 		}
 	} else {
 		// Existing thread — read agent and model from thread, ignore req
@@ -381,7 +389,7 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 		}})
 	}
 	if result != nil && result.Usage.Total > 0 && thread.TenantID > 0 {
-		h.DB.RecordUsage(thread.TenantID, 0, "", threadID,
+		h.DB.RecordUsage(thread.TenantID, 0, thread.UserID, threadID,
 			result.Usage.Prompt, result.Usage.Completion, result.Usage.Total)
 	}
 	_ = result
@@ -395,7 +403,14 @@ func (h *Handler) buildTurnMeta(thread *db.Thread) string {
 	if err != nil || pool == nil {
 		return ""
 	}
-	return engine.BuildTurnMeta(pool.Shell, pool.Platform, thread.WorkspacePath, pool.GoVersion, pool.RestrictWorkspace)
+	meta := engine.BuildTurnMeta(pool.Shell, pool.Platform, thread.WorkspacePath, pool.GoVersion, pool.RestrictWorkspace)
+	if thread.TenantID > 0 {
+		meta += fmt.Sprintf("\nTenant: %d", thread.TenantID)
+	}
+	if thread.UserID != "" {
+		meta += fmt.Sprintf("\nUser: %s", thread.UserID)
+	}
+	return meta
 }
 
 func (h *Handler) buildToolList(thread *db.Thread, agent *db.Agent) []openai.Tool {
@@ -491,7 +506,8 @@ func (h *Handler) spawnWorker(ctx context.Context, parentThread *db.Thread, agen
 	agents, _ := h.DB.ListActiveToolAgentsByPool(poolID)
 	if len(agents) > 0 {
 		client := tools.NewAgentClient(agents[0].URL)
-		ws, err := client.InitWorkspace(ctx, workerID)
+		wsPath := fmt.Sprintf("t%d/workers/%s", parentThread.TenantID, workerID)
+		ws, err := client.InitWorkspace(ctx, wsPath)
 		if err == nil {
 			workspacePath = ws
 		}
