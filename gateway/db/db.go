@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -157,6 +158,7 @@ func (db *DB) setSchemaVersion(v int) {
 
 func (db *DB) autoMigrate() error {
 	if err := db.GORM.AutoMigrate(
+		&AdminUser{},
 		&Tenant{}, &TenantSecret{}, &SecretAudit{},
 		&APIKey{}, &UsageRecord{},
 		&Pool{}, &ToolAgent{}, &Thread{}, &Message{}, &Event{},
@@ -174,7 +176,41 @@ func (db *DB) autoMigrate() error {
 	}
 	db.seedDefaultAgent()
 	db.seedAdminKey()
+	db.seedAdminUser()
 	return nil
+}
+
+func (db *DB) seedAdminUser() {
+	var count int64
+	db.GORM.Model(&AdminUser{}).Count(&count)
+	if count == 0 {
+		username := os.Getenv("ADMIN_USERNAME")
+		if username == "" {
+			username = "admin"
+		}
+		password := os.Getenv("ADMIN_PASSWORD")
+		if password == "" {
+			password = "admin123"
+		}
+		hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		db.GORM.Create(&AdminUser{Username: username, PasswordHash: string(hash)})
+		fmt.Fprintf(os.Stderr, "[DB] Admin user: %s (password from ADMIN_PASSWORD env or default)\n", username)
+	}
+}
+
+// ── Admin User methods ──
+
+func (db *DB) GetAdminUser(username string) (*AdminUser, error) {
+	var u AdminUser
+	if err := db.GORM.Where("username = ?", username).First(&u).Error; err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (db *DB) UpdateAdminPassword(username string, passwordHash string) error {
+	return db.GORM.Model(&AdminUser{}).Where("username = ?", username).
+		Update("password_hash", passwordHash).Error
 }
 
 // ── Tenant methods ──

@@ -152,6 +152,9 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 
 		// Admin API
 		admin := api.Group("/admin")
+		{
+			admin.POST("/login", h.handleAdminLogin)
+		}
 		admin.Use(RequireAdmin)
 		{
 			admin.GET("/tenants", h.handleAdminListTenants)
@@ -165,6 +168,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 			admin.GET("/tenants/:id/usage", h.handleAdminTenantUsage)
 			admin.GET("/tenants/:id/secret", h.handleAdminTenantSecret)
 			admin.POST("/tenants/:id/rotate-secret", h.handleAdminRotateSecret)
+			admin.POST("/change-password", h.handleAdminChangePassword)
 		}
 	}
 }

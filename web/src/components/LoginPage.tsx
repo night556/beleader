@@ -13,14 +13,20 @@ function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
     setError('');
     setLoading(true);
     try {
-      const r = await fetch(`${window.location.origin}/api/console/login`, {
+      const url = mode === 'admin'
+        ? `${window.location.origin}/api/admin/login`
+        : `${window.location.origin}/api/console/login`;
+      const body = mode === 'admin'
+        ? JSON.stringify({ username: email, password })
+        : JSON.stringify({ app_key: email, app_secret: password });
+      const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ app_key: email, app_secret: password }),
+        body,
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
-      setAPIKey(data.token, 'console');
+      setAPIKey(data.token, mode === 'admin' ? 'admin' : 'console');
       onLogin(data.token);
     } catch (e: any) {
       setError(e.message);
@@ -77,16 +83,16 @@ function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
           ))}
         </div>
 
-        {mode === 'console' ? (
+        {mode === 'console' || mode === 'admin' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <label className="form-label">App Key</label>
-              <input className="form-input" placeholder="ak_..."
+              <label className="form-label">{mode === 'admin' ? 'Username' : 'App Key'}</label>
+              <input className="form-input" placeholder={mode === 'admin' ? 'admin' : 'ak_...'}
                 value={email} onChange={e => setEmail(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleConsoleLogin()} />
             </div>
             <div>
-              <label className="form-label">App Secret</label>
+              <label className="form-label">{mode === 'admin' ? 'Password' : 'App Secret'}</label>
               <input className="form-input" type="password" placeholder="••••••••"
                 value={password} onChange={e => setPassword(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleConsoleLogin()} />

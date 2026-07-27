@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -11,7 +12,79 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// ── Admin: Tenant CRUD ──
+// ── Admin: Login ──
+
+func (h *Handler) handleAdminLogin(c *gin.Context) {
+	var req struct {
+		Username string `json:"username" binding:"required"`
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	user, err := h.DB.GetAdminUser(req.Username)
+	if err != nil {
+		c.JSON(401, gin.H{"error": "invalid credentials"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		c.JSON(401, gin.H{"error": "invalid credentials"})
+		return
+	}
+
+	// Generate admin API key for this session
+	ak, err := h.DB.CreateAPIKey(0, "admin-session", "admin")
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"token": ak.Key})
+}
+
+func (h *Handler) handleAdminChangePassword(c *gin.Context) {
+	auth := GetAuth(c)
+	if auth == nil || auth.Scope != "admin" {
+		c.JSON(403, gin.H{"error": "admin access required"})
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password" binding:"required"`
+		NewPassword     string `json:"new_password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get the admin user (first one)
+	user, err := h.DB.GetAdminUser("admin")
+	if err != nil {
+		// Try with the env var username
+		user, err = h.DB.GetAdminUser(os.Getenv("ADMIN_USERNAME"))
+		if err != nil {
+			c.JSON(404, gin.H{"error": "admin user not found"})
+			return
+		}
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		c.JSON(401, gin.H{"error": "current password is incorrect"})
+		return
+	}
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err := h.DB.UpdateAdminPassword(user.Username, string(hash)); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"status": "password updated"})
+}
 
 func (h *Handler) handleAdminListTenants(c *gin.Context) {
 	tenants, err := h.DB.ListTenants()

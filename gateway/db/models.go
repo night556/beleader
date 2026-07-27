@@ -58,6 +58,18 @@ type APIKey struct {
 
 func (APIKey) TableName() string { return "api_keys" }
 
+// ── Admin User ──
+
+type AdminUser struct {
+	ID           int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Username     string    `gorm:"size:128;uniqueIndex" json:"username"`
+	PasswordHash string    `gorm:"size:256;default:''" json:"-"`
+	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt    time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+func (AdminUser) TableName() string { return "admin_users" }
+
 // ── Usage Record ──
 
 type UsageRecord struct {
