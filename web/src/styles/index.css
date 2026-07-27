@@ -1913,24 +1913,19 @@ a { color: var(--accent); }
 
 /* ── Copy Button ── */
 .msg-copy-btn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  padding: 3px 8px;
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 3px 0 2px;
   border: none;
-  border-radius: 4px;
-  background: var(--surface);
+  border-top: 1px solid var(--border);
+  background: none;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1;
+  font-size: 11px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border);
+  text-align: left;
 }
-.msg-bubble:hover .msg-copy-btn { opacity: 1; }
-.msg-copy-btn:hover { color: var(--text); }
+.msg-copy-btn:hover { color: var(--accent); }
 .msg-content { position: relative; }
 
 /* ── Sidebar Toggle ── */

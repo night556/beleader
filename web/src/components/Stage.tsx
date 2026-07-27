@@ -179,7 +179,6 @@ const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }
         <div className="msg-header">
           <span className="msg-label">AI</span>
           {hasStreaming && <span className="msg-badge streaming">...</span>}
-          {!hasStreaming && <CopyButton text={copyText} />}
         </div>
         {items.map(item => {
           if (item.type === 'agent') {
@@ -200,6 +199,7 @@ const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }
           return null;
         })}
         {usageText && <div className="msg-usage">{usageText}</div>}
+        {!hasStreaming && <CopyButton text={copyText} />}
       </div>
     </div>
   );
@@ -298,8 +298,8 @@ function CopyButton({ text }: { text: string }) {
     });
   }, [text]);
   return (
-    <button className="msg-copy-btn" onClick={copy} title="Copy">
-      {copied ? '✓' : '⎘'}
+    <button className="msg-copy-btn" onClick={copy}>
+      {copied ? 'Copied ✓' : 'Copy'}
     </button>
   );
 }
@@ -366,7 +366,6 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
         <div className="msg-header">
           <span className="msg-label">{item.label}</span>
           {item.status === 'streaming' && <span className="msg-badge streaming">...</span>}
-          {item.status === 'done' && item.type === 'agent' && <CopyButton text={item.content} />}
         </div>
         {item.type === 'agent' && item.thinking && <ThinkingBlock thinking={item.thinking} streaming={item.status === 'streaming'} thinkingDone={item.thinkingDone} />}
         <div
@@ -382,6 +381,7 @@ const MessageCard = memo(function MessageCard({ item }: { item: TimelineItem }) 
           ) : null}
         </div>
         {item.type === 'agent' && item.usage && <div className="msg-usage">{formatUsage(item.usage)}</div>}
+        {item.status === 'done' && item.type === 'agent' && <CopyButton text={item.content} />}
       </div>
     </div>
   );
