@@ -25,6 +25,8 @@ services:
       - DB_DRIVER=sqlite
       - DB_PATH=/app/data/gateway.db
       - GATEWAY_TOKEN=${GATEWAY_TOKEN:-rt_dev_xxx}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     volumes:
       - workspace-data:/app/data
     restart: unless-stopped
