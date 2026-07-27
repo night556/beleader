@@ -183,9 +183,13 @@ export function ModelPage() {
                     <label className="form-label">Context Limit</label>
                     <input
                       className="form-input"
-                      type="number"
-                      value={form.context_limit}
-                      onChange={e => setForm({ ...form, context_limit: Number(e.target.value) })}
+                      type="text"
+                      inputMode="numeric"
+                      value={form.context_limit || ''}
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        setForm({ ...form, context_limit: val === '' ? 0 : parseInt(val, 10) });
+                      }}
                     />
                   </div>
                   <div className="form-group">
