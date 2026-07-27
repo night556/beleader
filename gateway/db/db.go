@@ -1,6 +1,8 @@
 package db
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -155,22 +157,127 @@ func (db *DB) setSchemaVersion(v int) {
 
 func (db *DB) autoMigrate() error {
 	if err := db.GORM.AutoMigrate(
+		&Tenant{}, &APIKey{}, &UsageRecord{},
 		&Pool{}, &ToolAgent{}, &Thread{}, &Message{}, &Event{},
 		&Agent{}, &ModelProfile{}, &MCPServer{},
 	); err != nil {
 		return err
 	}
 	v := db.schemaVersion()
-	if v < 1 {
-		db.setSchemaVersion(1)
+	if v < 2 {
+		// Migrate existing data: set tenant_id=NULL for platform scope
+		db.GORM.Model(&Agent{}).Where("tenant_id IS NULL").Update("tenant_id", nil)
+		db.GORM.Model(&ModelProfile{}).Where("tenant_id IS NULL").Update("tenant_id", nil)
+		db.GORM.Model(&MCPServer{}).Where("tenant_id IS NULL").Update("tenant_id", nil)
+		db.setSchemaVersion(2)
 	}
 	db.seedDefaultAgent()
+	db.seedAdminKey()
 	return nil
 }
 
-// ── Pool ──
+// ── Tenant methods ──
 
-// ── Pool methods ──
+func (db *DB) CreateTenant(name string) (*Tenant, error) {
+	t := &Tenant{Name: name, Status: "active"}
+	if err := db.GORM.Create(t).Error; err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+func (db *DB) GetTenant(id int64) (*Tenant, error) {
+	var t Tenant
+	if err := db.GORM.First(&t, id).Error; err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (db *DB) ListTenants() ([]Tenant, error) {
+	var tenants []Tenant
+	err := db.GORM.Order("id ASC").Find(&tenants).Error
+	return tenants, err
+}
+
+func (db *DB) UpdateTenant(id int64, updates map[string]any) error {
+	return db.GORM.Model(&Tenant{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (db *DB) DeleteTenant(id int64) error {
+	return db.GORM.Where("id = ?", id).Delete(&Tenant{}).Error
+}
+
+// ── API Key methods ──
+
+func (db *DB) CreateAPIKey(tenantID int64, name, scope string) (*APIKey, error) {
+	key := "bl_" + randomHex(32)
+	ak := &APIKey{TenantID: tenantID, Key: key, Name: name, Scope: scope}
+	if err := db.GORM.Create(ak).Error; err != nil {
+		return nil, err
+	}
+	return ak, nil
+}
+
+func (db *DB) GetAPIKeyByKey(key string) (*APIKey, error) {
+	var ak APIKey
+	if err := db.GORM.Where("key = ?", key).First(&ak).Error; err != nil {
+		return nil, err
+	}
+	return &ak, nil
+}
+
+func (db *DB) ListAPIKeys(tenantID int64) ([]APIKey, error) {
+	var keys []APIKey
+	err := db.GORM.Where("tenant_id = ?", tenantID).Order("id ASC").Find(&keys).Error
+	return keys, err
+}
+
+func (db *DB) DeleteAPIKey(id int64) error {
+	return db.GORM.Where("id = ?", id).Delete(&APIKey{}).Error
+}
+
+func (db *DB) seedAdminKey() {
+	var count int64
+	db.GORM.Model(&APIKey{}).Where("scope = 'admin'").Count(&count)
+	if count == 0 {
+		adminKey := "bl_admin_" + randomHex(32)
+		db.GORM.Create(&APIKey{Key: adminKey, Name: "Default Admin", Scope: "admin"})
+		fmt.Fprintf(os.Stderr, "[DB] Admin API key: %s\n", adminKey)
+	}
+}
+
+// ── Usage methods ──
+
+func (db *DB) RecordUsage(tenantID int64, apiKeyID int64, userID, threadID string, prompt, completion, total int) error {
+	r := &UsageRecord{
+		TenantID:         tenantID,
+		APIKeyID:         apiKeyID,
+		UserID:           userID,
+		ThreadID:         threadID,
+		PromptTokens:     prompt,
+		CompletionTokens: completion,
+		TotalTokens:      total,
+	}
+	return db.GORM.Create(r).Error
+}
+
+func (db *DB) GetTenantUsage(tenantID int64, since time.Time) ([]UsageRecord, error) {
+	var records []UsageRecord
+	err := db.GORM.Where("tenant_id = ? AND created_at >= ?", tenantID, since).
+		Order("created_at DESC").Find(&records).Error
+	return records, err
+}
+
+func (db *DB) GetTenantUsageSummary(tenantID int64, since time.Time) (totalTokens int64, err error) {
+	err = db.GORM.Model(&UsageRecord{}).
+		Where("tenant_id = ? AND created_at >= ?", tenantID, since).
+		Select("COALESCE(SUM(total_tokens), 0)").
+		Scan(&totalTokens).Error
+	return
+}
+
+// ── Pool ──
 
 func (db *DB) ListPools() ([]Pool, error) {
 	var pools []Pool
@@ -197,7 +304,6 @@ func (db *DB) GetPoolByName(name string) (*Pool, error) {
 func (db *DB) GetDefaultPool() (*Pool, error) {
 	var p Pool
 	if err := db.GORM.Where("is_default = 1").First(&p).Error; err != nil {
-		// fallback: first pool
 		if err2 := db.GORM.First(&p).Error; err2 != nil {
 			return nil, err2
 		}
@@ -232,8 +338,6 @@ func (db *DB) UpdatePoolToolDefs(id int64, toolDefs string) error {
 
 func (db *DB) UpsertToolAgent(name, url string, poolID int64) (*ToolAgent, error) {
 	var ta ToolAgent
-	// Dedup by pool_id + url: same pool, same address = same agent.
-	// Container hostnames change on restart, so name is not a stable key.
 	err := db.GORM.Where("pool_id = ? AND url = ?", poolID, url).First(&ta).Error
 	if err != nil {
 		ta = ToolAgent{Name: name, URL: url, PoolID: poolID, Status: "active", LastHeartbeat: time.Now()}
@@ -242,7 +346,6 @@ func (db *DB) UpsertToolAgent(name, url string, poolID int64) (*ToolAgent, error
 		}
 		return &ta, nil
 	}
-	// Update name (hostname may have changed on restart), refresh heartbeat
 	ta.Name = name
 	ta.URL = url
 	ta.PoolID = poolID
@@ -274,8 +377,6 @@ func (db *DB) ListActiveToolAgentsByPool(poolID int64) ([]ToolAgent, error) {
 	return agents, err
 }
 
-// GetMCPVersion returns per-server version stamps: {name: updated_at}.
-// Tool-agent compares to detect which servers changed and need reconnect.
 func (db *DB) GetMCPVersion(poolID int64) map[string]string {
 	var servers []MCPServer
 	db.GORM.Where("pool_id = ?", poolID).Find(&servers)
@@ -300,17 +401,17 @@ func (db *DB) DeleteToolAgent(id int64) error {
 
 // ── Thread methods ──
 
-func (db *DB) CreateThread(id, title string, agentID int64, modelID string, poolID int64, workspacePath string) error {
+func (db *DB) CreateThread(id, title string, agentID int64, modelID string, poolID int64, tenantID int64, workspacePath string) error {
 	return db.GORM.Create(&Thread{
 		ID: id, Title: title, AgentID: agentID, ModelID: modelID,
-		PoolID: poolID, WorkspacePath: workspacePath,
+		PoolID: poolID, TenantID: tenantID, WorkspacePath: workspacePath,
 	}).Error
 }
 
-func (db *DB) CreateWorkerThread(id, title, parentThreadID string, agentID int64, modelID string, poolID int64, workspacePath string) error {
+func (db *DB) CreateWorkerThread(id, title, parentThreadID string, agentID int64, modelID string, poolID int64, tenantID int64, workspacePath string) error {
 	return db.GORM.Create(&Thread{
 		ID: id, Title: title, AgentID: agentID, ModelID: modelID,
-		PoolID: poolID, WorkspacePath: workspacePath,
+		PoolID: poolID, TenantID: tenantID, WorkspacePath: workspacePath,
 		ParentThreadID: parentThreadID, Status: "running",
 	}).Error
 }
@@ -351,16 +452,16 @@ func (db *DB) GetThread(id string) (*Thread, error) {
 	return &t, nil
 }
 
-func (db *DB) ListThreads() ([]Thread, error) {
+func (db *DB) ListThreads(tenantID int64) ([]Thread, error) {
 	var threads []Thread
-	err := db.GORM.Where("parent_thread_id = ''").Order("updated_at DESC").Find(&threads).Error
+	err := db.GORM.Where("parent_thread_id = '' AND tenant_id = ?", tenantID).
+		Order("updated_at DESC").Find(&threads).Error
 	return threads, err
 }
 
 func (db *DB) DeleteThread(id string) error {
 	db.DeleteMessages(id)
 	db.DeleteEvents(id)
-	// delete child threads
 	var children []Thread
 	db.GORM.Where("parent_thread_id = ?", id).Find(&children)
 	for _, c := range children {
@@ -387,7 +488,6 @@ func (db *DB) GetMessages(threadID string, afterID int64, limit int) ([]Message,
 	return msgs, err
 }
 
-// GetMessagesBefore returns messages with id < beforeID, newest first, limited.
 func (db *DB) GetMessagesBefore(threadID string, beforeID int64, limit int) ([]Message, error) {
 	var msgs []Message
 	err := db.GORM.Where("thread_id = ? AND id < ?", threadID, beforeID).
@@ -397,14 +497,12 @@ func (db *DB) GetMessagesBefore(threadID string, beforeID int64, limit int) ([]M
 	if err != nil {
 		return nil, err
 	}
-	// Reverse to chronological order
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
 	return msgs, nil
 }
 
-// GetRecentMessagesByCount returns the last N messages for a thread.
 func (db *DB) GetRecentMessagesByCount(threadID string, limit int) ([]Message, error) {
 	var msgs []Message
 	err := db.GORM.Where("thread_id = ?", threadID).
@@ -414,7 +512,6 @@ func (db *DB) GetRecentMessagesByCount(threadID string, limit int) ([]Message, e
 	if err != nil {
 		return nil, err
 	}
-	// Reverse to chronological order
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
@@ -454,9 +551,6 @@ func (db *DB) GetEvents(threadID string, sinceID int64) ([]Event, error) {
 	return events, err
 }
 
-// GetLastCompletedEventID returns the event ID of the last item.completed
-// for a thread, or 0 if none. Used by getMessages so SSE can replay from
-// the right point — only the currently streaming item's deltas.
 func (db *DB) GetLastCompletedEventID(threadID string) int64 {
 	var id int64
 	db.GORM.Model(&Event{}).
@@ -465,9 +559,6 @@ func (db *DB) GetLastCompletedEventID(threadID string) int64 {
 	return id
 }
 
-// GetEventsSinceLastCompleted returns events after the most recent
-// item.completed. Used for first SSE connection (since_id=0) to replay
-// only the currently streaming item.
 func (db *DB) GetEventsSinceLastCompleted(threadID string) ([]Event, error) {
 	var lastCompletedID int64
 	db.GORM.Model(&Event{}).
@@ -481,11 +572,11 @@ func (db *DB) DeleteEvents(threadID string) error {
 	return db.GORM.Where("thread_id = ?", threadID).Delete(&Event{}).Error
 }
 
-// ── Agent methods ──
+// ── Agent methods (tenant-aware) ──
 
-func (db *DB) CreateAgent(name, desc, systemPrompt, tools, defaultModelID, mcpServers, workerAgents string) error {
+func (db *DB) CreateAgent(tenantID *int64, name, desc, systemPrompt, tools, defaultModelID, mcpServers, workerAgents string) error {
 	return db.GORM.Create(&Agent{
-		Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools,
+		TenantID: tenantID, Name: name, Desc: desc, SystemPrompt: systemPrompt, Tools: tools,
 		DefaultModelID: defaultModelID, MCPServers: mcpServers, WorkerAgents: workerAgents,
 	}).Error
 }
@@ -502,9 +593,11 @@ func (db *DB) DeleteAgent(id int64) error {
 	return db.GORM.Where("id = ?", id).Delete(&Agent{}).Error
 }
 
-func (db *DB) ListAgents() ([]Agent, error) {
+// ListAgents returns agents visible to a tenant (platform-level + own).
+func (db *DB) ListAgents(tenantID int64) ([]Agent, error) {
 	var agents []Agent
-	err := db.GORM.Order("name ASC").Find(&agents).Error
+	err := db.GORM.Where("tenant_id IS NULL OR tenant_id = ?", tenantID).
+		Order("tenant_id ASC, name ASC").Find(&agents).Error
 	return agents, err
 }
 
@@ -516,19 +609,21 @@ func (db *DB) GetAgent(id int64) (*Agent, error) {
 	return &a, nil
 }
 
-func (db *DB) GetAgentByName(name string) (*Agent, error) {
+func (db *DB) GetAgentByName(tenantID int64, name string) (*Agent, error) {
 	var a Agent
-	if err := db.GORM.Where("name = ?", name).First(&a).Error; err != nil {
+	if err := db.GORM.Where("name = ? AND (tenant_id IS NULL OR tenant_id = ?)", name, tenantID).
+		First(&a).Error; err != nil {
 		return nil, err
 	}
 	return &a, nil
 }
 
-// ── Model methods ──
+// ── Model methods (tenant-aware) ──
 
-func (db *DB) ListModels() ([]ModelProfile, error) {
+func (db *DB) ListModels(tenantID int64) ([]ModelProfile, error) {
 	var models []ModelProfile
-	err := db.GORM.Order("id ASC").Find(&models).Error
+	err := db.GORM.Where("tenant_id IS NULL OR tenant_id = ?", tenantID).
+		Order("tenant_id ASC, model_id ASC").Find(&models).Error
 	return models, err
 }
 
@@ -540,9 +635,10 @@ func (db *DB) ActiveModel() (*ModelProfile, error) {
 	return &m, nil
 }
 
-func (db *DB) GetModelByID(modelID string) (*ModelProfile, error) {
+func (db *DB) GetModelByID(tenantID int64, modelID string) (*ModelProfile, error) {
 	var m ModelProfile
-	if err := db.GORM.Where("model_id = ?", modelID).First(&m).Error; err != nil {
+	if err := db.GORM.Where("model_id = ? AND (tenant_id IS NULL OR tenant_id = ?)", modelID, tenantID).
+		First(&m).Error; err != nil {
 		return nil, err
 	}
 	return &m, nil
@@ -574,7 +670,7 @@ func (db *DB) SetActiveModel(modelID string) error {
 	})
 }
 
-// ── MCP Server methods ──
+// ── MCP Server methods (tenant-aware) ──
 
 func (db *DB) CreateMCPServer(s *MCPServer) error {
 	return db.GORM.Create(s).Error
@@ -600,9 +696,10 @@ func (db *DB) GetMCPServerByID(id int64) (*MCPServer, error) {
 	return &s, nil
 }
 
-func (db *DB) ListMCPServers() ([]MCPServer, error) {
+func (db *DB) ListMCPServers(tenantID int64) ([]MCPServer, error) {
 	var servers []MCPServer
-	err := db.GORM.Order("name ASC").Find(&servers).Error
+	err := db.GORM.Where("tenant_id IS NULL OR tenant_id = ?", tenantID).
+		Order("tenant_id ASC, name ASC").Find(&servers).Error
 	return servers, err
 }
 
@@ -613,6 +710,12 @@ func (db *DB) ListMCPServersByPool(poolID int64) ([]MCPServer, error) {
 }
 
 // ── Helpers ──
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 func ParsePinnedIDs(s string) []int64 {
 	var ids []int64

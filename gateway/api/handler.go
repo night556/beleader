@@ -85,8 +85,12 @@ func (h *Handler) Notify(event SessionEvent) {
 }
 
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
+	// Auth middleware
+	r.Use(AuthMiddleware(h.DB))
+
 	api := r.Group("/api")
 	{
+		// Public API (chat + threads)
 		api.POST("/chat", h.handleChat)
 		api.GET("/sse", h.handleSSE)
 
@@ -101,6 +105,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/threads/:id/workers", h.handleListWorkers)
 		api.POST("/threads/:id/workers/:workerID/stop", h.handleStopWorker)
 
+		// Agent/Model/MCP (visible to all, writes require console scope)
 		api.GET("/agents", h.handleListAgents)
 		api.POST("/agents", h.handleCreateAgent)
 		api.PUT("/agents/:id", h.handleUpdateAgent)
@@ -119,18 +124,44 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.DELETE("/mcp/servers/:id", h.handleDeleteMCPServer)
 		api.POST("/mcp/servers/:id/test", h.handleTestMCPServer)
 
-		// Pool management
+		// Pool management (admin only)
 		api.GET("/pools", h.handleListPools)
-		api.POST("/pools", h.handleCreatePool)
-		api.PUT("/pools/:id", h.handleUpdatePool)
-		api.PUT("/pools/:id/default", h.handleSetDefaultPool)
-		api.DELETE("/pools/:id", h.handleDeletePool)
+		api.POST("/pools", RequireAdmin, h.handleCreatePool)
+		api.PUT("/pools/:id", RequireAdmin, h.handleUpdatePool)
+		api.PUT("/pools/:id/default", RequireAdmin, h.handleSetDefaultPool)
+		api.DELETE("/pools/:id", RequireAdmin, h.handleDeletePool)
 
-		// Tool Agent management (replaces runtime)
+		// Tool Agent management (admin only)
 		api.POST("/tool-agents/register", h.handleToolAgentRegister)
 		api.POST("/tool-agents/heartbeat", h.handleToolAgentHeartbeat)
 		api.GET("/tool-agents", h.handleListToolAgents)
-		api.DELETE("/tool-agents/:id", h.handleDeleteToolAgent)
+		api.DELETE("/tool-agents/:id", RequireAdmin, h.handleDeleteToolAgent)
+
+		// Console API
+		console := api.Group("/console")
+		console.Use(RequireScope("console"))
+		{
+			console.GET("/dashboard", h.handleConsoleDashboard)
+			console.GET("/keys", h.handleConsoleListKeys)
+			console.POST("/keys", h.handleConsoleCreateKey)
+			console.DELETE("/keys/:id", h.handleConsoleDeleteKey)
+			console.GET("/usage", h.handleConsoleUsage)
+		}
+
+		// Admin API
+		admin := api.Group("/admin")
+		admin.Use(RequireAdmin)
+		{
+			admin.GET("/tenants", h.handleAdminListTenants)
+			admin.POST("/tenants", h.handleAdminCreateTenant)
+			admin.PUT("/tenants/:id", h.handleAdminUpdateTenant)
+			admin.DELETE("/tenants/:id", h.handleAdminDeleteTenant)
+			admin.POST("/tenants/:id/recharge", h.handleAdminRechargeTenant)
+			admin.GET("/tenants/:id/keys", h.handleAdminListTenantKeys)
+			admin.POST("/tenants/:id/keys", h.handleAdminCreateTenantKey)
+			admin.DELETE("/tenants/:id/keys/:kid", h.handleAdminDeleteTenantKey)
+			admin.GET("/tenants/:id/usage", h.handleAdminTenantUsage)
+		}
 	}
 }
 
@@ -170,7 +201,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 			return
 		}
 
-		model = h.resolveModel(agent.ID, req.ModelID)
+		model = h.resolveModel(TenantIDFromAuth(c), agent.ID, req.ModelID)
 		if model != nil && req.ReasoningEffort != "" {
 			m := *model
 			m.ReasoningEffort = req.ReasoningEffort
@@ -221,9 +252,9 @@ func (h *Handler) handleChat(c *gin.Context) {
 		}
 
 		if req.ParentThreadID != "" {
-			h.DB.CreateWorkerThread(threadID, title, req.ParentThreadID, agent.ID, modelID, poolID, workspacePath)
+			h.DB.CreateWorkerThread(threadID, title, req.ParentThreadID, agent.ID, modelID, poolID, TenantIDFromAuth(c), workspacePath)
 		} else {
-			h.DB.CreateThread(threadID, title, agent.ID, modelID, poolID, workspacePath)
+			h.DB.CreateThread(threadID, title, agent.ID, modelID, poolID, TenantIDFromAuth(c), workspacePath)
 		}
 	} else {
 		// Existing thread — read agent and model from thread, ignore req
@@ -238,7 +269,7 @@ func (h *Handler) handleChat(c *gin.Context) {
 			c.JSON(400, gin.H{"error": "thread's agent not found"})
 			return
 		}
-		model = h.resolveModel(existingThread.AgentID, existingThread.ModelID)
+		model = h.resolveModel(existingThread.TenantID, existingThread.AgentID, existingThread.ModelID)
 		if model != nil && req.ReasoningEffort != "" {
 			m := *model
 			m.ReasoningEffort = req.ReasoningEffort
@@ -345,6 +376,10 @@ func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelPr
 			"message": "Agent loop error: " + err.Error(),
 		}})
 	}
+	if result != nil && result.Usage.Total > 0 && thread.TenantID > 0 {
+		h.DB.RecordUsage(thread.TenantID, 0, "", threadID,
+			result.Usage.Prompt, result.Usage.Completion, result.Usage.Total)
+	}
 	_ = result
 }
 
@@ -430,7 +465,7 @@ func (h *Handler) buildToolList(thread *db.Thread, agent *db.Agent) []openai.Too
 // ── Worker lifecycle (callbacks for tools package) ──
 
 func (h *Handler) spawnWorker(ctx context.Context, parentThread *db.Thread, agentName, task, poolName string) (string, error) {
-	workerAgent, err := h.DB.GetAgentByName(agentName)
+	workerAgent, err := h.DB.GetAgentByName(parentThread.TenantID, agentName)
 	if err != nil {
 		return "", fmt.Errorf("agent '%s' not found", agentName)
 	}
@@ -445,7 +480,7 @@ func (h *Handler) spawnWorker(ctx context.Context, parentThread *db.Thread, agen
 	}
 
 	workerID := uuid.New().String()
-	model := h.resolveModel(workerAgent.ID, "")
+	model := h.resolveModel(parentThread.TenantID, workerAgent.ID, "")
 
 	// Init workspace
 	workspacePath := ""
@@ -468,7 +503,7 @@ func (h *Handler) spawnWorker(ctx context.Context, parentThread *db.Thread, agen
 		title = title[:80]
 	}
 
-	h.DB.CreateWorkerThread(workerID, title, parentThread.ID, workerAgent.ID, modelID, poolID, workspacePath)
+	h.DB.CreateWorkerThread(workerID, title, parentThread.ID, workerAgent.ID, modelID, poolID, parentThread.TenantID, workspacePath)
 
 	// Notify parent thread that a worker was dispatched
 	h.Notify(SessionEvent{Type: "worker.dispatched", SessionID: parentThread.ID, Data: map[string]any{
@@ -497,7 +532,7 @@ func (h *Handler) interveneWorkerThread(ctx context.Context, workerThreadID, mes
 	if agent == nil {
 		return fmt.Errorf("agent not found")
 	}
-	model := h.resolveModel(agent.ID, "")
+	model := h.resolveModel(thread.TenantID, agent.ID, "")
 	h.cancelThread(workerThreadID)
 	go h.runSession(workerThreadID, agent, model, message, nil)
 	return nil
@@ -587,7 +622,7 @@ func (h *Handler) tryCheckCompletedWorkers(threadID string) {
 	if err != nil {
 		return
 	}
-	model := h.resolveModel(agent.ID, "")
+	model := h.resolveModel(t.TenantID, agent.ID, "")
 	go h.runSession(threadID, agent, model, b.String(), nil)
 }
 
@@ -606,21 +641,21 @@ func (h *Handler) cancelThread(threadID string) {
 
 // ── Helpers ──
 
-func (h *Handler) resolveModel(agentID int64, overrideModelID string) *db.ModelProfile {
+func (h *Handler) resolveModel(tenantID int64, agentID int64, overrideModelID string) *db.ModelProfile {
 	if overrideModelID != "" {
-		if m, err := h.DB.GetModelByID(overrideModelID); err == nil {
+		if m, err := h.DB.GetModelByID(tenantID, overrideModelID); err == nil {
 			return m
 		}
 	}
 	if agentID != 0 {
 		agent, err := h.DB.GetAgent(agentID)
 		if err == nil && agent.DefaultModelID != "" {
-			if m, err := h.DB.GetModelByID(agent.DefaultModelID); err == nil {
+			if m, err := h.DB.GetModelByID(tenantID, agent.DefaultModelID); err == nil {
 				return m
 			}
 		}
 	}
-	models, _ := h.DB.ListModels()
+	models, _ := h.DB.ListModels(tenantID)
 	if len(models) > 0 {
 		return &models[0]
 	}
@@ -697,7 +732,7 @@ func (h *Handler) handleSSE(c *gin.Context) {
 // ── Thread CRUD ──
 
 func (h *Handler) handleListThreads(c *gin.Context) {
-	threads, err := h.DB.ListThreads()
+	threads, err := h.DB.ListThreads(TenantIDFromAuth(c))
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -875,7 +910,7 @@ func (h *Handler) handleResume(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "agent not found"})
 		return
 	}
-	model := h.resolveModel(agent.ID, "")
+	model := h.resolveModel(TenantIDFromAuth(c), agent.ID, "")
 	go h.runSession(threadID, agent, model, "[System] Please continue.", nil)
 	c.JSON(200, gin.H{"status": "resumed"})
 }
@@ -902,7 +937,7 @@ func (h *Handler) handleIntervene(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "agent not found"})
 		return
 	}
-	model := h.resolveModel(agent.ID, "")
+	model := h.resolveModel(TenantIDFromAuth(c), agent.ID, "")
 	go h.runSession(threadID, agent, model, req.Message, req.Images)
 	c.JSON(200, gin.H{"status": "intervened"})
 }

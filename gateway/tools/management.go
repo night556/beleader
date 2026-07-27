@@ -55,14 +55,14 @@ func createAgentHandler(ctx context.Context, thread *db.Thread, args string) *en
 		b, _ := json.Marshal(p.WorkerAgents)
 		workerJSON = string(b)
 	}
-	if err := globalDB.CreateAgent(p.Name, p.Desc, p.SystemPrompt, toolsJSON, p.DefaultModelID, mcpJSON, workerJSON); err != nil {
+	if err := globalDB.CreateAgent(tidPtr(thread), p.Name, p.Desc, p.SystemPrompt, toolsJSON, p.DefaultModelID, mcpJSON, workerJSON); err != nil {
 		return &engine.ToolResult{Error: err.Error()}
 	}
 	return &engine.ToolResult{Content: "Agent created: " + p.Name}
 }
 
 func listAgentsHandler(ctx context.Context, thread *db.Thread, args string) *engine.ToolResult {
-	agents, err := globalDB.ListAgents()
+	agents, err := globalDB.ListAgents(tid(thread))
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
 	}
@@ -165,7 +165,7 @@ func listResourcesHandler(ctx context.Context, thread *db.Thread, args string) *
 	json.Unmarshal([]byte(args), &p)
 	switch p.Type {
 	case "models":
-		models, err := globalDB.ListModels()
+		models, err := globalDB.ListModels(tid(thread))
 		if err != nil {
 			return &engine.ToolResult{Error: err.Error()}
 		}
@@ -233,7 +233,7 @@ func deleteMCPServerHandler(ctx context.Context, thread *db.Thread, args string)
 }
 
 func listMCPServersHandler(ctx context.Context, thread *db.Thread, args string) *engine.ToolResult {
-	servers, err := globalDB.ListMCPServers()
+	servers, err := globalDB.ListMCPServers(tid(thread))
 	if err != nil {
 		return &engine.ToolResult{Error: err.Error()}
 	}
@@ -246,4 +246,19 @@ func defaultIfEmpty(s, def string) string {
 		return def
 	}
 	return s
+}
+
+func tid(thread *db.Thread) int64 {
+	if thread != nil {
+		return thread.TenantID
+	}
+	return 0
+}
+
+func tidPtr(thread *db.Thread) *int64 {
+	if thread != nil && thread.TenantID > 0 {
+		t := thread.TenantID
+		return &t
+	}
+	return nil
 }

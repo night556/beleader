@@ -13,7 +13,7 @@ import (
 )
 
 func (h *Handler) handleListMCPServers(c *gin.Context) {
-	servers, err := h.DB.ListMCPServers()
+	servers, err := h.DB.ListMCPServers(TenantIDFromAuth(c))
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -36,6 +36,14 @@ func (h *Handler) handleCreateMCPServer(c *gin.Context) {
 		return
 	}
 
+	// Non-admin tenants can only create HTTP MCP servers
+	auth := GetAuth(c)
+	if auth != nil && auth.Scope != "admin" && s.Type != "http" {
+		c.JSON(403, gin.H{"error": "only HTTP MCP servers are allowed"})
+		return
+	}
+
+	s.TenantID = TenantIDPtr(c)
 	if err := h.DB.CreateMCPServer(&s); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return

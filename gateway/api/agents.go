@@ -11,7 +11,7 @@ import (
 )
 
 func (h *Handler) handleListAgents(c *gin.Context) {
-	agents, err := h.DB.ListAgents()
+	agents, err := h.DB.ListAgents(TenantIDFromAuth(c))
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -46,12 +46,12 @@ func (h *Handler) handleCreateAgent(c *gin.Context) {
 	if req.WorkerAgents == "" {
 		req.WorkerAgents = "[]"
 	}
-	if err := h.DB.CreateAgent(req.Name, req.Desc, req.SystemPrompt, req.Tools, req.DefaultModelID, req.MCPServers, req.WorkerAgents); err != nil {
+	if err := h.DB.CreateAgent(TenantIDPtr(c), req.Name, req.Desc, req.SystemPrompt, req.Tools, req.DefaultModelID, req.MCPServers, req.WorkerAgents); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 	// Fetch and return the created agent
-	agent, _ := h.DB.GetAgentByName(req.Name)
+	agent, _ := h.DB.GetAgentByName(TenantIDFromAuth(c), req.Name)
 	c.JSON(201, agent)
 }
 
@@ -102,7 +102,7 @@ func (h *Handler) handleDeleteAgent(c *gin.Context) {
 // ── Models ──
 
 func (h *Handler) handleListModels(c *gin.Context) {
-	dbModels, err := h.DB.ListModels()
+	dbModels, err := h.DB.ListModels(TenantIDFromAuth(c))
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -123,6 +123,7 @@ func (h *Handler) handleCreateModel(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "id is required"})
 		return
 	}
+	m.TenantID = TenantIDPtr(c)
 	if err := h.DB.CreateModel(&m); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return

@@ -1,0 +1,309 @@
+package api
+
+import (
+	"fmt"
+	"strconv"
+	"time"
+
+	"beleader/gateway/db"
+
+	"github.com/gin-gonic/gin"
+)
+
+// ── Admin: Tenant CRUD ──
+
+func (h *Handler) handleAdminListTenants(c *gin.Context) {
+	tenants, err := h.DB.ListTenants()
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if tenants == nil {
+		tenants = []db.Tenant{}
+	}
+	c.JSON(200, tenants)
+}
+
+func (h *Handler) handleAdminCreateTenant(c *gin.Context) {
+	var req struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	t, err := h.DB.CreateTenant(req.Name)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(201, t)
+}
+
+func (h *Handler) handleAdminUpdateTenant(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	var req map[string]any
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.DB.UpdateTenant(id, req); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func (h *Handler) handleAdminDeleteTenant(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.DB.DeleteTenant(id); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
+}
+
+func (h *Handler) handleAdminRechargeTenant(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	var req struct {
+		Amount float64 `json:"amount" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	tenant, err := h.DB.GetTenant(id)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "tenant not found"})
+		return
+	}
+	newBalance := tenant.Balance + req.Amount
+	if err := h.DB.UpdateTenant(id, map[string]any{"balance": newBalance}); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"balance": newBalance})
+}
+
+// ── Admin: API Key Management ──
+
+func (h *Handler) handleAdminCreateTenantKey(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	var req struct {
+		Name  string `json:"name"`
+		Scope string `json:"scope"` // "console" or "api"
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Scope == "" {
+		req.Scope = "api"
+	}
+	ak, err := h.DB.CreateAPIKey(id, req.Name, req.Scope)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(201, ak)
+}
+
+func (h *Handler) handleAdminListTenantKeys(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	keys, err := h.DB.ListAPIKeys(id)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if keys == nil {
+		keys = []db.APIKey{}
+	}
+	c.JSON(200, keys)
+}
+
+func (h *Handler) handleAdminDeleteTenantKey(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	kid, err := strconv.ParseInt(c.Param("kid"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid key id"})
+		return
+	}
+	if err := h.DB.DeleteAPIKey(kid); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	_ = id
+	c.JSON(200, gin.H{"status": "deleted"})
+}
+
+// ── Admin: Usage ──
+
+func (h *Handler) handleAdminTenantUsage(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	days := 30
+	if v := c.Query("days"); v != "" {
+		fmt.Sscanf(v, "%d", &days)
+	}
+	since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	records, err := h.DB.GetTenantUsage(id, since)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	totalTokens, _ := h.DB.GetTenantUsageSummary(id, since)
+	c.JSON(200, gin.H{
+		"records":      records,
+		"total_tokens": totalTokens,
+		"days":         days,
+	})
+}
+
+// ── Console: API Key Management ──
+
+func (h *Handler) handleConsoleCreateKey(c *gin.Context) {
+	auth := GetAuth(c)
+	if auth == nil {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+	var req struct {
+		Name  string `json:"name"`
+		Scope string `json:"scope"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Scope == "" {
+		req.Scope = "api"
+	}
+	ak, err := h.DB.CreateAPIKey(auth.TenantID, req.Name, req.Scope)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(201, ak)
+}
+
+func (h *Handler) handleConsoleListKeys(c *gin.Context) {
+	auth := GetAuth(c)
+	if auth == nil {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+	keys, err := h.DB.ListAPIKeys(auth.TenantID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if keys == nil {
+		keys = []db.APIKey{}
+	}
+	c.JSON(200, keys)
+}
+
+func (h *Handler) handleConsoleDeleteKey(c *gin.Context) {
+	auth := GetAuth(c)
+	if auth == nil {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+	kid, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	// Verify the key belongs to the tenant
+	keys, _ := h.DB.ListAPIKeys(auth.TenantID)
+	found := false
+	for _, k := range keys {
+		if k.ID == kid {
+			found = true
+			break
+		}
+	}
+	if !found {
+		c.JSON(404, gin.H{"error": "key not found"})
+		return
+	}
+	if err := h.DB.DeleteAPIKey(kid); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
+}
+
+// ── Console: Usage ──
+
+func (h *Handler) handleConsoleUsage(c *gin.Context) {
+	auth := GetAuth(c)
+	if auth == nil {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+	days := 30
+	if v := c.Query("days"); v != "" {
+		fmt.Sscanf(v, "%d", &days)
+	}
+	since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	records, err := h.DB.GetTenantUsage(auth.TenantID, since)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	totalTokens, _ := h.DB.GetTenantUsageSummary(auth.TenantID, since)
+	c.JSON(200, gin.H{
+		"records":      records,
+		"total_tokens": totalTokens,
+		"days":         days,
+	})
+}
+
+// ── Console: Dashboard ──
+
+func (h *Handler) handleConsoleDashboard(c *gin.Context) {
+	auth := GetAuth(c)
+	if auth == nil {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+	tenant, err := h.DB.GetTenant(auth.TenantID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "tenant not found"})
+		return
+	}
+	since := time.Now().Add(-24 * time.Hour)
+	total24h, _ := h.DB.GetTenantUsageSummary(auth.TenantID, since)
+	c.JSON(200, gin.H{
+		"tenant":      tenant,
+		"tokens_24h":  total24h,
+	})
+}

@@ -2,6 +2,54 @@ package db
 
 import "time"
 
+// ── Tenant ──
+
+type Tenant struct {
+	ID          int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name        string    `gorm:"size:128;uniqueIndex" json:"name"`
+	Balance     float64   `gorm:"default:0" json:"balance"`
+	QuotaTokens int64     `gorm:"default:0" json:"quota_tokens"`
+	QuotaRPM    int       `gorm:"default:0" json:"quota_rpm"`
+	WebhookURL  string    `gorm:"size:512;default:''" json:"webhook_url"`
+	WebhookKey  string    `gorm:"size:128;default:''" json:"webhook_key"`
+	Status      string    `gorm:"size:16;default:'active'" json:"status"`
+	CreatedAt   time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+func (Tenant) TableName() string { return "tenants" }
+
+// ── API Key ──
+
+type APIKey struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	TenantID  int64     `gorm:"index" json:"tenant_id"`
+	Key       string    `gorm:"size:128;uniqueIndex" json:"key"`
+	Name      string    `gorm:"size:128;default:''" json:"name"`
+	Scope     string    `gorm:"size:16;default:'api'" json:"scope"`
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+}
+
+func (APIKey) TableName() string { return "api_keys" }
+
+// ── Usage Record ──
+
+type UsageRecord struct {
+	ID               int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	TenantID         int64     `gorm:"index" json:"tenant_id"`
+	APIKeyID         int64     `gorm:"default:0" json:"api_key_id"`
+	UserID           string    `gorm:"size:64;default:''" json:"user_id"`
+	ThreadID         string    `gorm:"size:64;default:''" json:"thread_id"`
+	PromptTokens     int       `gorm:"default:0" json:"prompt_tokens"`
+	CompletionTokens int       `gorm:"default:0" json:"completion_tokens"`
+	TotalTokens      int       `gorm:"default:0" json:"total_tokens"`
+	Cost             float64   `gorm:"default:0" json:"cost"`
+	CreatedAt        time.Time `gorm:"autoCreateTime;index" json:"created_at"`
+}
+
+func (UsageRecord) TableName() string { return "usage_records" }
+
+// ── Pool ──
 
 type Pool struct {
 	ID                int64     `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -42,6 +90,7 @@ type Thread struct {
 	AgentID         int64     `gorm:"default:0" json:"agent_id"`
 	ModelID         string    `gorm:"size:64;default:''" json:"model_id"`
 	PoolID          int64     `gorm:"default:0;index" json:"pool_id"`
+	TenantID        int64     `gorm:"default:0;index" json:"tenant_id"`
 	WorkspacePath   string    `gorm:"size:512;default:''" json:"workspace_path"`
 	ParentThreadID  string    `gorm:"size:64;default:'';index;column:parent_thread_id" json:"parent_thread_id"`
 	Status          string    `gorm:"size:16;default:'idle';column:status" json:"status"`
@@ -93,13 +142,14 @@ func (Event) TableName() string { return "events" }
 
 type Agent struct {
 	ID             int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name           string    `gorm:"size:128;uniqueIndex" json:"name"`
+	TenantID       *int64    `gorm:"default:null;index" json:"tenant_id"`
+	Name           string    `gorm:"size:128;index" json:"name"`
 	Desc           string    `gorm:"size:512;default:''" json:"desc"`
 	SystemPrompt   string    `gorm:"type:text;default:''" json:"system_prompt"`
 	Tools          string    `gorm:"type:text;default:'[]'" json:"tools"`
 	DefaultModelID string    `gorm:"size:64;default:''" json:"default_model_id"`
-	MCPServers     string    `gorm:"type:text;default:'[]'" json:"mcp_servers"`
-	WorkerAgents   string    `gorm:"type:text;default:'[]'" json:"worker_agents"`
+	MCPServers     string    `gorm:"type:text;default:'[]';column:mcp_servers" json:"mcp_servers"`
+	WorkerAgents   string    `gorm:"type:text;default:'[]';column:worker_agents" json:"worker_agents"`
 	CreatedAt      time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt      time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
@@ -110,7 +160,8 @@ func (Agent) TableName() string { return "agents" }
 
 type MCPServer struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name      string    `gorm:"size:64;uniqueIndex" json:"name"`
+	TenantID  *int64    `gorm:"default:null;index" json:"tenant_id"`
+	Name      string    `gorm:"size:64;index" json:"name"`
 	Type      string    `gorm:"size:16" json:"type"`
 	Enabled   bool      `gorm:"default:false" json:"enabled"`
 	Command   string    `gorm:"size:512;default:''" json:"command"`
@@ -131,7 +182,8 @@ func (MCPServer) TableName() string { return "mcp_servers" }
 
 type ModelProfile struct {
 	ID              int64  `gorm:"primaryKey;autoIncrement" json:"-"`
-	ModelID         string `gorm:"size:64;uniqueIndex;column:model_id" json:"id"`
+	TenantID        *int64 `gorm:"default:null;index" json:"tenant_id"`
+	ModelID         string `gorm:"size:64;index;column:model_id" json:"id"`
 	BaseURL         string `gorm:"size:512;default:'';column:base_url" json:"base_url"`
 	APIKey          string `gorm:"size:512;default:'';column:api_key" json:"api_key"`
 	Model           string `gorm:"size:128;default:'';column:model" json:"model"`
@@ -148,28 +200,24 @@ func (ModelProfile) TableName() string { return "model_profiles" }
 func (db *DB) seedDefaultAgent() {
 	var count int64
 
-	// Default: general-purpose worker agent.
-	// Has file ops, shell, web, worker spawning, and STATUS.md.
-	defaultTools := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","run_command","task_output","task_stop","web_search","web_fetch","run_http_request","read_status","update_status","spawn_worker","list_workers","intervene_worker","terminate_worker"]`
-	if db.GORM.Model(&Agent{}).Where("name = 'Default'").Count(&count); count == 0 {
+	dt := `["read_file","read_dir","write_file","edit_file","delete_file","search_content","search_files","run_command","task_output","task_stop","web_search","web_fetch","run_http_request","read_status","update_status","spawn_worker","list_workers","intervene_worker","terminate_worker"]`
+	if db.GORM.Model(&Agent{}).Where("name = 'Default' AND tenant_id IS NULL").Count(&count); count == 0 {
 		db.GORM.Create(&Agent{
 			Name:         "Default",
-			Desc:         "General-purpose assistant — read, write, edit files, run commands, search the web, spawn workers for parallel tasks",
+			Desc:         "General-purpose assistant",
 			SystemPrompt: "You are a helpful AI assistant. You can read and write files, run shell commands, search the web, and spawn sub-agents for complex tasks.\n\n## How to work\n- Before editing files, read them first to understand the current state\n- After making changes, verify they work — run tests or check the build\n- When a task is complex or can be parallelized, use spawn_worker to delegate sub-tasks\n- Use read_status and update_status to persist important context, progress, and decisions across turns\n- When done, summarize what you accomplished",
-			Tools:        defaultTools,
+			Tools:        dt,
 			WorkerAgents: "[]",
 		})
 	}
 
-	// Manager: system management agent.
-	// Has management tools + read-only file access + STATUS.md. No run_command, no spawn_worker.
-	managerTools := `["create_agent","update_agent","delete_agent","list_agents","create_mcp_server","delete_mcp_server","list_mcp_servers","create_model","list_resources","read_file","read_dir","search_content","read_status","update_status","web_search","web_fetch"]`
-	if db.GORM.Model(&Agent{}).Where("name = 'Manager'").Count(&count); count == 0 {
+	mt := `["create_agent","update_agent","delete_agent","list_agents","create_mcp_server","delete_mcp_server","list_mcp_servers","create_model","list_resources","read_file","read_dir","search_content","read_status","update_status","web_search","web_fetch"]`
+	if db.GORM.Model(&Agent{}).Where("name = 'Manager' AND tenant_id IS NULL").Count(&count); count == 0 {
 		db.GORM.Create(&Agent{
 			Name:         "Manager",
-			Desc:         "System manager — create and configure agents, MCP servers, models, and other resources",
+			Desc:         "System manager",
 			SystemPrompt: "You are a system management assistant. You can create, update, delete, and list agents, MCP servers, models, and other resources.\n\n## How to work\n- Before creating resources, list existing ones to understand the current state\n- When creating resources, validate that required fields are provided\n- Use read_status and update_status to track system state across turns\n- You can read files and search code to understand the project, but you cannot run commands or modify files directly — delegate that to the Default agent or a worker",
-			Tools:        managerTools,
+			Tools:        mt,
 			WorkerAgents: "[]",
 		})
 	}
