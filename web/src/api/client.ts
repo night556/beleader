@@ -2,9 +2,17 @@ import type { Thread, Agent, ModelProfile, ToolDef, MCPServer, Pool, ToolAgent }
 
 const SERVER_URL = window.location.origin;
 
+function getAuthHeaders(): Record<string, string> {
+  const key = localStorage.getItem('beleader_api_key');
+  if (key) {
+    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` };
+  }
+  return { 'Content-Type': 'application/json' };
+}
+
 async function api<T>(path: string, opts?: RequestInit): Promise<T> {
   const r = await fetch(`${SERVER_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     ...opts,
   });
   if (!r.ok) {
@@ -12,6 +20,25 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
     throw new Error((err as { error?: string }).error || r.statusText);
   }
   return r.json();
+}
+
+export function setAPIKey(key: string) {
+  localStorage.setItem('beleader_api_key', key);
+}
+
+export function getAPIKey(): string {
+  return localStorage.getItem('beleader_api_key') || '';
+}
+
+export function clearAPIKey() {
+  localStorage.removeItem('beleader_api_key');
+}
+
+export function getKeyScope(): string {
+  const key = getAPIKey();
+  if (!key) return '';
+  if (key.startsWith('bl_admin_')) return 'admin';
+  return 'console';
 }
 
 export const client = {
@@ -70,6 +97,24 @@ export const client = {
   // Tool Agents
   listToolAgents: () => api<ToolAgent[]>('/api/tool-agents'),
   deleteToolAgent: (id: number) => api<{ status: string }>(`/api/tool-agents/${id}`, { method: 'DELETE' }),
+
+  // Admin
+  listTenants: () => api<any[]>('/api/admin/tenants'),
+  createTenant: (body: { name: string }) => api<any>('/api/admin/tenants', { method: 'POST', body: JSON.stringify(body) }),
+  updateTenant: (id: number, body: Record<string, any>) => api<{ status: string }>(`/api/admin/tenants/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteTenant: (id: number) => api<{ status: string }>(`/api/admin/tenants/${id}`, { method: 'DELETE' }),
+  rechargeTenant: (id: number, amount: number) => api<{ balance: number }>(`/api/admin/tenants/${id}/recharge`, { method: 'POST', body: JSON.stringify({ amount }) }),
+  listTenantKeys: (id: number) => api<any[]>(`/api/admin/tenants/${id}/keys`),
+  createTenantKey: (id: number, body: { name: string; scope: string }) => api<any>(`/api/admin/tenants/${id}/keys`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteTenantKey: (tid: number, kid: number) => api<{ status: string }>(`/api/admin/tenants/${tid}/keys/${kid}`, { method: 'DELETE' }),
+  getTenantUsage: (id: number, days?: number) => api<{ records: any[]; total_tokens: number; days: number }>(`/api/admin/tenants/${id}/usage?days=${days || 30}`),
+
+  // Console
+  getDashboard: () => api<any>('/api/console/dashboard'),
+  listKeys: () => api<any[]>('/api/console/keys'),
+  createKey: (body: { name: string; scope: string }) => api<any>('/api/console/keys', { method: 'POST', body: JSON.stringify(body) }),
+  deleteKey: (id: number) => api<{ status: string }>(`/api/console/keys/${id}`, { method: 'DELETE' }),
+  getUsage: (days?: number) => api<{ records: any[]; total_tokens: number; days: number }>(`/api/console/usage?days=${days || 30}`),
 };
 
 export interface Message {
