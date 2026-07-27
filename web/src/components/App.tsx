@@ -140,21 +140,23 @@ function AppInner() {
   }
 
   const handlePageChange = (p: Page | 'admin' | 'console') => {
-    if (p === 'admin' || p === 'console') {
-      dispatch({ type: 'SET_PAGE', page: 'chat' });
-    } else {
-      dispatch({ type: 'SET_PAGE', page: p });
-    }
+    dispatch({ type: 'SET_PAGE', page: p as Page });
   };
 
   return (
     <div className="app-shell">
-      <TopNav page={scope === 'admin' ? 'admin' : scope === 'console' ? 'console' : page} onPageChange={handlePageChange} onLogout={handleLogout} scope={scope} />
+      <TopNav page={scope === 'admin' ? 'admin' : scope === 'console' ? page : page} onPageChange={handlePageChange} onLogout={handleLogout} scope={scope} />
       <div className="page">
         {scope === 'admin' ? (
           <AdminPage />
         ) : scope === 'console' ? (
-          <ConsolePage />
+          page === 'chat' ? (
+            <div style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+              <ChatPage />
+            </div>
+          ) : (
+            <ConsolePage />
+          )
         ) : (
           <>
             <div style={{ display: page === 'chat' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>

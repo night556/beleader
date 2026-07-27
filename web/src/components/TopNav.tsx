@@ -9,6 +9,7 @@ interface Props {
 }
 
 const TABS: { page: Page | 'admin' | 'console'; label: string; adminOnly?: boolean; consoleOnly?: boolean }[] = [
+  { page: 'console', label: 'Console', consoleOnly: true },
   { page: 'chat', label: 'Chat' },
   { page: 'agent', label: 'Agent', consoleOnly: true },
   { page: 'mcp', label: 'MCP', consoleOnly: true },
