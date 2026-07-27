@@ -8,8 +8,6 @@ type Tenant struct {
 	ID          int64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	Name        string    `gorm:"size:128;uniqueIndex" json:"name"`
 	Email       string    `gorm:"size:256;default:''" json:"email"`
-	Password    string    `gorm:"size:256;default:''" json:"-"` // bcrypt hash
-	SigningKey  string    `gorm:"size:256;default:''" json:"signing_key"` // HMAC key for JWT
 	Balance     float64   `gorm:"default:0" json:"balance"`
 	QuotaTokens int64     `gorm:"default:0" json:"quota_tokens"`
 	QuotaRPM    int       `gorm:"default:0" json:"quota_rpm"`
@@ -21,6 +19,31 @@ type Tenant struct {
 }
 
 func (Tenant) TableName() string { return "tenants" }
+
+// ── Tenant Secret ──
+
+type TenantSecret struct {
+	ID           int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	TenantID     int64     `gorm:"uniqueIndex" json:"tenant_id"`
+	PasswordHash string    `gorm:"size:256;default:''" json:"-"`
+	SigningKey   string    `gorm:"size:256;default:''" json:"signing_key"`
+	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt    time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+}
+
+func (TenantSecret) TableName() string { return "tenant_secrets" }
+
+// ── Secret Audit Log ──
+
+type SecretAudit struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	TenantID  int64     `gorm:"index" json:"tenant_id"`
+	Action    string    `gorm:"size:32" json:"action"` // "viewed", "rotated", "login"
+	IP        string    `gorm:"size:64;default:''" json:"ip"`
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+}
+
+func (SecretAudit) TableName() string { return "secret_audits" }
 
 // ── API Key ──
 

@@ -323,11 +323,17 @@ func (h *Handler) handleConsoleDashboard(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "tenant not found"})
 		return
 	}
+	secret, _ := h.DB.GetTenantSecret(auth.TenantID)
+	sk := ""
+	if secret != nil {
+		sk = secret.SigningKey
+	}
 	since := time.Now().Add(-24 * time.Hour)
 	total24h, _ := h.DB.GetTenantUsageSummary(auth.TenantID, since)
 	c.JSON(200, gin.H{
 		"tenant":      tenant,
 		"tokens_24h":  total24h,
+		"signing_key": sk,
 	})
 }
 
@@ -349,13 +355,19 @@ func (h *Handler) handleConsoleLogin(c *gin.Context) {
 		return
 	}
 
-	// Compare bcrypt hash
-	if err := bcrypt.CompareHashAndPassword([]byte(tenant.Password), []byte(req.Password)); err != nil {
+	secret, err := h.DB.GetTenantSecret(tenant.ID)
+	if err != nil {
 		c.JSON(401, gin.H{"error": "invalid email or password"})
 		return
 	}
 
-	// Generate a console API key for this session
+	if err := bcrypt.CompareHashAndPassword([]byte(secret.PasswordHash), []byte(req.Password)); err != nil {
+		c.JSON(401, gin.H{"error": "invalid email or password"})
+		return
+	}
+
+	h.DB.LogSecretAudit(tenant.ID, "login", c.ClientIP())
+
 	ak, err := h.DB.CreateAPIKey(tenant.ID, "console", "console")
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -363,10 +375,10 @@ func (h *Handler) handleConsoleLogin(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"token":      ak.Key,
-		"tenant_id":  tenant.ID,
-		"tenant":     tenant.Name,
-		"signing_key": tenant.SigningKey,
+		"token":       ak.Key,
+		"tenant_id":   tenant.ID,
+		"tenant":      tenant.Name,
+		"signing_key": secret.SigningKey,
 	})
 }
 
@@ -391,13 +403,13 @@ func (h *Handler) handleConsoleGenerateToken(c *gin.Context) {
 		req.Expiry = 24
 	}
 
-	tenant, err := h.DB.GetTenant(auth.TenantID)
+	secret, err := h.DB.GetTenantSecret(auth.TenantID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "tenant not found"})
+		c.JSON(404, gin.H{"error": "tenant secret not found"})
 		return
 	}
 
-	token, err := GenerateUserToken(tenant, req.UserID, time.Duration(req.Expiry)*time.Hour)
+	token, err := GenerateUserToken(secret, auth.TenantID, req.UserID, time.Duration(req.Expiry)*time.Hour)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return

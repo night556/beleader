@@ -94,13 +94,13 @@ func verifyUserToken(database *db.DB, token string) *AuthContext {
 		return nil
 	}
 
-	// Verify signature
-	tenant, err := database.GetTenant(ut.TenantID)
-	if err != nil || tenant.SigningKey == "" {
+	// Verify signature from tenant_secrets
+	secret, err := database.GetTenantSecret(ut.TenantID)
+	if err != nil || secret.SigningKey == "" {
 		return nil
 	}
 
-	mac := hmac.New(sha256.New, []byte(tenant.SigningKey))
+	mac := hmac.New(sha256.New, []byte(secret.SigningKey))
 	mac.Write([]byte(parts[0]))
 	expectedSig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 
@@ -116,16 +116,16 @@ func verifyUserToken(database *db.DB, token string) *AuthContext {
 }
 
 // GenerateUserToken creates a signed token for a tenant's user.
-func GenerateUserToken(tenant *db.Tenant, userID string, expiry time.Duration) (string, error) {
+func GenerateUserToken(secret *db.TenantSecret, tenantID int64, userID string, expiry time.Duration) (string, error) {
 	ut := UserToken{
-		TenantID: tenant.ID,
+		TenantID: tenantID,
 		UserID:   userID,
 		Exp:      time.Now().Add(expiry).Unix(),
 	}
 	payload, _ := json.Marshal(ut)
 	payloadB64 := base64.RawURLEncoding.EncodeToString(payload)
 
-	mac := hmac.New(sha256.New, []byte(tenant.SigningKey))
+	mac := hmac.New(sha256.New, []byte(secret.SigningKey))
 	mac.Write([]byte(payloadB64))
 	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 

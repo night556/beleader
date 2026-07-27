@@ -157,7 +157,8 @@ func (db *DB) setSchemaVersion(v int) {
 
 func (db *DB) autoMigrate() error {
 	if err := db.GORM.AutoMigrate(
-		&Tenant{}, &APIKey{}, &UsageRecord{},
+		&Tenant{}, &TenantSecret{}, &SecretAudit{},
+		&APIKey{}, &UsageRecord{},
 		&Pool{}, &ToolAgent{}, &Thread{}, &Message{}, &Event{},
 		&Agent{}, &ModelProfile{}, &MCPServer{},
 	); err != nil {
@@ -179,12 +180,16 @@ func (db *DB) autoMigrate() error {
 // ── Tenant methods ──
 
 func (db *DB) CreateTenant(name string) (*Tenant, error) {
-	t := &Tenant{
-		Name:       name,
-		Status:     "active",
+	t := &Tenant{Name: name, Status: "active"}
+	if err := db.GORM.Create(t).Error; err != nil {
+		return nil, err
+	}
+	// Create associated secret
+	secret := &TenantSecret{
+		TenantID:   t.ID,
 		SigningKey: "sk_" + randomHex(32),
 	}
-	if err := db.GORM.Create(t).Error; err != nil {
+	if err := db.GORM.Create(secret).Error; err != nil {
 		return nil, err
 	}
 	return t, nil
@@ -206,20 +211,36 @@ func (db *DB) GetTenantByEmail(email string) (*Tenant, error) {
 	return &t, nil
 }
 
-func (db *DB) SetTenantPassword(id int64, passwordHash string) error {
-	return db.GORM.Model(&Tenant{}).Where("id = ?", id).Update("password", passwordHash).Error
+// ── Tenant Secret methods ──
+
+func (db *DB) GetTenantSecret(tenantID int64) (*TenantSecret, error) {
+	var s TenantSecret
+	if err := db.GORM.Where("tenant_id = ?", tenantID).First(&s).Error; err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (db *DB) SetTenantPassword(tenantID int64, passwordHash string) error {
+	return db.GORM.Model(&TenantSecret{}).Where("tenant_id = ?", tenantID).
+		Update("password_hash", passwordHash).Error
 }
 
 func (db *DB) SetTenantEmail(id int64, email string) error {
 	return db.GORM.Model(&Tenant{}).Where("id = ?", id).Update("email", email).Error
 }
 
-func (db *DB) RotateSigningKey(id int64) (string, error) {
+func (db *DB) RotateSigningKey(tenantID int64) (string, error) {
 	newKey := "sk_" + randomHex(32)
-	if err := db.GORM.Model(&Tenant{}).Where("id = ?", id).Update("signing_key", newKey).Error; err != nil {
+	if err := db.GORM.Model(&TenantSecret{}).Where("tenant_id = ?", tenantID).
+		Update("signing_key", newKey).Error; err != nil {
 		return "", err
 	}
 	return newKey, nil
+}
+
+func (db *DB) LogSecretAudit(tenantID int64, action, ip string) {
+	db.GORM.Create(&SecretAudit{TenantID: tenantID, Action: action, IP: ip})
 }
 
 func (db *DB) ListTenants() ([]Tenant, error) {
