@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AppProvider, useAppState } from '../context/AppContext';
 import { client, getAPIKey, setAPIKey, getKeyScope, clearAPIKey } from '../api/client';
+import { LoginPage } from './LoginPage';
 import { TopNav } from './TopNav';
 import { ChatPage } from './ChatPage';
 import { AgentPage } from './AgentPage';
@@ -11,76 +12,6 @@ import { AdminPage } from './AdminPage';
 import { ConsolePage } from './ConsolePage';
 import { Toaster } from './Toaster';
 import type { Page } from '../types';
-
-function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
-  const [mode, setMode] = useState<'console' | 'apikey' | 'admin'>('console');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [key, setKey] = useState('');
-  const [error, setError] = useState('');
-
-  const handleConsoleLogin = async () => {
-    setError('');
-    try {
-      const r = await fetch(`${window.location.origin}/api/console/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
-      setAPIKey(data.token, 'console');
-      onLogin(data.token);
-    } catch (e: any) {
-      setError(e.message);
-    }
-  };
-
-  const handleKeyLogin = () => {
-    if (key) {
-      setAPIKey(key, key.startsWith('bl_admin_') ? 'admin' : 'console');
-      onLogin(key);
-    }
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 16 }}>
-      <div style={{ fontSize: 24, fontWeight: 700 }}>BeLeader</div>
-      <div style={{ display: 'flex', gap: 0, marginBottom: 8 }}>
-        <button className={`topnav-tab ${mode === 'console' ? 'active' : ''}`} onClick={() => setMode('console')}>Console</button>
-        <button className={`topnav-tab ${mode === 'apikey' ? 'active' : ''}`} onClick={() => setMode('apikey')}>API Key</button>
-        <button className={`topnav-tab ${mode === 'admin' ? 'active' : ''}`} onClick={() => setMode('admin')}>Admin</button>
-      </div>
-
-      {mode === 'console' ? (
-        <>
-          <input className="form-input" type="email" placeholder="Email" value={email}
-                 onChange={e => setEmail(e.target.value)} style={{ width: 300 }}
-                 onKeyDown={e => e.key === 'Enter' && handleConsoleLogin()} />
-          <input className="form-input" type="password" placeholder="Password" value={password}
-                 onChange={e => setPassword(e.target.value)} style={{ width: 300 }}
-                 onKeyDown={e => e.key === 'Enter' && handleConsoleLogin()} />
-          <button className="mgmt-new-btn" onClick={handleConsoleLogin}>Login</button>
-        </>
-      ) : mode === 'admin' ? (
-        <>
-          <input className="form-input" type="password" placeholder="Admin Key (bl_admin_...)" value={key}
-                 onChange={e => setKey(e.target.value)} style={{ width: 360 }}
-                 onKeyDown={e => e.key === 'Enter' && handleKeyLogin()} />
-          <button className="mgmt-new-btn" onClick={handleKeyLogin}>Login</button>
-        </>
-      ) : (
-        <>
-          <input className="form-input" type="password" placeholder="API Key (bl_...)" value={key}
-                 onChange={e => setKey(e.target.value)} style={{ width: 360 }}
-                 onKeyDown={e => e.key === 'Enter' && handleKeyLogin()} />
-          <button className="mgmt-new-btn" onClick={handleKeyLogin}>Login</button>
-        </>
-      )}
-      {error && <div style={{ color: 'var(--red)', fontSize: 13 }}>{error}</div>}
-    </div>
-  );
-}
 
 function AppInner() {
   const { state, dispatch } = useAppState();
