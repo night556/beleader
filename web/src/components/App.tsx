@@ -79,7 +79,19 @@ function AppInner() {
       <TopNav page={scope === 'admin' ? 'admin' : scope === 'console' ? page : page} onPageChange={handlePageChange} onLogout={handleLogout} scope={scope} />
       <div className="page">
         {scope === 'admin' ? (
-          <AdminPage />
+          page === 'admin' ? (
+            <AdminPage />
+          ) : page === 'agent' ? (
+            <AgentPage />
+          ) : page === 'mcp' ? (
+            <MCPPage />
+          ) : page === 'model' ? (
+            <ModelPage />
+          ) : page === 'pool' ? (
+            <PoolPage />
+          ) : (
+            <AdminPage />
+          )
         ) : scope === 'console' ? (
           page === 'chat' ? (
             <div style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>

@@ -14,12 +14,12 @@ const TABS: { page: Page | 'admin' | 'console'; label: string; adminOnly?: boole
   { page: 'agent', label: 'Agent', consoleOnly: true },
   { page: 'mcp', label: 'MCP', consoleOnly: true },
   { page: 'model', label: 'Model', consoleOnly: true },
-  { page: 'pool', label: 'Pools', adminOnly: true },
+  { page: 'pool', label: 'Pools' },
 ];
 
 export function TopNav({ page, onPageChange, onLogout, scope }: Props) {
   const tabs = scope === 'admin'
-    ? [{ page: 'admin' as const, label: 'Admin' }]
+    ? [{ page: 'admin' as const, label: 'Tenants' }, { page: 'agent' as const, label: 'Agent' }, { page: 'model' as const, label: 'Model' }, { page: 'mcp' as const, label: 'MCP' }, { page: 'pool' as const, label: 'Pools' }]
     : scope === 'console'
     ? TABS.filter(t => !t.adminOnly)
     : [{ page: 'chat' as const, label: 'Chat' }];
