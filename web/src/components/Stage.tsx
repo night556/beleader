@@ -162,9 +162,33 @@ function groupByTurn(items: TimelineItem[]): Array<TimelineItem | TimelineItem[]
   return result;
 }
 
+// Build copyable text from a turn's items, truncating large tool results.
+function buildCopyText(items: TimelineItem[]): string {
+  const parts: string[] = [];
+  for (const item of items) {
+    if (item.type === 'agent' && item.content) {
+      parts.push(item.content);
+    } else if (item.type === 'tool_call' && item.content) {
+      const name = item.toolName || item.label || 'Tool';
+      const content = item.content;
+      const maxLen = 2000;
+      if (content.length > maxLen) {
+        parts.push(`[${name}]\n${content.slice(0, maxLen)}\n... (${content.length - maxLen} more chars)`);
+      } else {
+        parts.push(`[${name}]\n${content}`);
+      }
+    } else if (item.type === 'worker') {
+      const agent = item.workerAgent || '';
+      const task = item.workerTask || item.content || '';
+      parts.push(`[Worker${agent ? ': ' + agent : ''}] ${task}`);
+    }
+  }
+  return parts.join('\n\n');
+}
+
 const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }) {
   const hasStreaming = items.some(i => i.status === 'streaming');
-  const allContent = items.filter(i => i.type === 'agent').map(i => i.content).join('');
+  const copyText = useMemo(() => buildCopyText(items), [items]);
   const usage = items.find(i => i.type === 'agent' && i.usage)?.usage;
   const usageText = usage ? formatUsage(usage) : '';
 
@@ -174,7 +198,7 @@ const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }
         <div className="msg-header">
           <span className="msg-label">AI</span>
           {hasStreaming && <span className="msg-badge streaming">...</span>}
-          {!hasStreaming && <CopyButton text={allContent} />}
+          {!hasStreaming && <CopyButton text={copyText} />}
         </div>
         {items.map(item => {
           if (item.type === 'agent') {
