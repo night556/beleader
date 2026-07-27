@@ -162,28 +162,9 @@ function groupByTurn(items: TimelineItem[]): Array<TimelineItem | TimelineItem[]
   return result;
 }
 
-// Build copyable text from a turn's items, truncating large tool results.
+// Build copyable text from a turn's items — agent messages only.
 function buildCopyText(items: TimelineItem[]): string {
-  const parts: string[] = [];
-  for (const item of items) {
-    if (item.type === 'agent' && item.content) {
-      parts.push(item.content);
-    } else if (item.type === 'tool_call' && item.content) {
-      const name = item.toolName || item.label || 'Tool';
-      const content = item.content;
-      const maxLen = 2000;
-      if (content.length > maxLen) {
-        parts.push(`[${name}]\n${content.slice(0, maxLen)}\n... (${content.length - maxLen} more chars)`);
-      } else {
-        parts.push(`[${name}]\n${content}`);
-      }
-    } else if (item.type === 'worker') {
-      const agent = item.workerAgent || '';
-      const task = item.workerTask || item.content || '';
-      parts.push(`[Worker${agent ? ': ' + agent : ''}] ${task}`);
-    }
-  }
-  return parts.join('\n\n');
+  return items.filter(i => i.type === 'agent').map(i => i.content).join('\n\n');
 }
 
 const TurnBubble = memo(function TurnBubble({ items }: { items: TimelineItem[] }) {
