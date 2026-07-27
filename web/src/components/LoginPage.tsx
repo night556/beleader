@@ -106,11 +106,8 @@ function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <label className="form-label">
-                {mode === 'admin' ? 'Admin Key' : 'API Key'}
-              </label>
-              <input className="form-input" type="password"
-                placeholder={mode === 'admin' ? 'bl_admin_...' : 'bl_...'}
+              <label className="form-label">API Key</label>
+              <input className="form-input" type="password" placeholder="bl_..."
                 value={key} onChange={e => setKey(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleKeyLogin()} />
             </div>

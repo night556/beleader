@@ -199,7 +199,7 @@ export interface ToolAgent {
 
 // ── App State ──
 
-export type Page = 'chat' | 'agent' | 'mcp' | 'model' | 'pool' | 'console';
+export type Page = 'chat' | 'agent' | 'mcp' | 'model' | 'pool' | 'console' | 'admin';
 export type AppStateName = 'idle' | 'thinking' | 'tool_calls' | 'responding' | 'error';
 
 export interface AppState {
