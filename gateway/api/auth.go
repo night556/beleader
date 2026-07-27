@@ -32,6 +32,13 @@ type UserToken struct {
 // AuthMiddleware resolves API key or signed user token.
 func AuthMiddleware(database *db.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Skip auth for tool-agent registration and heartbeat
+		path := c.Request.URL.Path
+		if path == "/api/tool-agents/register" || path == "/api/tool-agents/heartbeat" {
+			c.Next()
+			return
+		}
+
 		key := c.GetHeader("Authorization")
 		if len(key) > 7 && key[:7] == "Bearer " {
 			key = key[7:]
