@@ -162,6 +162,8 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 			admin.POST("/tenants/:id/keys", h.handleAdminCreateTenantKey)
 			admin.DELETE("/tenants/:id/keys/:kid", h.handleAdminDeleteTenantKey)
 			admin.GET("/tenants/:id/usage", h.handleAdminTenantUsage)
+			admin.GET("/tenants/:id/secret", h.handleAdminTenantSecret)
+			admin.POST("/tenants/:id/rotate-secret", h.handleAdminRotateSecret)
 		}
 	}
 }

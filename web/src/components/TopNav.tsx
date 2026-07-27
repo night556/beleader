@@ -8,18 +8,20 @@ interface Props {
   scope?: string;
 }
 
-const TABS: { page: Page | 'admin' | 'console'; label: string; adminOnly?: boolean }[] = [
+const TABS: { page: Page | 'admin' | 'console'; label: string; adminOnly?: boolean; consoleOnly?: boolean }[] = [
   { page: 'chat', label: 'Chat' },
-  { page: 'agent', label: 'Agent' },
-  { page: 'mcp', label: 'MCP' },
-  { page: 'model', label: 'Model' },
+  { page: 'agent', label: 'Agent', consoleOnly: true },
+  { page: 'mcp', label: 'MCP', consoleOnly: true },
+  { page: 'model', label: 'Model', consoleOnly: true },
   { page: 'pool', label: 'Pools', adminOnly: true },
 ];
 
 export function TopNav({ page, onPageChange, onLogout, scope }: Props) {
   const tabs = scope === 'admin'
     ? [{ page: 'admin' as const, label: 'Admin' }]
-    : TABS.filter(t => !t.adminOnly || scope === 'admin');
+    : scope === 'console'
+    ? TABS.filter(t => !t.adminOnly)
+    : [{ page: 'chat' as const, label: 'Chat' }];
 
   return (
     <nav className="topnav">

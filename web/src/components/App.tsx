@@ -29,7 +29,7 @@ function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
-      setAPIKey(data.token);
+      setAPIKey(data.token, 'console');
       onLogin(data.token);
     } catch (e: any) {
       setError(e.message);
@@ -38,7 +38,7 @@ function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
 
   const handleKeyLogin = () => {
     if (key) {
-      setAPIKey(key);
+      setAPIKey(key, key.startsWith('bl_admin_') ? 'admin' : 'console');
       onLogin(key);
     }
   };
@@ -141,10 +141,12 @@ function AppInner() {
 
   return (
     <div className="app-shell">
-      <TopNav page={scope === 'admin' ? 'admin' : page} onPageChange={handlePageChange} onLogout={handleLogout} scope={scope} />
+      <TopNav page={scope === 'admin' ? 'admin' : scope === 'console' ? 'console' : page} onPageChange={handlePageChange} onLogout={handleLogout} scope={scope} />
       <div className="page">
         {scope === 'admin' ? (
           <AdminPage />
+        ) : scope === 'console' ? (
+          <ConsolePage />
         ) : (
           <>
             <div style={{ display: page === 'chat' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>

@@ -6,7 +6,10 @@ export function AdminPage() {
   const [selectedTenant, setSelectedTenant] = useState<any>(null);
   const [keys, setKeys] = useState<any[]>([]);
   const [usage, setUsage] = useState<any>(null);
+  const [signingKey, setSigningKey] = useState('');
   const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [keyName, setKeyName] = useState('');
   const [keyScope, setKeyScope] = useState('api');
   const [rechargeAmount, setRechargeAmount] = useState('');
@@ -19,8 +22,10 @@ export function AdminPage() {
 
   const createTenant = async () => {
     if (!newName) return;
-    await client.createTenant({ name: newName });
+    await client.createTenant({ name: newName, email: newEmail, password: newPassword });
     setNewName('');
+    setNewEmail('');
+    setNewPassword('');
     loadTenants();
   };
 
@@ -28,6 +33,10 @@ export function AdminPage() {
     setSelectedTenant(t);
     client.listTenantKeys(t.id).then(setKeys).catch(console.error);
     client.getTenantUsage(t.id).then(setUsage).catch(console.error);
+    // Fetch signing key
+    fetch(`${window.location.origin}/api/admin/tenants/${t.id}/secret`, {
+      headers: { 'Authorization': `Bearer ${getAPIKey()}` }
+    }).then(r => r.json()).then(d => setSigningKey(d.signing_key || '')).catch(() => {});
   };
 
   const createKey = async () => {
@@ -61,8 +70,10 @@ export function AdminPage() {
       <div className="mgmt-page-inner">
         <h2 className="mgmt-page-title">Admin: Tenants</h2>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           <input className="form-input" placeholder="Tenant name" value={newName} onChange={e => setNewName(e.target.value)} />
+          <input className="form-input" type="email" placeholder="Email (optional)" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
+          <input className="form-input" type="password" placeholder="Password (optional)" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
           <button className="mgmt-new-btn" onClick={createTenant}>Create Tenant</button>
         </div>
 
@@ -110,6 +121,23 @@ export function AdminPage() {
                   <button className="card-btn danger" onClick={() => deleteKey(k.id)}>Revoke</button>
                 </div>
               ))}
+
+              {signingKey && (
+                <div style={{ marginTop: 16, padding: 12, background: 'var(--wash)', borderRadius: 6 }}>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>Signing Key</div>
+                  <code style={{ fontSize: 11, wordBreak: 'break-all' }}>{signingKey}</code>
+                  <div style={{ marginTop: 8 }}>
+                    <button className="card-btn" onClick={async () => {
+                      const r = await fetch(`/api/admin/tenants/${selectedTenant.id}/rotate-secret`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${getAPIKey()}` }
+                      });
+                      const d = await r.json();
+                      setSigningKey(d.signing_key);
+                    }}>Rotate Key</button>
+                  </div>
+                </div>
+              )}
 
               {usage && (
                 <div style={{ marginTop: 16 }}>

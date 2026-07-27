@@ -22,8 +22,9 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
   return r.json();
 }
 
-export function setAPIKey(key: string) {
+export function setAPIKey(key: string, scope?: string) {
   localStorage.setItem('beleader_api_key', key);
+  if (scope) localStorage.setItem('beleader_scope', scope);
 }
 
 export function getAPIKey(): string {
@@ -32,13 +33,11 @@ export function getAPIKey(): string {
 
 export function clearAPIKey() {
   localStorage.removeItem('beleader_api_key');
+  localStorage.removeItem('beleader_scope');
 }
 
 export function getKeyScope(): string {
-  const key = getAPIKey();
-  if (!key) return '';
-  if (key.startsWith('bl_admin_')) return 'admin';
-  return 'console';
+  return localStorage.getItem('beleader_scope') || '';
 }
 
 export const client = {

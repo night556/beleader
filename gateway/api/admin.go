@@ -421,3 +421,35 @@ func (h *Handler) handleConsoleGenerateToken(c *gin.Context) {
 		"expires": time.Now().Add(time.Duration(req.Expiry) * time.Hour).Format(time.RFC3339),
 	})
 }
+
+// ── Admin: Tenant Secret ──
+
+func (h *Handler) handleAdminTenantSecret(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	secret, err := h.DB.GetTenantSecret(id)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "secret not found"})
+		return
+	}
+	h.DB.LogSecretAudit(id, "viewed", c.ClientIP())
+	c.JSON(200, gin.H{"signing_key": secret.SigningKey})
+}
+
+func (h *Handler) handleAdminRotateSecret(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	newKey, err := h.DB.RotateSigningKey(id)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	h.DB.LogSecretAudit(id, "rotated", c.ClientIP())
+	c.JSON(200, gin.H{"signing_key": newKey})
+}
