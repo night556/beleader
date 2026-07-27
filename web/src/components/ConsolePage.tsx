@@ -7,6 +7,9 @@ export function ConsolePage() {
   const [usage, setUsage] = useState<any>(null);
   const [keyName, setKeyName] = useState('');
   const [keyScope, setKeyScope] = useState('api');
+  const [tokenUserID, setTokenUserID] = useState('');
+  const [tokenExpiry, setTokenExpiry] = useState('24');
+  const [generatedToken, setGeneratedToken] = useState('');
 
   const load = () => {
     client.getDashboard().then(setDashboard).catch(console.error);
@@ -26,6 +29,21 @@ export function ConsolePage() {
   const deleteKey = async (id: number) => {
     await client.deleteKey(id);
     setKeys(keys.filter(k => k.id !== id));
+  };
+
+  const generateToken = async () => {
+    if (!tokenUserID) return;
+    try {
+      const r = await fetch(`${window.location.origin}/api/console/generate-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAPIKey()}` },
+        body: JSON.stringify({ user_id: tokenUserID, expiry: parseInt(tokenExpiry) }),
+      });
+      const data = await r.json();
+      setGeneratedToken(data.token);
+    } catch (e: any) {
+      alert(e.message);
+    }
   };
 
   const logout = () => {
@@ -51,12 +69,29 @@ export function ConsolePage() {
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>Tokens (24h)</div>
               <div style={{ fontSize: 24, fontWeight: 700 }}>{dashboard.tokens_24h?.toLocaleString() || '0'}</div>
             </div>
-            <div className="card" style={{ flex: 1, padding: 16 }}>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>API Key</div>
-              <div style={{ fontSize: 11, fontFamily: 'monospace' }}>{getAPIKey().slice(0, 16)}...</div>
-            </div>
           </div>
         )}
+
+        <div className="card" style={{ padding: 16, marginBottom: 24, background: 'var(--wash)' }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>Signing Key (for user token generation)</div>
+          <code style={{ fontSize: 12, wordBreak: 'break-all' }}>{dashboard?.tenant?.signing_key || 'Loading...'}</code>
+        </div>
+
+        <div className="card" style={{ padding: 16, marginBottom: 24 }}>
+          <h4 style={{ marginBottom: 8 }}>Generate User Token</h4>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <input className="form-input" placeholder="User ID" value={tokenUserID}
+                   onChange={e => setTokenUserID(e.target.value)} style={{ width: 150 }} />
+            <input className="form-input" type="number" placeholder="Hours" value={tokenExpiry}
+                   onChange={e => setTokenExpiry(e.target.value)} style={{ width: 80 }} />
+            <button className="mgmt-new-btn" onClick={generateToken}>Generate</button>
+          </div>
+          {generatedToken && (
+            <div style={{ marginTop: 8, padding: 8, background: 'var(--elevated)', borderRadius: 4 }}>
+              <code style={{ fontSize: 11, wordBreak: 'break-all' }}>{generatedToken}</code>
+            </div>
+          )}
+        </div>
 
         <h3>API Keys</h3>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>

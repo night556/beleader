@@ -8,6 +8,7 @@ import (
 	"beleader/gateway/db"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // ── Admin: Tenant CRUD ──
@@ -26,7 +27,9 @@ func (h *Handler) handleAdminListTenants(c *gin.Context) {
 
 func (h *Handler) handleAdminCreateTenant(c *gin.Context) {
 	var req struct {
-		Name string `json:"name" binding:"required"`
+		Name     string `json:"name" binding:"required"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -36,6 +39,14 @@ func (h *Handler) handleAdminCreateTenant(c *gin.Context) {
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
+	}
+	if req.Email != "" {
+		h.DB.SetTenantEmail(t.ID, req.Email)
+		t.Email = req.Email
+	}
+	if req.Password != "" {
+		hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		h.DB.SetTenantPassword(t.ID, string(hash))
 	}
 	c.JSON(201, t)
 }
@@ -51,9 +62,21 @@ func (h *Handler) handleAdminUpdateTenant(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.DB.UpdateTenant(id, req); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
+	// Handle email and password separately
+	if email, ok := req["email"].(string); ok {
+		delete(req, "email")
+		h.DB.SetTenantEmail(id, email)
+	}
+	if password, ok := req["password"].(string); ok && password != "" {
+		delete(req, "password")
+		hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		h.DB.SetTenantPassword(id, string(hash))
+	}
+	if len(req) > 0 {
+		if err := h.DB.UpdateTenant(id, req); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	c.JSON(200, gin.H{"status": "ok"})
 }
@@ -305,5 +328,84 @@ func (h *Handler) handleConsoleDashboard(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"tenant":      tenant,
 		"tokens_24h":  total24h,
+	})
+}
+
+// ── Console: Login ──
+
+func (h *Handler) handleConsoleLogin(c *gin.Context) {
+	var req struct {
+		Email    string `json:"email" binding:"required"`
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	tenant, err := h.DB.GetTenantByEmail(req.Email)
+	if err != nil {
+		c.JSON(401, gin.H{"error": "invalid email or password"})
+		return
+	}
+
+	// Compare bcrypt hash
+	if err := bcrypt.CompareHashAndPassword([]byte(tenant.Password), []byte(req.Password)); err != nil {
+		c.JSON(401, gin.H{"error": "invalid email or password"})
+		return
+	}
+
+	// Generate a console API key for this session
+	ak, err := h.DB.CreateAPIKey(tenant.ID, "console", "console")
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"token":      ak.Key,
+		"tenant_id":  tenant.ID,
+		"tenant":     tenant.Name,
+		"signing_key": tenant.SigningKey,
+	})
+}
+
+// ── Console: Generate User Token ──
+
+func (h *Handler) handleConsoleGenerateToken(c *gin.Context) {
+	auth := GetAuth(c)
+	if auth == nil {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		UserID string `json:"user_id" binding:"required"`
+		Expiry int    `json:"expiry"` // hours, default 24
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Expiry <= 0 {
+		req.Expiry = 24
+	}
+
+	tenant, err := h.DB.GetTenant(auth.TenantID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "tenant not found"})
+		return
+	}
+
+	token, err := GenerateUserToken(tenant, req.UserID, time.Duration(req.Expiry)*time.Hour)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"token":   token,
+		"user_id": req.UserID,
+		"expires": time.Now().Add(time.Duration(req.Expiry) * time.Hour).Format(time.RFC3339),
 	})
 }

@@ -179,7 +179,11 @@ func (db *DB) autoMigrate() error {
 // ── Tenant methods ──
 
 func (db *DB) CreateTenant(name string) (*Tenant, error) {
-	t := &Tenant{Name: name, Status: "active"}
+	t := &Tenant{
+		Name:       name,
+		Status:     "active",
+		SigningKey: "sk_" + randomHex(32),
+	}
 	if err := db.GORM.Create(t).Error; err != nil {
 		return nil, err
 	}
@@ -192,6 +196,30 @@ func (db *DB) GetTenant(id int64) (*Tenant, error) {
 		return nil, err
 	}
 	return &t, nil
+}
+
+func (db *DB) GetTenantByEmail(email string) (*Tenant, error) {
+	var t Tenant
+	if err := db.GORM.Where("email = ?", email).First(&t).Error; err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (db *DB) SetTenantPassword(id int64, passwordHash string) error {
+	return db.GORM.Model(&Tenant{}).Where("id = ?", id).Update("password", passwordHash).Error
+}
+
+func (db *DB) SetTenantEmail(id int64, email string) error {
+	return db.GORM.Model(&Tenant{}).Where("id = ?", id).Update("email", email).Error
+}
+
+func (db *DB) RotateSigningKey(id int64) (string, error) {
+	newKey := "sk_" + randomHex(32)
+	if err := db.GORM.Model(&Tenant{}).Where("id = ?", id).Update("signing_key", newKey).Error; err != nil {
+		return "", err
+	}
+	return newKey, nil
 }
 
 func (db *DB) ListTenants() ([]Tenant, error) {

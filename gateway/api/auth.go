@@ -1,8 +1,13 @@
 package api
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
-	"strconv"
+	"strings"
+	"time"
 
 	"beleader/gateway/db"
 
@@ -11,13 +16,20 @@ import (
 
 // AuthContext stores the resolved auth info for a request.
 type AuthContext struct {
-	TenantID int64
-	APIKeyID int64
-	Scope    string // "admin", "console", "api"
-	UserID   string // from X-User-ID header
+	TenantID int64  `json:"tenant_id"`
+	APIKeyID int64  `json:"api_key_id"`
+	Scope    string `json:"scope"` // "admin", "console", "api"
+	UserID   string `json:"user_id"`
 }
 
-// AuthMiddleware resolves the API key and injects auth info into the context.
+// UserToken is the JWT-like payload signed by the tenant.
+type UserToken struct {
+	TenantID int64  `json:"tenant_id"`
+	UserID   string `json:"user_id"`
+	Exp      int64  `json:"exp"`
+}
+
+// AuthMiddleware resolves API key or signed user token.
 func AuthMiddleware(database *db.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.GetHeader("Authorization")
@@ -32,22 +44,92 @@ func AuthMiddleware(database *db.DB) gin.HandlerFunc {
 			return
 		}
 
-		ak, err := database.GetAPIKeyByKey(key)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid API key"})
-			c.Abort()
+		// Try API key first (admin or console)
+		if strings.HasPrefix(key, "bl_") || strings.HasPrefix(key, "sk_") {
+			ak, err := database.GetAPIKeyByKey(key)
+			if err == nil {
+				auth := &AuthContext{
+					TenantID: ak.TenantID,
+					APIKeyID: ak.ID,
+					Scope:    ak.Scope,
+					UserID:   c.GetHeader("X-User-ID"),
+				}
+				c.Set("auth", auth)
+				c.Next()
+				return
+			}
+		}
+
+		// Try signed user token (tenant-issued JWT)
+		if auth := verifyUserToken(database, key); auth != nil {
+			c.Set("auth", auth)
+			c.Next()
 			return
 		}
 
-		auth := &AuthContext{
-			TenantID: ak.TenantID,
-			APIKeyID: ak.ID,
-			Scope:    ak.Scope,
-			UserID:   c.GetHeader("X-User-ID"),
-		}
-		c.Set("auth", auth)
-		c.Next()
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid API key or token"})
+		c.Abort()
 	}
+}
+
+// verifyUserToken verifies a tenant-signed user token.
+func verifyUserToken(database *db.DB, token string) *AuthContext {
+	parts := strings.SplitN(token, ".", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+
+	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil
+	}
+
+	var ut UserToken
+	if err := json.Unmarshal(payloadJSON, &ut); err != nil {
+		return nil
+	}
+
+	// Check expiration
+	if ut.Exp > 0 && time.Now().Unix() > ut.Exp {
+		return nil
+	}
+
+	// Verify signature
+	tenant, err := database.GetTenant(ut.TenantID)
+	if err != nil || tenant.SigningKey == "" {
+		return nil
+	}
+
+	mac := hmac.New(sha256.New, []byte(tenant.SigningKey))
+	mac.Write([]byte(parts[0]))
+	expectedSig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(parts[1]), []byte(expectedSig)) {
+		return nil
+	}
+
+	return &AuthContext{
+		TenantID: ut.TenantID,
+		Scope:    "api",
+		UserID:   ut.UserID,
+	}
+}
+
+// GenerateUserToken creates a signed token for a tenant's user.
+func GenerateUserToken(tenant *db.Tenant, userID string, expiry time.Duration) (string, error) {
+	ut := UserToken{
+		TenantID: tenant.ID,
+		UserID:   userID,
+		Exp:      time.Now().Add(expiry).Unix(),
+	}
+	payload, _ := json.Marshal(ut)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payload)
+
+	mac := hmac.New(sha256.New, []byte(tenant.SigningKey))
+	mac.Write([]byte(payloadB64))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+
+	return payloadB64 + "." + sig, nil
 }
 
 // GetAuth extracts the auth context from the gin context.
@@ -104,20 +186,4 @@ func TenantIDPtr(c *gin.Context) *int64 {
 		return &tid
 	}
 	return nil
-}
-
-// ParseTenantID returns the tenant ID from auth, with admin override via query param.
-func ParseTenantID(c *gin.Context) int64 {
-	auth := GetAuth(c)
-	if auth == nil {
-		return 0
-	}
-	if auth.Scope == "admin" {
-		if v := c.Query("tenant_id"); v != "" {
-			if id, err := strconv.ParseInt(v, 10, 64); err == nil {
-				return id
-			}
-		}
-	}
-	return auth.TenantID
 }

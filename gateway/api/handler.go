@@ -139,13 +139,14 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 
 		// Console API
 		console := api.Group("/console")
-		console.Use(RequireScope("console"))
 		{
-			console.GET("/dashboard", h.handleConsoleDashboard)
-			console.GET("/keys", h.handleConsoleListKeys)
-			console.POST("/keys", h.handleConsoleCreateKey)
-			console.DELETE("/keys/:id", h.handleConsoleDeleteKey)
-			console.GET("/usage", h.handleConsoleUsage)
+			console.POST("/login", h.handleConsoleLogin)
+			console.GET("/dashboard", RequireScope("console"), h.handleConsoleDashboard)
+			console.GET("/keys", RequireScope("console"), h.handleConsoleListKeys)
+			console.POST("/keys", RequireScope("console"), h.handleConsoleCreateKey)
+			console.DELETE("/keys/:id", RequireScope("console"), h.handleConsoleDeleteKey)
+			console.GET("/usage", RequireScope("console"), h.handleConsoleUsage)
+			console.POST("/generate-token", RequireScope("console"), h.handleConsoleGenerateToken)
 		}
 
 		// Admin API

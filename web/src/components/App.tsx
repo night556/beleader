@@ -13,21 +13,63 @@ import { Toaster } from './Toaster';
 import type { Page } from '../types';
 
 function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
+  const [mode, setMode] = useState<'console' | 'apikey'>('console');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [key, setKey] = useState('');
+  const [error, setError] = useState('');
+
+  const handleConsoleLogin = async () => {
+    setError('');
+    try {
+      const r = await fetch(`${window.location.origin}/api/console/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      setAPIKey(data.token);
+      onLogin(data.token);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const handleKeyLogin = () => {
+    if (key) {
+      setAPIKey(key);
+      onLogin(key);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 16 }}>
       <div style={{ fontSize: 24, fontWeight: 700 }}>BeLeader</div>
-      <div style={{ color: 'var(--muted)' }}>Enter your API key to continue</div>
-      <input
-        className="form-input"
-        type="password"
-        placeholder="bl_..."
-        value={key}
-        onChange={e => setKey(e.target.value)}
-        style={{ width: 360 }}
-        onKeyDown={e => e.key === 'Enter' && key && onLogin(key)}
-      />
-      <button className="mgmt-new-btn" onClick={() => key && onLogin(key)}>Login</button>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 8 }}>
+        <button className={`topnav-tab ${mode === 'console' ? 'active' : ''}`} onClick={() => setMode('console')}>Console</button>
+        <button className={`topnav-tab ${mode === 'apikey' ? 'active' : ''}`} onClick={() => setMode('apikey')}>API Key</button>
+      </div>
+
+      {mode === 'console' ? (
+        <>
+          <input className="form-input" type="email" placeholder="Email" value={email}
+                 onChange={e => setEmail(e.target.value)} style={{ width: 300 }}
+                 onKeyDown={e => e.key === 'Enter' && handleConsoleLogin()} />
+          <input className="form-input" type="password" placeholder="Password" value={password}
+                 onChange={e => setPassword(e.target.value)} style={{ width: 300 }}
+                 onKeyDown={e => e.key === 'Enter' && handleConsoleLogin()} />
+          <button className="mgmt-new-btn" onClick={handleConsoleLogin}>Login</button>
+        </>
+      ) : (
+        <>
+          <input className="form-input" type="password" placeholder="bl_..." value={key}
+                 onChange={e => setKey(e.target.value)} style={{ width: 360 }}
+                 onKeyDown={e => e.key === 'Enter' && handleKeyLogin()} />
+          <button className="mgmt-new-btn" onClick={handleKeyLogin}>Login</button>
+        </>
+      )}
+      {error && <div style={{ color: 'var(--red)', fontSize: 13 }}>{error}</div>}
     </div>
   );
 }
