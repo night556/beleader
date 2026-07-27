@@ -561,7 +561,7 @@ a { color: var(--accent); }
 }
 
 .msg-user .msg-bubble {
-  background: var(--accent);
+  background: #374151;
   color: #ffffff;
   border-bottom-right-radius: 4px;
 }
