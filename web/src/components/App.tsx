@@ -97,6 +97,12 @@ function AppInner() {
             <div style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
               <ChatPage />
             </div>
+          ) : page === 'agent' ? (
+            <AgentPage />
+          ) : page === 'mcp' ? (
+            <MCPPage />
+          ) : page === 'model' ? (
+            <ModelPage />
           ) : (
             <ConsolePage />
           )
