@@ -7,7 +7,7 @@ import "time"
 type Tenant struct {
 	ID          int64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	Name        string    `gorm:"size:128;uniqueIndex" json:"name"`
-	Email       string    `gorm:"size:256;index;default:''" json:"email"`
+	AppKey      string    `gorm:"size:64;uniqueIndex;default:''" json:"app_key"`
 	Balance     float64   `gorm:"default:0" json:"balance"`
 	QuotaTokens int64     `gorm:"default:0" json:"quota_tokens"`
 	QuotaRPM    int       `gorm:"default:0" json:"quota_rpm"`

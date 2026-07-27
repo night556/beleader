@@ -9,8 +9,8 @@ export function AdminPage() {
   const [signingKey, setSigningKey] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
   const [keyName, setKeyName] = useState('');
   const [keyScope, setKeyScope] = useState('api');
   const [rechargeAmount, setRechargeAmount] = useState('');
@@ -32,8 +32,15 @@ export function AdminPage() {
 
   const createTenant = async () => {
     if (!newName) return;
-    await client.createTenant({ name: newName, email: newEmail || undefined, password: newPassword || undefined });
-    setNewName(''); setNewEmail(''); setNewPassword(''); setShowCreate(false);
+    const r = await fetch('/api/admin/tenants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAPIKey()}` },
+      body: JSON.stringify({ name: newName, password: newPassword || undefined }),
+    });
+    const data = await r.json();
+    setNewName(''); setNewPassword(''); setShowCreate(false);
+    // Show the generated credentials
+    alert(`Tenant created!\n\nApp Key: ${data.app_key}\nApp Secret: ${data.app_secret}\n\nSave these credentials — the secret won't be shown again.`);
     loadTenants();
   };
 
@@ -96,13 +103,8 @@ export function AdminPage() {
                     onChange={e => setNewName(e.target.value)} />
                 </div>
                 <div>
-                  <label className="form-label">Email</label>
-                  <input className="form-input" type="email" placeholder="admin@acme.com"
-                    value={newEmail} onChange={e => setNewEmail(e.target.value)} />
-                </div>
-                <div>
-                  <label className="form-label">Password</label>
-                  <input className="form-input" type="password" placeholder="Min 8 characters"
+                  <label className="form-label">App Secret (optional, auto-generated if empty)</label>
+                  <input className="form-input" type="password" placeholder="Leave empty for random"
                     value={newPassword} onChange={e => setNewPassword(e.target.value)} />
                 </div>
               </div>
@@ -151,6 +153,20 @@ export function AdminPage() {
                       value={rechargeAmount} onChange={e => setRechargeAmount(e.target.value)}
                       style={{ width: 120 }} />
                     <button className="card-btn primary" onClick={recharge}>Recharge</button>
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+                    App Key: <code>{selected.app_key}</code>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                    <input className="form-input" type="password" placeholder="New app secret"
+                      value={resetPassword} onChange={e => setResetPassword(e.target.value)}
+                      style={{ width: 180 }} />
+                    <button className="card-btn" onClick={async () => {
+                      if (!resetPassword) return;
+                      await client.updateTenant(selected.id, { password: resetPassword });
+                      setResetPassword('');
+                      alert('App secret updated');
+                    }}>Reset Secret</button>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
                     <div>

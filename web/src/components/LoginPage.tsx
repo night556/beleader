@@ -16,7 +16,7 @@ function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
       const r = await fetch(`${window.location.origin}/api/console/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ app_key: email, app_secret: password }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
@@ -80,13 +80,13 @@ function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
         {mode === 'console' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <label className="form-label">Email</label>
-              <input className="form-input" type="email" placeholder="tenant@example.com"
+              <label className="form-label">App Key</label>
+              <input className="form-input" placeholder="ak_..."
                 value={email} onChange={e => setEmail(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleConsoleLogin()} />
             </div>
             <div>
-              <label className="form-label">Password</label>
+              <label className="form-label">App Secret</label>
               <input className="form-input" type="password" placeholder="••••••••"
                 value={password} onChange={e => setPassword(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleConsoleLogin()} />

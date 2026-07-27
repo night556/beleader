@@ -28,7 +28,6 @@ func (h *Handler) handleAdminListTenants(c *gin.Context) {
 func (h *Handler) handleAdminCreateTenant(c *gin.Context) {
 	var req struct {
 		Name     string `json:"name" binding:"required"`
-		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -40,15 +39,22 @@ func (h *Handler) handleAdminCreateTenant(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Email != "" {
-		h.DB.SetTenantEmail(t.ID, req.Email)
-		t.Email = req.Email
-	}
+	appSecret := ""
 	if req.Password != "" {
 		hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		h.DB.SetTenantPassword(t.ID, string(hash))
+		h.DB.SetAppSecret(t.ID, string(hash))
+		appSecret = req.Password
+	} else {
+		raw := db.RandomHex(16)
+		hash, _ := bcrypt.GenerateFromPassword([]byte(raw), bcrypt.DefaultCost)
+		h.DB.SetAppSecret(t.ID, string(hash))
+		appSecret = raw
 	}
-	c.JSON(201, t)
+	c.JSON(201, gin.H{
+		"tenant":      t,
+		"app_key":     t.AppKey,
+		"app_secret":  appSecret,
+	})
 }
 
 func (h *Handler) handleAdminUpdateTenant(c *gin.Context) {
@@ -62,15 +68,10 @@ func (h *Handler) handleAdminUpdateTenant(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	// Handle email and password separately
-	if email, ok := req["email"].(string); ok {
-		delete(req, "email")
-		h.DB.SetTenantEmail(id, email)
-	}
 	if password, ok := req["password"].(string); ok && password != "" {
 		delete(req, "password")
 		hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		h.DB.SetTenantPassword(id, string(hash))
+		h.DB.SetAppSecret(id, string(hash))
 	}
 	if len(req) > 0 {
 		if err := h.DB.UpdateTenant(id, req); err != nil {
@@ -341,28 +342,28 @@ func (h *Handler) handleConsoleDashboard(c *gin.Context) {
 
 func (h *Handler) handleConsoleLogin(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email" binding:"required"`
-		Password string `json:"password" binding:"required"`
+		AppKey   string `json:"app_key" binding:"required"`
+		AppSecret string `json:"app_secret" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	tenant, err := h.DB.GetTenantByEmail(req.Email)
+	tenant, err := h.DB.GetTenantByAppKey(req.AppKey)
 	if err != nil {
-		c.JSON(401, gin.H{"error": "invalid email or password"})
+		c.JSON(401, gin.H{"error": "invalid credentials"})
 		return
 	}
 
 	secret, err := h.DB.GetTenantSecret(tenant.ID)
 	if err != nil {
-		c.JSON(401, gin.H{"error": "invalid email or password"})
+		c.JSON(401, gin.H{"error": "invalid credentials"})
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(secret.PasswordHash), []byte(req.Password)); err != nil {
-		c.JSON(401, gin.H{"error": "invalid email or password"})
+	if err := bcrypt.CompareHashAndPassword([]byte(secret.PasswordHash), []byte(req.AppSecret)); err != nil {
+		c.JSON(401, gin.H{"error": "invalid credentials"})
 		return
 	}
 

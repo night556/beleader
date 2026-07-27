@@ -180,11 +180,14 @@ func (db *DB) autoMigrate() error {
 // ── Tenant methods ──
 
 func (db *DB) CreateTenant(name string) (*Tenant, error) {
-	t := &Tenant{Name: name, Status: "active"}
+	t := &Tenant{
+		Name:   name,
+		AppKey: "ak_" + randomHex(12),
+		Status: "active",
+	}
 	if err := db.GORM.Create(t).Error; err != nil {
 		return nil, err
 	}
-	// Create associated secret
 	secret := &TenantSecret{
 		TenantID:   t.ID,
 		SigningKey: "sk_" + randomHex(32),
@@ -203,9 +206,9 @@ func (db *DB) GetTenant(id int64) (*Tenant, error) {
 	return &t, nil
 }
 
-func (db *DB) GetTenantByEmail(email string) (*Tenant, error) {
+func (db *DB) GetTenantByAppKey(appKey string) (*Tenant, error) {
 	var t Tenant
-	if err := db.GORM.Where("email = ?", email).First(&t).Error; err != nil {
+	if err := db.GORM.Where("app_key = ?", appKey).First(&t).Error; err != nil {
 		return nil, err
 	}
 	return &t, nil
@@ -221,13 +224,9 @@ func (db *DB) GetTenantSecret(tenantID int64) (*TenantSecret, error) {
 	return &s, nil
 }
 
-func (db *DB) SetTenantPassword(tenantID int64, passwordHash string) error {
+func (db *DB) SetAppSecret(tenantID int64, passwordHash string) error {
 	return db.GORM.Model(&TenantSecret{}).Where("tenant_id = ?", tenantID).
 		Update("password_hash", passwordHash).Error
-}
-
-func (db *DB) SetTenantEmail(id int64, email string) error {
-	return db.GORM.Model(&Tenant{}).Where("id = ?", id).Update("email", email).Error
 }
 
 func (db *DB) RotateSigningKey(tenantID int64) (string, error) {
@@ -760,10 +759,14 @@ func (db *DB) ListMCPServersByPool(poolID int64) ([]MCPServer, error) {
 
 // ── Helpers ──
 
-func randomHex(n int) string {
+func RandomHex(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func randomHex(n int) string {
+	return RandomHex(n)
 }
 
 func ParsePinnedIDs(s string) []int64 {
