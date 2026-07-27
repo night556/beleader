@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { client, setAPIKey, getAPIKey, clearAPIKey, getKeyScope } from '../api/client';
+import { client, getAPIKey } from '../api/client';
 
 export function AdminPage() {
   const [tenants, setTenants] = useState<any[]>([]);

@@ -99,7 +99,7 @@ export const client = {
 
   // Admin
   listTenants: () => api<any[]>('/api/admin/tenants'),
-  createTenant: (body: { name: string }) => api<any>('/api/admin/tenants', { method: 'POST', body: JSON.stringify(body) }),
+  createTenant: (body: { name: string; email?: string; password?: string }) => api<any>('/api/admin/tenants', { method: 'POST', body: JSON.stringify(body) }),
   updateTenant: (id: number, body: Record<string, any>) => api<{ status: string }>(`/api/admin/tenants/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteTenant: (id: number) => api<{ status: string }>(`/api/admin/tenants/${id}`, { method: 'DELETE' }),
   rechargeTenant: (id: number, amount: number) => api<{ balance: number }>(`/api/admin/tenants/${id}/recharge`, { method: 'POST', body: JSON.stringify({ amount }) }),
