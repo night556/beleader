@@ -453,3 +453,20 @@ func (h *Handler) handleAdminRotateSecret(c *gin.Context) {
 	h.DB.LogSecretAudit(id, "rotated", c.ClientIP())
 	c.JSON(200, gin.H{"signing_key": newKey})
 }
+
+// ── Console: Rotate Secret ──
+
+func (h *Handler) handleConsoleRotateSecret(c *gin.Context) {
+	auth := GetAuth(c)
+	if auth == nil {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+	newKey, err := h.DB.RotateSigningKey(auth.TenantID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	h.DB.LogSecretAudit(auth.TenantID, "rotated", c.ClientIP())
+	c.JSON(200, gin.H{"signing_key": newKey})
+}

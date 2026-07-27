@@ -147,6 +147,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 			console.DELETE("/keys/:id", RequireScope("console"), h.handleConsoleDeleteKey)
 			console.GET("/usage", RequireScope("console"), h.handleConsoleUsage)
 			console.POST("/generate-token", RequireScope("console"), h.handleConsoleGenerateToken)
+			console.POST("/rotate-secret", RequireScope("console"), h.handleConsoleRotateSecret)
 		}
 
 		// Admin API

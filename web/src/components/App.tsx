@@ -13,7 +13,7 @@ import { Toaster } from './Toaster';
 import type { Page } from '../types';
 
 function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
-  const [mode, setMode] = useState<'console' | 'apikey'>('console');
+  const [mode, setMode] = useState<'console' | 'apikey' | 'admin'>('console');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [key, setKey] = useState('');
@@ -49,6 +49,7 @@ function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
       <div style={{ display: 'flex', gap: 0, marginBottom: 8 }}>
         <button className={`topnav-tab ${mode === 'console' ? 'active' : ''}`} onClick={() => setMode('console')}>Console</button>
         <button className={`topnav-tab ${mode === 'apikey' ? 'active' : ''}`} onClick={() => setMode('apikey')}>API Key</button>
+        <button className={`topnav-tab ${mode === 'admin' ? 'active' : ''}`} onClick={() => setMode('admin')}>Admin</button>
       </div>
 
       {mode === 'console' ? (
@@ -61,9 +62,16 @@ function LoginPage({ onLogin }: { onLogin: (key: string) => void }) {
                  onKeyDown={e => e.key === 'Enter' && handleConsoleLogin()} />
           <button className="mgmt-new-btn" onClick={handleConsoleLogin}>Login</button>
         </>
+      ) : mode === 'admin' ? (
+        <>
+          <input className="form-input" type="password" placeholder="Admin Key (bl_admin_...)" value={key}
+                 onChange={e => setKey(e.target.value)} style={{ width: 360 }}
+                 onKeyDown={e => e.key === 'Enter' && handleKeyLogin()} />
+          <button className="mgmt-new-btn" onClick={handleKeyLogin}>Login</button>
+        </>
       ) : (
         <>
-          <input className="form-input" type="password" placeholder="bl_..." value={key}
+          <input className="form-input" type="password" placeholder="API Key (bl_...)" value={key}
                  onChange={e => setKey(e.target.value)} style={{ width: 360 }}
                  onKeyDown={e => e.key === 'Enter' && handleKeyLogin()} />
           <button className="mgmt-new-btn" onClick={handleKeyLogin}>Login</button>

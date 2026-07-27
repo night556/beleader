@@ -73,8 +73,18 @@ export function ConsolePage() {
         )}
 
         <div className="card" style={{ padding: 16, marginBottom: 24, background: 'var(--wash)' }}>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>Signing Key (for user token generation)</div>
-          <code style={{ fontSize: 12, wordBreak: 'break-all' }}>{dashboard?.tenant?.signing_key || 'Loading...'}</code>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>Signing Key (for user token generation)</div>
+            <button className="card-btn" onClick={async () => {
+              if (!confirm('Rotate signing key? All existing user tokens will be invalidated.')) return;
+              await fetch(`/api/console/rotate-secret`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${getAPIKey()}` }
+              });
+              load();
+            }}>Rotate</button>
+          </div>
+          <code style={{ fontSize: 12, wordBreak: 'break-all' }}>{dashboard?.signing_key || 'Loading...'}</code>
         </div>
 
         <div className="card" style={{ padding: 16, marginBottom: 24 }}>
