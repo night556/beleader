@@ -214,6 +214,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		defer file.Close()
 
 		dst := filepath.Join(uploadDir, header.Filename)
+		os.MkdirAll(filepath.Dir(dst), 0755)
 		out, err := os.Create(dst)
 		if err != nil {
 			jsonError(w, 500, err.Error())
@@ -239,8 +240,13 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		dst := filepath.Join(uploadDir, fh.Filename)
-		out, err := os.Create(dst)
+		// Use the full relative path from webkitRelativePath
+		fullPath := filepath.Join(uploadDir, fh.Filename)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			file.Close()
+			continue
+		}
+		out, err := os.Create(fullPath)
 		if err != nil {
 			file.Close()
 			continue
@@ -251,7 +257,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		results = append(results, map[string]any{
 			"name": fh.Filename,
 			"size": fh.Size,
-			"path": dst,
+			"path": fullPath,
 		})
 	}
 

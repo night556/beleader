@@ -104,9 +104,11 @@ export function InputArea({ onSendMessage, onStop }: Props) {
     }
     const form = new FormData();
     form.append('thread_id', tid);
-    form.append('workspace', ''); // tool-agent will use default
     for (let i = 0; i < files.length; i++) {
-      form.append('files', files[i]);
+      const f = files[i] as any;
+      // Preserve folder structure from webkitRelativePath
+      const relPath = f.webkitRelativePath || f.name;
+      form.append('files', f, relPath);
     }
     try {
       const r = await fetch('/api/upload', { method: 'POST', body: form });
@@ -168,7 +170,7 @@ export function InputArea({ onSendMessage, onStop }: Props) {
         <button className="capsule-btn send-btn" onClick={sendMsg} title={t('input.send_title')}>↑</button>
       </div>
       <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={handleFileChange} />
-      <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUpload} />
+      <input ref={uploadInputRef} type="file" multiple webkitdirectory="" hidden onChange={handleUpload} />
     </footer>
   );
 }
