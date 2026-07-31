@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -57,6 +58,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleWorkspaceCleanup(w, r)
 	case r.Method == "POST" && path == "/mcp/test":
 		s.handleMCPTest(w, r)
+	case r.Method == "POST" && path == "/upload":
+		s.handleUpload(w, r)
 	case r.Method == "GET" && path == "/tools":
 		s.handleListTools(w, r)
 	case r.Method == "GET" && path == "/health":
@@ -173,6 +176,87 @@ func jsonError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// ── Upload ──
+
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100MB max
+		jsonError(w, 400, "failed to parse form: "+err.Error())
+		return
+	}
+
+	threadID := r.FormValue("thread_id")
+	if threadID == "" {
+		jsonError(w, 400, "thread_id is required")
+		return
+	}
+
+	workspace := r.FormValue("workspace")
+	if workspace == "" {
+		workspace = filepath.Join(s.WorkspaceRoot, "threads", threadID, "workspace")
+	}
+
+	uploadDir := filepath.Join(workspace, "upload")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		jsonError(w, 500, err.Error())
+		return
+	}
+
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		// Try single file
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			jsonError(w, 400, "no files uploaded")
+			return
+		}
+		defer file.Close()
+
+		dst := filepath.Join(uploadDir, header.Filename)
+		out, err := os.Create(dst)
+		if err != nil {
+			jsonError(w, 500, err.Error())
+			return
+		}
+		defer out.Close()
+		io.Copy(out, file)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"files": []map[string]any{{
+				"name": header.Filename,
+				"size": header.Size,
+				"path": dst,
+			}},
+		})
+		return
+	}
+
+	var results []map[string]any
+	for _, fh := range files {
+		file, err := fh.Open()
+		if err != nil {
+			continue
+		}
+		dst := filepath.Join(uploadDir, fh.Filename)
+		out, err := os.Create(dst)
+		if err != nil {
+			file.Close()
+			continue
+		}
+		io.Copy(out, file)
+		out.Close()
+		file.Close()
+		results = append(results, map[string]any{
+			"name": fh.Filename,
+			"size": fh.Size,
+			"path": dst,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"files": results})
 }
 
 // ── Registration ──

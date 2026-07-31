@@ -13,6 +13,7 @@ export function InputArea({ onSendMessage, onStop }: Props) {
   const { state, dispatch } = useAppState();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const isRunning = state.state === 'thinking' || state.state === 'responding' || state.state === 'tool_calls';
 
@@ -93,6 +94,31 @@ export function InputArea({ onSendMessage, onStop }: Props) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleUpload = async () => {
+    const files = uploadInputRef.current?.files;
+    if (!files || files.length === 0) return;
+    const tid = state.activeThreadId;
+    if (!tid) {
+      alert('Create a thread first');
+      return;
+    }
+    const form = new FormData();
+    form.append('thread_id', tid);
+    form.append('workspace', ''); // tool-agent will use default
+    for (let i = 0; i < files.length; i++) {
+      form.append('files', files[i]);
+    }
+    try {
+      const r = await fetch('/api/upload', { method: 'POST', body: form });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      alert(`Uploaded ${data.files?.length || 0} file(s) to workspace/upload/`);
+    } catch (e: any) {
+      alert('Upload failed: ' + e.message);
+    }
+    if (uploadInputRef.current) uploadInputRef.current.value = '';
+  };
+
   return (
     <footer className="input-area">
       {state.pendingImages.length > 0 && (
@@ -138,9 +164,11 @@ export function InputArea({ onSendMessage, onStop }: Props) {
           onPaste={handlePaste}
         />
         <button className="capsule-btn aux-btn" onClick={() => fileInputRef.current?.click()} title={t('input.upload_title')}>📷</button>
+        <button className="capsule-btn aux-btn" onClick={() => uploadInputRef.current?.click()} title="Upload files to workspace">📁</button>
         <button className="capsule-btn send-btn" onClick={sendMsg} title={t('input.send_title')}>↑</button>
       </div>
       <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={handleFileChange} />
+      <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUpload} />
     </footer>
   );
 }

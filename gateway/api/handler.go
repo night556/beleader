@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -89,6 +90,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	{
 		api.POST("/chat", h.handleChat)
 		api.GET("/sse", h.handleSSE)
+		api.POST("/upload", h.handleUpload)
 
 		api.GET("/threads", h.handleListThreads)
 		api.GET("/threads/:id", h.handleGetThread)
@@ -250,6 +252,53 @@ func (h *Handler) handleChat(c *gin.Context) {
 	go h.runSession(threadID, agent, model, req.Message, req.Images)
 
 	c.JSON(http.StatusOK, gin.H{"thread_id": threadID, "status": "started"})
+}
+
+func (h *Handler) handleUpload(c *gin.Context) {
+	threadID := c.PostForm("thread_id")
+	if threadID == "" {
+		c.JSON(400, gin.H{"error": "thread_id is required"})
+		return
+	}
+
+	thread, err := h.DB.GetThread(threadID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "thread not found"})
+		return
+	}
+
+	agents, err := h.DB.ListActiveToolAgentsByPool(thread.PoolID)
+	if err != nil || len(agents) == 0 {
+		c.JSON(500, gin.H{"error": "no tool agent available"})
+		return
+	}
+
+	agent := agents[0]
+	proxyURL := agent.URL + "/upload"
+
+	// Forward the multipart request
+	req, err := http.NewRequestWithContext(c.Request.Context(), "POST", proxyURL, c.Request.Body)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", c.GetHeader("Content-Type"))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response
+	for k, v := range resp.Header {
+		for _, vv := range v {
+			c.Header(k, vv)
+		}
+	}
+	c.Status(resp.StatusCode)
+	io.Copy(c.Writer, resp.Body)
 }
 
 func (h *Handler) runSession(threadID string, agent *db.Agent, model *db.ModelProfile, message string, images []string) {
