@@ -137,21 +137,6 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 	var usage openai.Usage
 	var thinkingDone bool
 
-	// Read first few bytes to detect HTML responses (wrong base URL)
-	peek := make([]byte, 512)
-	n, _ := httpResp.Body.Read(peek)
-	if n > 0 {
-		firstBytes := strings.TrimSpace(string(peek[:n]))
-		if strings.HasPrefix(firstBytes, "<!") || strings.HasPrefix(firstBytes, "<html") {
-			fmt.Fprintf(LogWriter, "[LLM ERR] %s | elapsed=%v | HTML response (wrong base URL?)\n", time.Now().Format("15:04:05"), time.Since(start))
-			fmt.Fprintf(LogWriter, "%s\n\n", strings.Repeat("━", 60))
-			return nil, fmt.Errorf("Received HTML instead of JSON. Check your Base URL — remove /chat/completions, it is added automatically.")
-		}
-	}
-	// Reconstruct the body with the peeked bytes
-	bodyReader := io.MultiReader(bytes.NewReader(peek[:n]), httpResp.Body)
-	httpResp.Body = io.NopCloser(bodyReader)
-
 	scanner := bufio.NewScanner(httpResp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
