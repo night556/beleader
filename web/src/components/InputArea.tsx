@@ -108,14 +108,13 @@ export function InputArea({ onSendMessage, onStop }: Props) {
       return;
     }
     const form = new FormData();
-    form.append('thread_id', tid);
     for (let i = 0; i < fileList.length; i++) {
       const f = fileList[i] as any;
       const relPath = f.webkitRelativePath || f.name;
       form.append('files', f, relPath);
     }
     try {
-      const r = await fetch('/api/upload', { method: 'POST', body: form });
+      const r = await fetch('/api/upload?thread_id=' + encodeURIComponent(tid), { method: 'POST', body: form });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       alert(`Uploaded ${data.files?.length || 0} file(s) to workspace/upload/`);

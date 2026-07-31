@@ -186,7 +186,10 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	threadID := r.FormValue("thread_id")
+	threadID := r.URL.Query().Get("thread_id")
+	if threadID == "" {
+		threadID = r.FormValue("thread_id")
+	}
 	if threadID == "" {
 		jsonError(w, 400, "thread_id is required")
 		return

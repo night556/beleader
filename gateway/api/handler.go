@@ -255,9 +255,11 @@ func (h *Handler) handleChat(c *gin.Context) {
 }
 
 func (h *Handler) handleUpload(c *gin.Context) {
-	threadID := c.PostForm("thread_id")
+	// thread_id comes via query param so the request body is forwarded
+	// untouched to the tool-agent (PostForm would consume the body).
+	threadID := c.Query("thread_id")
 	if threadID == "" {
-		c.JSON(400, gin.H{"error": "thread_id is required"})
+		c.JSON(400, gin.H{"error": "thread_id query param is required"})
 		return
 	}
 
@@ -274,7 +276,11 @@ func (h *Handler) handleUpload(c *gin.Context) {
 	}
 
 	agent := agents[0]
+	// Forward query params (thread_id) to tool-agent
 	proxyURL := agent.URL + "/upload"
+	if c.Request.URL.RawQuery != "" {
+		proxyURL += "?" + c.Request.URL.RawQuery
+	}
 
 	// Forward the multipart request
 	req, err := http.NewRequestWithContext(c.Request.Context(), "POST", proxyURL, c.Request.Body)
