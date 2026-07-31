@@ -14,7 +14,6 @@ export function InputArea({ onSendMessage, onStop }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const isRunning = state.state === 'thinking' || state.state === 'responding' || state.state === 'tool_calls';
 
@@ -98,6 +97,11 @@ export function InputArea({ onSendMessage, onStop }: Props) {
   const handleUpload = async (ref: React.RefObject<HTMLInputElement | null>) => {
     const files = ref.current?.files;
     if (!files || files.length === 0) return;
+    await uploadFiles(files);
+    if (ref.current) ref.current.value = '';
+  };
+
+  const uploadFiles = async (fileList: FileList | File[]) => {
     const tid = state.activeThreadId;
     if (!tid) {
       alert('Create a thread first');
@@ -105,8 +109,8 @@ export function InputArea({ onSendMessage, onStop }: Props) {
     }
     const form = new FormData();
     form.append('thread_id', tid);
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i] as any;
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList[i] as any;
       const relPath = f.webkitRelativePath || f.name;
       form.append('files', f, relPath);
     }
@@ -118,11 +122,42 @@ export function InputArea({ onSendMessage, onStop }: Props) {
     } catch (e: any) {
       alert('Upload failed: ' + e.message);
     }
-    if (ref.current) ref.current.value = '';
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const items = e.dataTransfer.items;
+    if (!items) return;
+    const files: File[] = [];
+    // Use DataTransferItemList to get files with relative paths for folders
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry();
+      if (entry) {
+        await collectFiles(entry, '', files);
+      }
+    }
+    if (files.length > 0) {
+      await uploadFiles(files);
+    }
+  };
+
+  const collectFiles = async (entry: any, path: string, files: File[]): Promise<void> => {
+    if (entry.isFile) {
+      const file = await new Promise<File>((resolve) => (entry as any).file(resolve));
+      // Set webkitRelativePath to preserve directory structure
+      Object.defineProperty(file, 'webkitRelativePath', { value: path + entry.name });
+      files.push(file);
+    } else if (entry.isDirectory) {
+      const reader = (entry as any).createReader();
+      const entries: any[] = await new Promise((resolve) => reader.readEntries(resolve));
+      for (const child of entries) {
+        await collectFiles(child, path + entry.name + '/', files);
+      }
+    }
   };
 
   return (
-    <footer className="input-area">
+    <footer className="input-area" onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
       {state.pendingImages.length > 0 && (
         <div className="img-preview">
           {state.pendingImages.map((img, i) => (
@@ -167,12 +202,10 @@ export function InputArea({ onSendMessage, onStop }: Props) {
         />
         <button className="capsule-btn aux-btn" onClick={() => fileInputRef.current?.click()} title={t('input.upload_title')}>📷</button>
         <button className="capsule-btn aux-btn" onClick={() => uploadInputRef.current?.click()} title="Upload files">📁</button>
-        <button className="capsule-btn aux-btn" onClick={() => folderInputRef.current?.click()} title="Upload folder">📂</button>
         <button className="capsule-btn send-btn" onClick={sendMsg} title={t('input.send_title')}>↑</button>
       </div>
       <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={handleFileChange} />
       <input ref={uploadInputRef} type="file" multiple hidden onChange={() => handleUpload(uploadInputRef)} />
-      <input ref={folderInputRef} type="file" webkitdirectory="" hidden onChange={() => handleUpload(folderInputRef)} />
     </footer>
   );
 }
