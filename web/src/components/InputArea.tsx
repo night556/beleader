@@ -14,6 +14,7 @@ export function InputArea({ onSendMessage, onStop }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const isRunning = state.state === 'thinking' || state.state === 'responding' || state.state === 'tool_calls';
 
@@ -94,8 +95,8 @@ export function InputArea({ onSendMessage, onStop }: Props) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleUpload = async () => {
-    const files = uploadInputRef.current?.files;
+  const handleUpload = async (ref: React.RefObject<HTMLInputElement | null>) => {
+    const files = ref.current?.files;
     if (!files || files.length === 0) return;
     const tid = state.activeThreadId;
     if (!tid) {
@@ -106,7 +107,6 @@ export function InputArea({ onSendMessage, onStop }: Props) {
     form.append('thread_id', tid);
     for (let i = 0; i < files.length; i++) {
       const f = files[i] as any;
-      // Preserve folder structure from webkitRelativePath
       const relPath = f.webkitRelativePath || f.name;
       form.append('files', f, relPath);
     }
@@ -118,7 +118,7 @@ export function InputArea({ onSendMessage, onStop }: Props) {
     } catch (e: any) {
       alert('Upload failed: ' + e.message);
     }
-    if (uploadInputRef.current) uploadInputRef.current.value = '';
+    if (ref.current) ref.current.value = '';
   };
 
   return (
@@ -166,11 +166,13 @@ export function InputArea({ onSendMessage, onStop }: Props) {
           onPaste={handlePaste}
         />
         <button className="capsule-btn aux-btn" onClick={() => fileInputRef.current?.click()} title={t('input.upload_title')}>📷</button>
-        <button className="capsule-btn aux-btn" onClick={() => uploadInputRef.current?.click()} title="Upload files to workspace">📁</button>
+        <button className="capsule-btn aux-btn" onClick={() => uploadInputRef.current?.click()} title="Upload files">📁</button>
+        <button className="capsule-btn aux-btn" onClick={() => folderInputRef.current?.click()} title="Upload folder">📂</button>
         <button className="capsule-btn send-btn" onClick={sendMsg} title={t('input.send_title')}>↑</button>
       </div>
       <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={handleFileChange} />
-      <input ref={uploadInputRef} type="file" multiple webkitdirectory="" hidden onChange={handleUpload} />
+      <input ref={uploadInputRef} type="file" multiple hidden onChange={() => handleUpload(uploadInputRef)} />
+      <input ref={folderInputRef} type="file" webkitdirectory="" hidden onChange={() => handleUpload(folderInputRef)} />
     </footer>
   );
 }
