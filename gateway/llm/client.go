@@ -122,9 +122,13 @@ func (c *Client) ChatStream(ctx context.Context, messages []openai.ChatCompletio
 
 	if httpResp.StatusCode != 200 {
 		body, _ := io.ReadAll(io.LimitReader(httpResp.Body, 4096))
-		fmt.Fprintf(LogWriter, "[LLM ERR] %s | elapsed=%v | HTTP %d: %s\n", time.Now().Format("15:04:05"), time.Since(start), httpResp.StatusCode, string(body))
+		errMsg := string(body)
+		fmt.Fprintf(LogWriter, "[LLM ERR] %s | elapsed=%v | HTTP %d: %s\n", time.Now().Format("15:04:05"), time.Since(start), httpResp.StatusCode, errMsg)
 		fmt.Fprintf(LogWriter, "%s\n\n", strings.Repeat("━", 60))
-		return nil, fmt.Errorf("chat completion stream: HTTP %d: %s", httpResp.StatusCode, string(body))
+		if httpResp.StatusCode == 429 {
+			return nil, fmt.Errorf("Rate limited (429). Please wait and try again, or check your API plan limits.")
+		}
+		return nil, fmt.Errorf("chat completion stream: HTTP %d: %s", httpResp.StatusCode, errMsg)
 	}
 
 	var fullContent string

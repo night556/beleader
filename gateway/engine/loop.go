@@ -175,7 +175,11 @@ func (e *Engine) RunLoop(
 			emit("item.completed", turnID, agentItemID, map[string]any{
 				"item": map[string]any{"id": agentItemID, "kind": "agent_message", "content": ""},
 			})
-			continue
+			// Break instead of continue — empty content means the turn is done.
+			// Previously we continued which could cause infinite loops with
+			// proxies that return empty 200 responses for errors like 429.
+			emit("turn.completed", turnID, "", map[string]any{"status": "completed", "usage": MarshalJSON(turnUsage)})
+			return &LoopResult{Completed: true, Rounds: rounds, Usage: turnUsage}, nil
 		}
 
 		// Store agent message
