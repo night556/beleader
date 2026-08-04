@@ -204,9 +204,9 @@ func (c *AgentClient) CleanupWorkspace(ctx context.Context, threadID string) err
 
 func LocalToolDefs() []engine.ToolDef {
 	return []engine.ToolDef{
-		engine.MkTool("read_status", "Read the project STATUS.md content from the DB.",
+		engine.MkTool("read_status", "Read the project STATUS.md content from the DB. STATUS.md tracks project state in 6 sections: Files, Decisions, Errors/Blockers, Conventions, Current State, Next Steps. Read this at the start of complex tasks to recover context.",
 			map[string]any{}, []string{}),
-		engine.MkTool("update_status", "Update the project STATUS.md content in the DB. Use this ONLY for STATUS.md.",
+		engine.MkTool("update_status", "Update the project STATUS.md content in the DB. Follow the 6-section format: ## Files, ## Decisions, ## Errors / Blockers, ## Conventions, ## Current State, ## Next Steps. Use this ONLY for STATUS.md.",
 			map[string]any{
 				"content": map[string]any{"type": "string", "description": "The complete updated STATUS.md content"},
 			}, []string{"content"}),

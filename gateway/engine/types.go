@@ -67,6 +67,9 @@ Summarize EXACTLY in this format:
 ## Errors / Blockers
 - exact error messages verbatim
 
+## Conventions
+- user preferences, coding habits, project conventions discovered
+
 ## Current State
 - what is in progress
 
