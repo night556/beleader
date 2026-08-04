@@ -309,7 +309,18 @@ func (e *Engine) RunLoop(
 
 // Compress compresses the conversation history using the LLM.
 func (e *Engine) compress(ctx context.Context, thread *db.Thread, llmClient *llm.Client, turnID string) (string, error) {
-	msgs, err := BuildMessages(e.DB, thread, CompressPrompt, "", nil, false)
+	// Build prompt: tell AI it's updating the global STATUS.md
+	formatStart := strings.Index(CompressPrompt, "## Files")
+	prompt := "You are updating the project STATUS.md.\n\n" +
+		"Merge the current STATUS.md (below) with the recent conversation. " +
+		"Keep it concise — cumulative project state, not per-batch detail.\n\n" +
+		"Output EXACTLY in this format:\n" +
+		CompressPrompt[formatStart:]
+	if thread.StatusContent != "" {
+		prompt += "\n\n## Current STATUS.md\n" + thread.StatusContent
+	}
+
+	msgs, err := BuildMessages(e.DB, thread, prompt, "", nil, false)
 	if err != nil {
 		return "", err
 	}
@@ -324,13 +335,18 @@ func (e *Engine) compress(ctx context.Context, thread *db.Thread, llmClient *llm
 	}
 
 	summary := resp.Choices[0].Message.Content
-	content := "[System] Context compressed\n\n" + summary
+
+	// Update STATUS.md
+	e.DB.UpdateThread(thread.ID, map[string]any{"status_content": summary})
+
+	// Short notice — tells AI to use read_status
 	e.DB.InsertMessage(&db.Message{
 		ThreadID: thread.ID,
 		TurnID:   turnID,
 		Kind:     "notice",
-		Content:  content,
+		Content:  "[System] Context compressed — use read_status for current project state",
 	})
+
 	return summary, nil
 }
 
